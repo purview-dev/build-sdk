@@ -74,6 +74,7 @@ static class EnglishNamingHelper
 			["Gui"] = "GUI",
 			["Ram"] = "RAM",
 			["Ssh"] = "SSH",
+			["Dsl"] = "DSL",
 		}
 	);
 
