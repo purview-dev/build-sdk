@@ -1,5 +1,5 @@
-using Microsoft.CodeAnalysis.Diagnostics;
 using System.Collections.Immutable;
+using Microsoft.CodeAnalysis.Diagnostics;
 
 namespace Purview.DotNetProjectSdk.Analyzers.EnglishNaming;
 

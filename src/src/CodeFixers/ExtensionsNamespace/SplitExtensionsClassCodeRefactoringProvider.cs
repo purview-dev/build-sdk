@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+using System.Composition;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CodeActions;
 using Microsoft.CodeAnalysis.CodeRefactorings;
@@ -6,8 +8,6 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.FindSymbols;
 using Microsoft.CodeAnalysis.Rename;
 using Microsoft.CodeAnalysis.Text;
-using System.Collections.Immutable;
-using System.Composition;
 
 namespace Purview.DotNetProjectSdk.CodeFixers.ExtensionsNamespace;
 

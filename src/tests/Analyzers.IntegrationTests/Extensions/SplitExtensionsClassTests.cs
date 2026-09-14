@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+using System.Composition;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CodeActions;
 using Microsoft.CodeAnalysis.CodeRefactorings;
@@ -5,8 +7,6 @@ using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Text;
 using Purview.DotNetProjectSdk.CodeFixers.ExtensionsNamespace;
-using System.Collections.Immutable;
-using System.Composition;
 
 namespace Purview.DotNetProjectSdk.Analyzers.IntegrationTests.Extensions;
 
