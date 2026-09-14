@@ -8,7 +8,7 @@ namespace Purview.DotNetProjectSdk.Analyzers.ExtensionsNamespace;
 public sealed class ExtensionsNamespaceSuppressor : DiagnosticSuppressor
 {
 	static readonly SuppressionDescriptor SuppressIde0130ForExtensionsNamespaceRule = new(
-		"PDS0003",
+		"PDS0005",
 		"IDE0130",
 		"Files rooted under 'Extensions' intentionally derive namespace from the Extensions subtree and ignore RootNamespace."
 	);

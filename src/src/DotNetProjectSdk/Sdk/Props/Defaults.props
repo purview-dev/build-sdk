@@ -31,6 +31,10 @@
 			>false</DisableAutoInternalsVisibleTo>
 		<DisableGenerateAssemblyInfoClass Condition="'$(DisableGenerateAssemblyInfoClass)' == ''"
 			>false</DisableGenerateAssemblyInfoClass>
+		<DisableNamespacePrefixCheck Condition="'$(DisableNamespacePrefixCheck)' == ''"
+			>false</DisableNamespacePrefixCheck>
+		<DisableRoslynCompilerDefaultsValidation Condition="'$(DisableRoslynCompilerDefaultsValidation)' == ''"
+			>false</DisableRoslynCompilerDefaultsValidation>
 		<DisableSourceLink Condition="'$(DisableSourceLink)' == ''">false</DisableSourceLink>
 		<DockerDefaultTargetOS Condition="'$(DockerDefaultTargetOS)' == ''"></DockerDefaultTargetOS>
 		<DockerfileContext Condition="'$(DockerfileContext)' == ''"></DockerfileContext>

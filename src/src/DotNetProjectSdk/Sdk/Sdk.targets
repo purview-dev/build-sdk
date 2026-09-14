@@ -709,7 +709,7 @@
 				'$(_TestDataFrameworkNormalized)' != '' AND
 				'$(_TestDataFrameworkNormalized)' != 'none' AND
 				'$(_TestDataFrameworkNormalized)' != 'bogus'"
-			Text="Invalid TestingDataFramework value '$(TestingDataFramework)'. Supported values are: None, and Bogus (default)."
+			Text="Invalid TestDataFramework value '$(TestDataFramework)'. Supported values are: None, and Bogus (default)."
 		/>
 	</Target>
 

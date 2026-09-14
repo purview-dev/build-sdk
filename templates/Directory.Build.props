@@ -13,7 +13,7 @@
 
 		Override options (set before this Import):
 		  <TestingFramework>Xunit</TestingFramework>                  ← default: TUnit
-		  <SubstituteFramework>NSubstitute</SubstituteFramework>      ← default: TUnitMock
+		  <SubstituteFramework>NSubstitute</SubstituteFramework>      ← default: TUnitMocks
 		  <TestDataFramework>None</TestDataFramework>                 ← default: Bogus
 		  <ExcludePurviewTelemetry>true</ExcludePurviewTelemetry>     ← default: false
 		  <ExcludeMSTelemetryExtension>true</ExcludeMSTelemetryExtension>

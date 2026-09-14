@@ -36,11 +36,11 @@ For packable projects, `PurviewAutoSdkPack` (default `true`) automatically adds 
 
 The `DotNetProjectSdk.csproj` itself is an MSBuild SDK, so it disables `PurviewAutoSdkPack` and explicitly packs its `Sdk/` contents instead. This is an exception for the SDK project only; every other project that consumes this SDK relies on `PurviewAutoSdkPack` to ship its `Sdk/` folder. Consuming repositories that use this SDK get the bundled agent folder copied into `$(AgentPackDestinationFolder)/` (default `.agents/`) before build when `EnableAgentFolderInPackage` is `true` (default).
 
-During packaging, the SDK injects a `.gitignore` file into each second-level folder under `Sdk/.agents` with the content `# Ignore all files\n*\n# Don't ignore directories, so Git can traverse them\n!*/\n# Keep this file\n!.gitignore`, so the copied folder is ignored by Git in consuming repositories while keeping the folder structure discoverable.
+During packaging, the SDK injects a `.gitignore` file into each second-level folder under `Sdk/.agents` with the content `# Ignore all files\n*\n\n# Don't ignore directories, so Git can traverse them\n!*/\n\n# Keep this file\n!.gitignore`, so the copied folder is ignored by Git in consuming repositories while keeping the folder structure discoverable.
 
 Any edit, addition, or deletion in `src/src/DotNetProjectSdk/Sdk/.agents/` therefore changes the contents delivered to every repository that consumes this SDK.
 
-Tests for this feature live in `src/tests/DotNetProjectSdk.IntegrationTests/Tests/AgentPackFolderTests.cs`.
+Tests for this feature live in `src/tests/DotNetProjectSdk.IntegrationTests/AgentPackFolderTests.cs`.
 
 ## Repository map
 
@@ -147,12 +147,10 @@ Supporting files:
 
 ## Release and commit workflow
 
-- Versioning is driven by `package.json` + Changesets.
-- Use existing Changesets and commit conventions:
-  - [`changesets-prerelease` skill](./.agents/skills/changesets-prerelease/SKILL.md)
+- Versioning is driven by `package.json`
+- Use existing commit conventions:
   - [`git-conventional-commits` skill](./.agents/skills/git-conventional-commits/SKILL.md)
   - [`lefthook-integration` skill](./.agents/skills/lefthook-integration/SKILL.md)
-- Generic release agent workflow source: `./.agents/agents/release-prep.md`
 
 ## Practical guardrails for agents
 
