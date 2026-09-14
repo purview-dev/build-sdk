@@ -1,6 +1,6 @@
-using System.Collections.Immutable;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Diagnostics;
+using System.Collections.Immutable;
 
 namespace Purview.DotNetProjectSdk.Analyzers.EnglishNaming;
 
@@ -280,7 +280,7 @@ sealed class EnglishNamingConfig
 	{
 		AcronymMap = acronymMap;
 		AllowedWords = allowedWords;
-		AllowedIdentifiers = allowedIdentifiers.IsDefault ? ImmutableArray<string>.Empty : allowedIdentifiers;
+		AllowedIdentifiers = allowedIdentifiers.IsDefault ? [] : allowedIdentifiers;
 	}
 
 	public ImmutableDictionary<string, string> AcronymMap { get; }

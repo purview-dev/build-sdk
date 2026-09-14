@@ -110,7 +110,7 @@ public sealed class AgentPackFolderTests
 		// Arrange
 		using var h = await ProjectHarness.CreateAsync(
 			"PackableProject",
-			extraProps: "<IsPackable>true</IsPackable>",
+			extraProps: "<IsPackable>true</IsPackable><DisableSourceLink>true</DisableSourceLink><EnableSourceControlManagerQueries>false</EnableSourceControlManagerQueries>",
 			cancellationToken: cancellationToken
 		);
 
@@ -194,7 +194,7 @@ public sealed class AgentPackFolderTests
 		// Arrange
 		using var h = await ProjectHarness.CreateAsync(
 			"PackableProject",
-			extraProps: "<IsPackable>true</IsPackable>",
+			extraProps: "<IsPackable>true</IsPackable><DisableSourceLink>true</DisableSourceLink><EnableSourceControlManagerQueries>false</EnableSourceControlManagerQueries>",
 			cancellationToken: cancellationToken
 		);
 
@@ -266,7 +266,7 @@ public sealed class AgentPackFolderTests
 		// Arrange
 		using var h = await ProjectHarness.CreateAsync(
 			"PackableProject",
-			extraProps: "<IsPackable>true</IsPackable>",
+			extraProps: "<IsPackable>true</IsPackable><DisableSourceLink>true</DisableSourceLink><EnableSourceControlManagerQueries>false</EnableSourceControlManagerQueries>",
 			cancellationToken: cancellationToken
 		);
 

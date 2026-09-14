@@ -1,8 +1,8 @@
+using Purview.DotNetProjectSdk.Harness;
+using Purview.DotNetProjectSdk.Infra;
 using System.Diagnostics;
 using System.IO.Compression;
 using System.Text.Json;
-using Purview.DotNetProjectSdk.Harness;
-using Purview.DotNetProjectSdk.Infra;
 
 namespace Purview.DotNetProjectSdk;
 
@@ -438,14 +438,13 @@ public sealed class SdkPackageConsumptionTests
 		var evaluationJson = stdOut[evaluationJsonStart..];
 
 		using var doc = JsonDocument.Parse(evaluationJson);
-		return doc
+		return [.. doc
 			.RootElement.GetProperty("Items")
 			.GetProperty("Analyzer")
 			.EnumerateArray()
 			.Select(item => item.GetProperty("Identity").GetString())
 			.Where(path => !string.IsNullOrWhiteSpace(path))
-			.Select(path => Path.GetFullPath(path!))
-			.ToArray();
+			.Select(path => Path.GetFullPath(path!))];
 	}
 
 	static async Task VerifyPds0003WarningOnBuildAsync(string consumerDirectory, CancellationToken cancellationToken)

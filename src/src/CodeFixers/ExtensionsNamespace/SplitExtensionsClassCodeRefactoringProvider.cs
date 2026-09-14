@@ -1,5 +1,3 @@
-using System.Collections.Immutable;
-using System.Composition;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CodeActions;
 using Microsoft.CodeAnalysis.CodeRefactorings;
@@ -8,6 +6,8 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.FindSymbols;
 using Microsoft.CodeAnalysis.Rename;
 using Microsoft.CodeAnalysis.Text;
+using System.Collections.Immutable;
+using System.Composition;
 
 namespace Purview.DotNetProjectSdk.CodeFixers.ExtensionsNamespace;
 
@@ -321,6 +321,7 @@ public sealed class SplitExtensionsClassCodeRefactoringProvider : CodeRefactorin
 			);
 		}
 
+		// Merge the original class into the existing class, and update every reference to the old type name.
 		return await MoveMergeIntoExistingAsync(
 			solution,
 			document,
@@ -697,19 +698,17 @@ public sealed class SplitExtensionsClassCodeRefactoringProvider : CodeRefactorin
 	{
 		var updatedRoot = originalCompilationUnit.RemoveNode(originalClass, SyntaxRemoveOptions.KeepExteriorTrivia);
 		if (updatedRoot is null)
-		{
 			return solution;
-		}
 
 		// If nothing but usings/empty namespaces remains, the original file is gone.
 		var hasRemainingTypes = updatedRoot
 			.DescendantNodes()
 			.Any(node => node is BaseTypeDeclarationSyntax or DelegateDeclarationSyntax);
-		if (!hasRemainingTypes)
-		{
-			return solution.RemoveDocument(documentId);
-		}
 
+		if (!hasRemainingTypes)
+			return solution.RemoveDocument(documentId);
+
+		// Otherwise, keep the original file but remove the class declaration.
 		return solution.WithDocumentSyntaxRoot(documentId, updatedRoot, PreservationMode.PreserveIdentity);
 	}
 
@@ -717,10 +716,9 @@ public sealed class SplitExtensionsClassCodeRefactoringProvider : CodeRefactorin
 	{
 		var reference = method.DeclaringSyntaxReferences.FirstOrDefault();
 		if (reference?.GetSyntax() is MethodDeclarationSyntax syntax)
-		{
 			return syntax;
-		}
 
+		// If the method is declared in source but we can't get its syntax, something is wrong.
 		throw new InvalidOperationException($"Unable to resolve the declaration of '{method.Name}'.");
 	}
 

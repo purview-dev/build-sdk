@@ -40,7 +40,7 @@ public sealed class GeneratedAssemblyInfoTests
 			"GeneratedAssemblyInfo.cs",
 			SearchOption.AllDirectories
 		);
-		await Assert.That(generatedFiles).HasCount().EqualTo(1);
+		await Assert.That(generatedFiles.Length).IsEqualTo(1);
 
 		var content = await File.ReadAllTextAsync(generatedFiles[0], cancellationToken);
 
