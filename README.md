@@ -180,7 +180,7 @@ The `templates/` folder contains ready-to-copy starter files for new repos:
 | `.gitattributes` | Line-ending normalisation for .cs, .json, .yml, etc. |
 | `.config/dotnet-tools.json` | CSharpier tool manifest |
 
-The package also ships bundled agent content under `.agents/**`. During build, the SDK copies it into the consuming repository's `.agents/` folder by default so compatible coding agents can discover repository-aware guidance automatically. The SDK also injects a `.gitignore` file into each second-level agent folder with the content `# Ignore all files\n*\n# Don't ignore directories, so Git can traverse them\n!*/\n# Keep this file\n!.gitignore`, so the copied folder is ignored by Git while keeping the folder structure discoverable.
+The package also ships bundled agent content under `.agents/**`. During build, the SDK copies it into the consuming repository's `.agents/` folder by default so compatible coding agents can discover repository-aware guidance automatically. The SDK also injects a `.gitignore` file into each second-level agent folder with the content `# Ignore all files\n*\n\n# Don't ignore directories, so Git can traverse them\n!*/\n\n# Keep this file\n!.gitignore`, so the copied folder is ignored by Git while keeping the folder structure discoverable.
 
 ---
 
@@ -200,9 +200,9 @@ Set any of these properties **before** the `<Import>` in your `Directory.Build.p
 When `UsePackageJsonVersion=true` (the default) or `UsePackageJsonVersion=Strict`, the SDK:
 
 1. **Explicit path** — if `RootPackageJson` is set, reads that file directly.
-2. **Auto-discovery** — otherwise, walks up from the project directory looking for a `.git` marker to locate the repo root, then reads `package.json` from there.
+2. **Auto-discovery** — otherwise, locates the repo root from CI workspace variables (`GITHUB_WORKSPACE`, `BUILD_SOURCESDIRECTORY`, `BUILD_REPOSITORY_LOCALPATH`, `CI_PROJECT_DIR`), then by walking up from the project directory looking for a `.git` marker or a `package.json`, and reads `package.json` from there.
 
-The extracted `version` field is applied to both `Version` and `PackageVersion`. A build error is raised if the file can't be found or contains no `version` field. With `UsePackageJsonVersion=Strict`, the build also fails when no package.json source can be discovered (for example, no explicit `RootPackageJson` and no discoverable `.git` marker).
+The extracted `version` field is applied to both `Version` and `PackageVersion`. A build error is raised when a `package.json` was resolved but can't be read, or when it contains no `version` field. With `UsePackageJsonVersion=Strict`, the build also fails when no package.json source can be discovered at all (for example, no explicit `RootPackageJson` and no discoverable `.git` marker or CI workspace variable); in non-strict mode that case silently falls back to the `0.0.1` default.
 
 Version detection logging is disabled by default. Set `VersionDetectionLogEnabled` to `true` to emit a high-importance message showing the detected package version.
 
@@ -227,7 +227,7 @@ Version detection logging is disabled by default. Set `VersionDetectionLogEnable
 | `NamespacePrefix` | *(required)* | Root namespace prefix, e.g. `Acme`. Results in `Acme.MyProject`. |
 | `DisableNamespacePrefixCheck` | `false` | Set to `true` to suppress the build error for missing `NamespacePrefix`. |
 | `TargetFramework` | `net10.0` | Override the default TFM per-project or globally. Defaults to `netstandard2.0` for projects declaring `IsRoslynComponent=true`. |
-| `IsRoslynComponent` | `false` | When explicitly `true`, applies source-generator defaults: a single `netstandard2.0` target, `LangVersion=latest`, `Nullable=enable`, `TreatWarningsAsErrors=true`, `Deterministic=true`, extended analyzer rules, SourceLink with `EmbedUntrackedSources=true`, generated-file output, dependency output, symbol packaging (`IncludeSymbols=false` by default), telemetry exclusion, and package build output. Packable Roslyn components automatically pack the built analyzer assembly and its PDB into `analyzers/dotnet/cs/` (`PurviewPackAnalyzerPdb=true`; set `false` only when symbols are delivered another way — NuGet's `.snupkg` cannot host `analyzers/dotnet/cs` symbols). Pack-time validation (`ValidateRoslynComponentCompilerSettings`) fails the pack if the compiler defaults are missing unless `DisableRoslynCompilerDefaultsValidation=true`. Roslyn development dependencies (`Microsoft.CodeAnalysis.*`, `Microsoft.CodeAnalysis.Analyzers`) default to `PrivateAssets="all"`. |
+| `IsRoslynComponent` | `false` | When explicitly `true`, applies source-generator defaults: a single `netstandard2.0` target, `LangVersion=latest`, `Nullable=enable`, `TreatWarningsAsErrors=true`, `Deterministic=true`, extended analyzer rules, SourceLink with `EmbedUntrackedSources=true`, compiler-generated output under the intermediate directory, no dependency file, symbol packaging (`IncludeSymbols=false` by default), telemetry exclusion, and package build output. Packable Roslyn components automatically pack the built analyzer assembly and its PDB into `analyzers/dotnet/cs/` (`PurviewPackAnalyzerPdb=true`; set `false` only when symbols are delivered another way — NuGet's `.snupkg` cannot host `analyzers/dotnet/cs` symbols). Pack-time validation (`ValidateRoslynComponentCompilerSettings`) fails the pack if the compiler defaults are missing unless `DisableRoslynCompilerDefaultsValidation=true`. Roslyn development dependencies (`Microsoft.CodeAnalysis.*`, `Microsoft.CodeAnalysis.Analyzers`) default to `PrivateAssets="all"`. |
 | `PackProjectReferencedSourceGenerators` | `true` | Automatically packs analyzer `ProjectReference` outputs and their runtime dependencies under `analyzers/dotnet/cs/`. Set to `false` to opt out; set `Pack="false"` on an individual reference to exclude only that generator. |
 | `SourceLinkPackageName` | `Microsoft.SourceLink.GitHub` | SourceLink provider. Set to `Microsoft.SourceLink.AzureDevOps.Git` for ADO repos. |
 | `DisableSourceLink` | `false` | Set to `true` to stop the SDK from adding the configured SourceLink package automatically. |
@@ -297,14 +297,14 @@ When a project is packable, the SDK treats any content under `Sdk/` as a pack ta
 | `Sdk/*.md`, `Sdk/*.png`, `Sdk/*.jpg`, etc. | package root |
 | everything else under `Sdk/` | `Sdk/` |
 
-The SDK automatically adds a `.gitignore` file into each second-level folder under `Sdk/.agents` with the content `# Ignore all files\n*\n# Don't ignore directories, so Git can traverse them\n!*/\n# Keep this file\n!.gitignore`. This ensures the copied folder structure remains discoverable in consuming repositories while the content itself is ignored by Git.
+The SDK automatically adds a `.gitignore` file into each second-level folder under `Sdk/.agents` with the content `# Ignore all files\n*\n\n# Don't ignore directories, so Git can traverse them\n!*/\n\n# Keep this file\n!.gitignore`. This ensures the copied folder structure remains discoverable in consuming repositories while the content itself is ignored by Git.
 
 ### Telemetry
 
 | Property | Default | Description |
 | -- | -- | -- |
 | `ExcludePurviewTelemetry` | `false` | Set to `true` to exclude `Purview.Telemetry.SourceGenerator` from all projects. |
-| `ExcludeMSTelemetryExtension` | `false` | Set to `true` to exclude `Microsoft.Extensions.Telemetry.Abstractions`. Note, when `ExcludePurviewTelemetry` is `false` this is excluded anyway. |
+| `ExcludeMSTelemetryExtension` | `false` | Set to `true` to exclude `Microsoft.Extensions.Telemetry.Abstractions`. Only relevant when `ExcludePurviewTelemetry` is also `false` — when `ExcludePurviewTelemetry=true` the whole telemetry group is skipped anyway. |
 
 ### Testing
 
@@ -388,11 +388,11 @@ MyProject.IntegrationTests→ IsTestProject=true, TestingType=Integration
 MyProject.E2ETests        → IsTestProject=true, TestingType=E2E
 ```
 
-Any suffix from the full list is recognised: `Unit`, `Integration`, `E2E`, `EndToEnd`, `Acceptance`, `Functional`, `Performance`, `Load`, `Smoke`, `Stress`, `Regression`, `Security`, `Chaos`, `Scenario`, `System`, `Threat`, `BlackBox`, `WhiteBox`, `Accessibility`, `Interactive`, `Environment`.
+Any suffix from the full list is recognised: `Unit`, `Integration`, `E2E`, `EndToEnd`, `Acceptance`, `Functional`, `Performance`, `Load`, `Smoke`, `Stress`, `Regression`, `Security`, `Chaos`, `Scenario`, `System`, `Threat`, `BlackBox`, `WhiteBox`, `Accessibility`, `Interactive`, `Environment`, `Architecture`, `Contract`.
 
 ### Shared testing projects
 
-Projects named `SharedTestingFramework`, `SharedTestingInfrastructure`, `SharedTestingInfra`, `SharedTestingUtilities`, `SharedTestingLibrary`, `SharedTestingLib`, or `SharedTestingHelpers` are treated as shared testing helpers — they get test package references but not the test runner or coverage settings.
+Projects named `SharedTestingFramework`, `SharedTestingInfrastructure`, `SharedTestingInfra`, `SharedTestingUtilities`, `SharedTestingUtils`, `SharedTestingLibrary`, `SharedTestingLib`, or `SharedTestingHelpers` are treated as shared testing helpers — they get test package references but not the test runner or coverage settings.
 
 ---
 
@@ -406,7 +406,7 @@ The SDK automatically generates `[assembly: InternalsVisibleTo("…")]` attribut
 
 Two categories of friend assemblies are generated:
 
-1. **TestType variants** — one `InternalsVisibleTo` per defined `TestType` (`Unit`, `Integration`, `Architecture`, `Contract`, `Functional`, …), formatted as `$(AssemblyName).{TestType}Tests`.
+1. **TestType variants** — for each defined `TestType` (`Unit`, `Integration`, `Architecture`, `Contract`, `Functional`, …) the SDK emits the `$(AssemblyName).{TestType}Tests` alias plus the `$(TargetProjectName).{TestType}Tests` and `$(MSBuildProjectName).{TestType}Tests` equivalents, so the attribute resolves regardless of whether naming comes from an explicit `AssemblyName`, the SDK default, or the raw project name.
 2. **SharedTesting projects** — one per known shared testing project name (`SharedTestingFramework`, `SharedTestingInfrastructure`, etc.). By default (`EnableAssemblyNameGeneration=true`) with a `NamespacePrefix` set, these are prefixed (e.g. `Acme.SharedTestingFramework`); with `EnableAssemblyNameGeneration=false` the raw name is used.
 
 ### Disabling automatic InternalsVisibleTo

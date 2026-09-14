@@ -57,7 +57,7 @@ These are the most important configurable properties exposed by the SDK:
 ## Telemetry and package-related settings
 
 - `ExcludePurviewTelemetry` — default `false`; removes `Purview.Telemetry.SourceGenerator`
-- `ExcludeMSTelemetryExtension` — default `false`; removes `Microsoft.Extensions.Telemetry.Abstractions`, only relevant if `ExcludePurviewTelemetry` is also `true`
+- `ExcludeMSTelemetryExtension` — default `false`; removes `Microsoft.Extensions.Telemetry.Abstractions`. Only relevant when `ExcludePurviewTelemetry` is also `false` — when `ExcludePurviewTelemetry=true` the whole telemetry group is skipped anyway
 - `IsPackable` — defaults to `false` if not set elsewhere
 - `PackageTags`, `IncludeSource`, `IncludeSymbols`, `PublishRepositoryUrl`, `SymbolPackageFormat` — standard pack-related settings the SDK participates in for packable projects
 - Packable-project defaults (only applied when the consuming project has not supplied a value): `GenerateDocumentationFile=true`, `IncludeSymbols=true`, `SymbolPackageFormat=snupkg`, `PublishRepositoryUrl=true`, `EmbedUntrackedSources=true`, `DebugType=portable`. Portable PDBs are delivered through the `.snupkg`; the normal `.nupkg` does not receive PDB files unless the project opts in explicitly. Roslyn components default `IncludeSymbols=false` and ship their PDB inside `analyzers/dotnet/cs/` instead

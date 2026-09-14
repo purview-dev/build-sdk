@@ -4,11 +4,11 @@
 		<PackageType>MSBuildSdk</PackageType>
 		<Description>A reusable MSBuild SDK that provides standardised .NET project defaults, code style enforcement, configurable testing framework wiring (TUnit, Xunit, or None), mocking provider wiring (TUnitMocks, NSubstitute, or None), and Central Package Management integration. Drop in via Directory.Build.props to apply uniformly across every project in a repo.</Description>
 		<PackageTags>msbuild;sdk;build;tunit;xunit;tunitmock;nsubstitute;bogus;csharp;dotnet</PackageTags>
-		<PackageProjectUrl>https://github.com/purview-dev/purview-dotnet-project-sdk</PackageProjectUrl>
+		<PackageProjectUrl>https://github.com/purview-dev/dotnet-project-sdk</PackageProjectUrl>
 		<PackageLicenseExpression>MIT</PackageLicenseExpression>
 		<PackageReadmeFile>README.md</PackageReadmeFile>
 		<RepositoryType>git</RepositoryType>
-		<PackageIcon>purview-logo.jpg</PackageIcon>
+		<PackageIcon>purview-logo.png</PackageIcon>
 
 		<!-- No compiled output — this is a pure MSBuild SDK package -->
 		<TargetFramework>netstandard2.0</TargetFramework>
@@ -107,7 +107,7 @@
 		<None Include="$(MSBuildThisFileDirectory)../../../README.md" Pack="true" PackagePath="/" />
 		<None Include="$(MSBuildThisFileDirectory)../../../LICENSE.md" Pack="true" PackagePath="/" />
 		<None
-			Include="$(MSBuildThisFileDirectory)../../../assets/images/purview-logo.jpg"
+			Include="$(MSBuildThisFileDirectory)../../../assets/images/purview-logo.png"
 			Pack="true"
 			PackagePath="/"
 		/>

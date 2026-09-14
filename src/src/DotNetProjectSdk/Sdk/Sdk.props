@@ -94,6 +94,7 @@
 		<IsRoslynComponent
 			Condition="'$(IsRoslynComponent)' == '' AND $([System.Text.RegularExpressions.Regex]::IsMatch($([System.IO.File]::ReadAllText(`$(MSBuildProjectFullPath)`)), `(?is)&lt;IsRoslynComponent\s*&gt;\s*true\s*&lt;/IsRoslynComponent\s*&gt;`))"
 			>true</IsRoslynComponent>
+		<IsRoslynComponent Condition="'$(IsRoslynComponent)' == ''">false</IsRoslynComponent>
 		<IsPackable
 			Condition="$([System.Text.RegularExpressions.Regex]::IsMatch($([System.IO.File]::ReadAllText(`$(MSBuildProjectFullPath)`)), `(?is)&lt;IsPackable\s*&gt;\s*true\s*&lt;/IsPackable\s*&gt;`))"
 			>true</IsPackable>
