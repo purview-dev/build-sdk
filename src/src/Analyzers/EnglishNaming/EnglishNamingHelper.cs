@@ -280,7 +280,7 @@ sealed class EnglishNamingConfig
 	{
 		AcronymMap = acronymMap;
 		AllowedWords = allowedWords;
-		AllowedIdentifiers = allowedIdentifiers.IsDefault ? ImmutableArray<string>.Empty : allowedIdentifiers;
+		AllowedIdentifiers = allowedIdentifiers.IsDefault ? [] : allowedIdentifiers;
 	}
 
 	public ImmutableDictionary<string, string> AcronymMap { get; }

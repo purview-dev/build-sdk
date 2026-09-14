@@ -438,14 +438,16 @@ public sealed class SdkPackageConsumptionTests
 		var evaluationJson = stdOut[evaluationJsonStart..];
 
 		using var doc = JsonDocument.Parse(evaluationJson);
-		return doc
-			.RootElement.GetProperty("Items")
-			.GetProperty("Analyzer")
-			.EnumerateArray()
-			.Select(item => item.GetProperty("Identity").GetString())
-			.Where(path => !string.IsNullOrWhiteSpace(path))
-			.Select(path => Path.GetFullPath(path!))
-			.ToArray();
+		return
+		[
+			.. doc
+				.RootElement.GetProperty("Items")
+				.GetProperty("Analyzer")
+				.EnumerateArray()
+				.Select(item => item.GetProperty("Identity").GetString())
+				.Where(path => !string.IsNullOrWhiteSpace(path))
+				.Select(path => Path.GetFullPath(path!)),
+		];
 	}
 
 	static async Task VerifyPds0003WarningOnBuildAsync(string consumerDirectory, CancellationToken cancellationToken)

@@ -113,7 +113,7 @@ public sealed class EnglishNamingHelperTests
 	[Test]
 	public async Task FromOptions_Defaults_AreUsed_WhenNoOverridesPresent()
 	{
-		var config = EnglishNamingConfig.FromOptions(new TestOptions(new Dictionary<string, string>()));
+		var config = EnglishNamingConfig.FromOptions(new TestOptions([]));
 		await Assert.That(EnglishNamingHelper.CorrectIdentifier("Api", config)).IsEqualTo("API");
 		await Assert.That(EnglishNamingHelper.CorrectIdentifier("SdkClient", config)).IsNull();
 	}

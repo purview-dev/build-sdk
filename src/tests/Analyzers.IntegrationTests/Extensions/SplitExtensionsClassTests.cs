@@ -647,7 +647,7 @@ public sealed class SplitExtensionsClassTests
 		var context = new CodeRefactoringContext(
 			document,
 			classDeclaration.Identifier.Span,
-			action => actions.Add(action),
+			actions.Add,
 			cancellationToken
 		);
 
