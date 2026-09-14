@@ -1,5 +1,8 @@
 # Purview.DotNetProjectSdk
 
+[![NuGet version](https://img.shields.io/nuget/v/Purview.DotNetProjectSdk.svg)](https://www.nuget.org/packages/Purview.DotNetProjectSdk)
+[![Release](https://github.com/purview-dev/dotnet-project-sdk/actions/workflows/release.yml/badge.svg)](https://github.com/purview-dev/dotnet-project-sdk/actions/workflows/release.yml)
+
 A reusable MSBuild SDK NuGet package that delivers standardised .NET project defaults, code-style enforcement, test-framework wiring, and Central Package Management integration. Install it once per repo — every project beneath the repo root inherits everything automatically.
 
 > [!NOTE]
