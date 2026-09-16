@@ -15,4 +15,17 @@
 
 	<!-- Dog fooding the Sdk... -->
 	<Import Project="$(MSBuildThisFileDirectory)src/DotNetProjectSdk/Sdk/Sdk.props" />
+
+	<PropertyGroup Label="Purview site URL metadata">
+		<PurviewHomepage>https://purview.dev/</PurviewHomepage>
+		<PurviewProjectUrl>$(PurviewHomepage)projects/dotnet-project-sdk/</PurviewProjectUrl>
+		<PurviewDocsUrl>$(PurviewHomepage)docs/dotnet-project-sdk/</PurviewDocsUrl>
+	</PropertyGroup>
+
+	<PropertyGroup Label="NuGet package metadata">
+		<RepositoryUrl>https://github.com/purview-dev/dotnet-project-sdk.git</RepositoryUrl>
+		<RepositoryType>git</RepositoryType>
+		<PackageProjectUrl>$(PurviewProjectUrl)</PackageProjectUrl>
+		<PublishRepositoryUrl>true</PublishRepositoryUrl>
+	</PropertyGroup>
 </Project>

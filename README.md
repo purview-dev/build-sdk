@@ -581,6 +581,11 @@ To add project-specific packages, just append `PackageVersion` entries to your `
 
 ---
 
+## Documentation
+
+- [Homepage](https://purview.dev/projects/dotnet-project-sdk/)
+- [Documentation](https://purview.dev/docs/dotnet-project-sdk/)
+
 ## Building the SDK
 
 ```sh
