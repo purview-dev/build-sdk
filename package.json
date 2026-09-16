@@ -1,4 +1,12 @@
 {
 	"name": "purview-dotnet-project-sdk",
-	"version": "1.0.0-prerelease.55"
+	"version": "1.0.0-prerelease.55",
+	"homepage": "https://purview.dev/projects/dotnet-project-sdk/",
+	"bugs": {
+		"url": "https://github.com/purview-dev/dotnet-project-sdk/issues"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/purview-dev/dotnet-project-sdk.git"
+	}
 }
