@@ -5,7 +5,7 @@
 		<EmbedUntrackedSources>false</EmbedUntrackedSources>
 		<EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
 		<IsRoslynComponent>true</IsRoslynComponent>
-		<AssemblyName>Purview.DotNetProjectSdk.CodeFixers</AssemblyName>
+		<AssemblyName>Purview.BuildSdk.CodeFixers</AssemblyName>
 	</PropertyGroup>
 
 	<ItemGroup>

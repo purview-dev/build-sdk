@@ -2,7 +2,7 @@ using System.Collections.Immutable;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Diagnostics;
 
-namespace Purview.DotNetProjectSdk.Analyzers.ExtensionsNamespace;
+namespace Purview.BuildSdk.Analyzers.ExtensionsNamespace;
 
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
 public sealed class ExtensionsNamespaceSuppressor : DiagnosticSuppressor

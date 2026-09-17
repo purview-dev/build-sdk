@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 
-namespace Purview.DotNetProjectSdk.Analyzers.ExtensionsNamespace;
+namespace Purview.BuildSdk.Analyzers.ExtensionsNamespace;
 
 /// <summary>
 /// Helper methods for deriving and validating namespace conventions for files under the

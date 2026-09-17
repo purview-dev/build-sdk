@@ -1,6 +1,6 @@
 using Microsoft.CodeAnalysis.Diagnostics;
 
-namespace Purview.DotNetProjectSdk.Analyzers;
+namespace Purview.BuildSdk.Analyzers;
 
 /// <summary>
 /// Analyzer-config property names the SDK exposes to Roslyn as <c>build_property.*</c>.

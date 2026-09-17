@@ -1,6 +1,6 @@
 # Code Fixes
 
-The package ships `Purview.DotNetProjectSdk.CodeFixers.dll` for the IDE. The code-fix assembly is
+The package ships `Purview.BuildSdk.CodeFixers.dll` for the IDE. The code-fix assembly is
 added as an analyzer reference only when building inside Visual Studio (Roslyn's `CodeFixService` keys
 on `Project.AnalyzerReferences`, and the command-line compiler cannot resolve
 `Microsoft.CodeAnalysis.Workspaces`).

@@ -2,7 +2,7 @@ using System.Collections.Immutable;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Diagnostics;
 
-namespace Purview.DotNetProjectSdk.Analyzers.EnglishNaming;
+namespace Purview.BuildSdk.Analyzers.EnglishNaming;
 
 /// <summary>
 /// Correct-English acronym capitalization rules backing <see cref="EnglishNamingAnalyzer"/> (PDS0004).

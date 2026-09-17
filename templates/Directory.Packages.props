@@ -1,6 +1,6 @@
 <Project>
 	<!--
-		Central Package Management for Purview.DotNetProjectSdk consumers
+		Central Package Management for Purview.BuildSdk consumers
 		==================================================================
 		All PackageVersion entries use Version="*" (floating to latest at restore).
 		Pin individual packages by replacing "*" with a specific version, e.g.:

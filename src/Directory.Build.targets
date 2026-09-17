@@ -1,5 +1,5 @@
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
-	<Import Project="$(MSBuildThisFileDirectory)src/DotNetProjectSdk/Sdk/Sdk.targets" />
+	<Import Project="$(MSBuildThisFileDirectory)src/BuildSdk/Sdk/Sdk.targets" />
 
 	<Target Name="CopyProjectReferencesToPackage" DependsOnTargets="BuildOnlySettings;ResolveReferences">
 		<ItemGroup>

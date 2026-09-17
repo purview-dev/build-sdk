@@ -1,7 +1,7 @@
 using System.Collections.Immutable;
 using Microsoft.CodeAnalysis.Diagnostics;
 
-namespace Purview.DotNetProjectSdk.Analyzers.EnglishNaming;
+namespace Purview.BuildSdk.Analyzers.EnglishNaming;
 
 /// <summary>
 /// Unit tests for <see cref="EnglishNamingHelper"/> acronym-capitalization logic and
@@ -44,7 +44,7 @@ public sealed class EnglishNamingHelperTests
 	[Arguments("JsonSerializer", DisplayName = "Json is exempt")]
 	[Arguments("GetId", DisplayName = "Id is exempt")]
 	[Arguments("SdkClient", DisplayName = "Sdk is exempt (too prevalent)")]
-	[Arguments("DotNetProjectSdk", DisplayName = "Sdk embedded mid-name is exempt")]
+	[Arguments("BuildSdk", DisplayName = "Sdk embedded mid-name is exempt")]
 	[Arguments("SqlConnection", DisplayName = "Sql is exempt (known .NET type)")]
 	[Arguments("UrlBuilder", DisplayName = "Url is exempt (known .NET spelling)")]
 	[Arguments("Uuid", DisplayName = "Uuid is exempt (known .NET spelling)")]

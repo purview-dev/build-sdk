@@ -8,9 +8,9 @@ using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Diagnostics;
 using Microsoft.CodeAnalysis.Text;
-using Purview.DotNetProjectSdk.CodeFixers.EnglishNaming;
+using Purview.BuildSdk.CodeFixers.EnglishNaming;
 
-namespace Purview.DotNetProjectSdk.Analyzers.EnglishNaming;
+namespace Purview.BuildSdk.Analyzers.EnglishNaming;
 
 /// <summary>
 /// Integration tests for <see cref="EnglishNamingAnalyzer"/> (PDS0004) and

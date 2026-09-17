@@ -1,6 +1,6 @@
 # Agent Folder
 
-`Purview.DotNetProjectSdk` ships bundled agent content (skills, prompts, agents) under `.agents/**`
+`Purview.BuildSdk` ships bundled agent content (skills, prompts, agents) under `.agents/**`
 in the NuGet package. During build, the SDK copies it into the consuming repository's `.agents/`
 folder by default so compatible coding agents can discover repository-aware guidance automatically.
 

@@ -5,9 +5,9 @@ using Microsoft.CodeAnalysis.CodeFixes;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Diagnostics;
 using Microsoft.CodeAnalysis.Text;
-using Purview.DotNetProjectSdk.CodeFixers.TargetTypedObjectCreation;
+using Purview.BuildSdk.CodeFixers.TargetTypedObjectCreation;
 
-namespace Purview.DotNetProjectSdk.Analyzers.TargetTypedObjectCreation;
+namespace Purview.BuildSdk.Analyzers.TargetTypedObjectCreation;
 
 public sealed class TargetTypedObjectCreationTests
 {

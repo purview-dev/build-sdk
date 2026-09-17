@@ -4,9 +4,9 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CodeActions;
 using Microsoft.CodeAnalysis.CodeFixes;
 using Microsoft.CodeAnalysis.Rename;
-using Purview.DotNetProjectSdk.Analyzers.EnglishNaming;
+using Purview.BuildSdk.Analyzers.EnglishNaming;
 
-namespace Purview.DotNetProjectSdk.CodeFixers.EnglishNaming;
+namespace Purview.BuildSdk.CodeFixers.EnglishNaming;
 
 [ExportCodeFixProvider(LanguageNames.CSharp, Name = nameof(EnglishNamingCodeFixProvider))]
 [Shared]

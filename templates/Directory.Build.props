@@ -1,6 +1,6 @@
 <Project>
 	<!--
-		BOOTSTRAPPER for Purview.DotNetProjectSdk
+		BOOTSTRAPPER for Purview.BuildSdk
 		==========================================
 		Place this file at the root of your repo (alongside your .sln file).
 		All projects beneath will automatically inherit the SDK's build defaults.
@@ -25,5 +25,5 @@
 		<NamespacePrefix>YourCompany.ProductName</NamespacePrefix>
 	</PropertyGroup>
 
-	<Import Sdk="Purview.DotNetProjectSdk" Project="Sdk.props" />
+	<Import Sdk="Purview.BuildSdk" Project="Sdk.props" />
 </Project>

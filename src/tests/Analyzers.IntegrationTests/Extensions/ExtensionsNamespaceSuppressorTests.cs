@@ -1,9 +1,9 @@
 using System.Collections.Immutable;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Diagnostics;
-using Purview.DotNetProjectSdk.Analyzers.ExtensionsNamespace;
+using Purview.BuildSdk.Analyzers.ExtensionsNamespace;
 
-namespace Purview.DotNetProjectSdk.Analyzers.IntegrationTests.Extensions;
+namespace Purview.BuildSdk.Analyzers.IntegrationTests.Extensions;
 
 /// <summary>
 /// Integration tests for <see cref="ExtensionsNamespaceSuppressor"/> behavior.

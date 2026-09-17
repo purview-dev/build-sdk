@@ -1,6 +1,6 @@
 # SDK-Shipped Analyzers
 
-The package ships `Purview.DotNetProjectSdk.Analyzers.dll` (plus a separate code-fix assembly for the
+The package ships `Purview.BuildSdk.Analyzers.dll` (plus a separate code-fix assembly for the
 IDE) and adds the analyzer to every C# project as an `<Analyzer>` item, so the rules surface in both
 command-line builds and Visual Studio.
 

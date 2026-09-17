@@ -3,7 +3,7 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Diagnostics;
 
-namespace Purview.DotNetProjectSdk.Analyzers;
+namespace Purview.BuildSdk.Analyzers;
 
 /// <summary>
 /// Shared Roslyn test infrastructure for analyzer/suppressor/code-fix integration tests.

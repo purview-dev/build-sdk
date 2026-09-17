@@ -1,12 +1,12 @@
 # Getting Started
 
-This guide walks through the minimal setup required to adopt `Purview.DotNetProjectSdk` in a
+This guide walks through the minimal setup required to adopt `Purview.BuildSdk` in a
 repository. Install it once per repo — every project beneath the repo root inherits everything
 automatically.
 
 ## 1. Add the SDK to `global.json`
 
-Add `Purview.DotNetProjectSdk` to the `msbuild-sdks` section so MSBuild can resolve the SDK:
+Add `Purview.BuildSdk` to the `msbuild-sdks` section so MSBuild can resolve the SDK:
 
 ```json
 {
@@ -14,7 +14,7 @@ Add `Purview.DotNetProjectSdk` to the `msbuild-sdks` section so MSBuild can reso
     "runner": "Microsoft.Testing.Platform"
   },
   "msbuild-sdks": {
-    "Purview.DotNetProjectSdk": "1.0.0"
+    "Purview.BuildSdk": "1.0.0"
   }
 }
 ```
@@ -32,7 +32,7 @@ Add `Purview.DotNetProjectSdk` to the `msbuild-sdks` section so MSBuild can reso
     <NamespacePrefix>YourCompany</NamespacePrefix>
   </PropertyGroup>
 
-  <Import Sdk="Purview.DotNetProjectSdk" Project="Sdk.props" />
+  <Import Sdk="Purview.BuildSdk" Project="Sdk.props" />
 </Project>
 ```
 
@@ -43,7 +43,7 @@ Add `Purview.DotNetProjectSdk` to the `msbuild-sdks` section so MSBuild can reso
 
 ```xml
 <Project>
-  <Import Sdk="Purview.DotNetProjectSdk" Project="Sdk.targets" />
+  <Import Sdk="Purview.BuildSdk" Project="Sdk.targets" />
 </Project>
 ```
 

@@ -9,7 +9,7 @@ using Microsoft.CodeAnalysis.FindSymbols;
 using Microsoft.CodeAnalysis.Rename;
 using Microsoft.CodeAnalysis.Text;
 
-namespace Purview.DotNetProjectSdk.CodeFixers.ExtensionsNamespace;
+namespace Purview.BuildSdk.CodeFixers.ExtensionsNamespace;
 
 /// <summary>
 /// Offers to reorganise static extensions classes that do not follow the PDS0002 Extensions-namespace

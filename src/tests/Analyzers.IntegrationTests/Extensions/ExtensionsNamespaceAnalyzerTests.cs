@@ -2,9 +2,9 @@ using System.Collections.Immutable;
 using System.Globalization;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Diagnostics;
-using Purview.DotNetProjectSdk.Analyzers.ExtensionsNamespace;
+using Purview.BuildSdk.Analyzers.ExtensionsNamespace;
 
-namespace Purview.DotNetProjectSdk.Analyzers.Extensions;
+namespace Purview.BuildSdk.Analyzers.Extensions;
 
 /// <summary>
 /// Integration tests for <see cref="ExtensionsNamespaceAnalyzer"/> using Roslyn's analyzer

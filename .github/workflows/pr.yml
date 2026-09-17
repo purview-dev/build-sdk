@@ -24,7 +24,7 @@ jobs:
         project:
           - Analyzers.UnitTests.csproj
           - Analyzers.IntegrationTests.csproj
-          - DotNetProjectSdk.IntegrationTests.csproj
+          - BuildSdk.IntegrationTests.csproj
     uses: purview-dev/build/.github/workflows/purview-build.yml@main
     with:
       run-lint: false

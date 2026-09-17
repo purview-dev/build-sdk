@@ -78,7 +78,7 @@ the content `# Ignore all files\n*\n\n# Don't ignore directories, so Git can tra
 This ensures the copied folder structure remains discoverable in consuming repositories while the
 content itself is ignored by Git.
 
-MSBuild SDK packages (like `Purview.DotNetProjectSdk` itself) set `PurviewAutoSdkPack=false` and
+MSBuild SDK packages (like `Purview.BuildSdk` itself) set `PurviewAutoSdkPack=false` and
 pack their `Sdk/` contents explicitly instead. External files linked beneath `Sdk/` (via `<Link>`)
 are packed with the same paths as physical `Sdk/` files.
 
