@@ -23,7 +23,7 @@ workspace variable); in non-strict mode that case silently falls back to the `0.
 ## Caching
 
 Version detection results are cached locally under the user's temporary directory
-(`%TEMP%\Purview.DotNetProjectSdk\VersionDetection`, platform equivalent elsewhere) so repeated
+(`%TEMP%\Purview.BuildSdk\VersionDetection`, platform equivalent elsewhere) so repeated
 evaluations don't re-scan the filesystem. Enable or disable with `EnableVersionDetectionCache`
 (default `true`).
 
@@ -35,7 +35,7 @@ high-importance message showing the detected package version.
 ## Important — set before the import
 
 Both `UsePackageJsonVersion` and `RootPackageJson` must be set **before** the
-`<Import Sdk="Purview.DotNetProjectSdk" Project="Sdk.props" />` line in your `Directory.Build.props`.
+`<Import Sdk="Purview.BuildSdk" Project="Sdk.props" />` line in your `Directory.Build.props`.
 The version logic runs during that import and cannot see properties set afterwards (for example in
 individual `.csproj` files).
 
@@ -47,6 +47,6 @@ individual `.csproj` files).
     <RootPackageJson>$(MSBuildThisFileDirectory)package.json</RootPackageJson>
   </PropertyGroup>
 
-  <Import Sdk="Purview.DotNetProjectSdk" Project="Sdk.props" />
+  <Import Sdk="Purview.BuildSdk" Project="Sdk.props" />
 </Project>
 ```

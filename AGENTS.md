@@ -14,15 +14,15 @@ Use `.github/` customization files only as VS Code/Copilot wrappers or registrat
 
 ## Purpose
 
-This repo builds and tests `Purview.DotNetProjectSdk`, a reusable MSBuild SDK package plus analyzer and tests.
+This repo builds and tests `Purview.BuildSdk`, a reusable MSBuild SDK package plus analyzer and tests.
 
 For full product behaviour and configuration, read [`README.md`](./README.md). Keep edits minimal, targeted, and convention-driven.
 
-Repo-specific agent content lives under `src/src/DotNetProjectSdk/Sdk/.agents/` and is packed into the NuGet package as `.agents/**` by the standard `PurviewAutoSdkPack` `Sdk/` packaging logic. Add new skills under that path so they automatically flow into consuming repositories without hardcoding individual skill names.
+Repo-specific agent content lives under `src/src/BuildSdk/Sdk/.agents/` and is packed into the NuGet package as `.agents/**` by the standard `PurviewAutoSdkPack` `Sdk/` packaging logic. Add new skills under that path so they automatically flow into consuming repositories without hardcoding individual skill names.
 
 ## AgentPack folder and downstream impact
 
-**Hard requirement:** This SDK must pack the contents of `Sdk/` into the NuGet package so that downstream consumers of `Purview.DotNetProjectSdk` receive the same `Sdk/**` files. The `PurviewAutoSdkPack` feature is the mechanism that delivers this for standard consuming projects. Do not implement `Sdk/` packaging only for the `DotNetProjectSdk` project itself.
+**Hard requirement:** This SDK must pack the contents of `Sdk/` into the NuGet package so that downstream consumers of `Purview.BuildSdk` receive the same `Sdk/**` files. The `PurviewAutoSdkPack` feature is the mechanism that delivers this for standard consuming projects. Do not implement `Sdk/` packaging only for the `BuildSdk` project itself.
 
 For packable projects, `PurviewAutoSdkPack` (default `true`) automatically adds `Sdk/**/*` as `None` items with `Pack="true"` and `Visible="true"`, mapping each file to the correct location in the package:
 
@@ -34,23 +34,23 @@ For packable projects, `PurviewAutoSdkPack` (default `true`) automatically adds 
 - `Sdk/*.md`, `Sdk/*.png`, `Sdk/*.jpg`, etc. → package root
 - everything else under `Sdk/` → `Sdk/`
 
-The `DotNetProjectSdk.csproj` itself is an MSBuild SDK, so it disables `PurviewAutoSdkPack` and explicitly packs its `Sdk/` contents instead. This is an exception for the SDK project only; every other project that consumes this SDK relies on `PurviewAutoSdkPack` to ship its `Sdk/` folder. Consuming repositories that use this SDK get the bundled agent folder copied into `$(AgentPackDestinationFolder)/` (default `.agents/`) before build when `EnableAgentFolderInPackage` is `true` (default).
+The `BuildSdk.csproj` itself is an MSBuild SDK, so it disables `PurviewAutoSdkPack` and explicitly packs its `Sdk/` contents instead. This is an exception for the SDK project only; every other project that consumes this SDK relies on `PurviewAutoSdkPack` to ship its `Sdk/` folder. Consuming repositories that use this SDK get the bundled agent folder copied into `$(AgentPackDestinationFolder)/` (default `.agents/`) before build when `EnableAgentFolderInPackage` is `true` (default).
 
 During packaging, the SDK injects a `.gitignore` file into each second-level folder under `Sdk/.agents` with the content `# Ignore all files\n*\n\n# Don't ignore directories, so Git can traverse them\n!*/\n\n# Keep this file\n!.gitignore`, so the copied folder is ignored by Git in consuming repositories while keeping the folder structure discoverable.
 
-Any edit, addition, or deletion in `src/src/DotNetProjectSdk/Sdk/.agents/` therefore changes the contents delivered to every repository that consumes this SDK.
+Any edit, addition, or deletion in `src/src/BuildSdk/Sdk/.agents/` therefore changes the contents delivered to every repository that consumes this SDK.
 
-Tests for this feature live in `src/tests/DotNetProjectSdk.IntegrationTests/AgentPackFolderTests.cs`.
+Tests for this feature live in `src/tests/BuildSdk.IntegrationTests/AgentPackFolderTests.cs`.
 
 ## Repository map
 
-- `src/src/DotNetProjectSdk/` — packable MSBuild SDK package (`Purview.DotNetProjectSdk`)
+- `src/src/BuildSdk/` — packable MSBuild SDK package (`Purview.BuildSdk`)
 - `src/src/Analyzers/` — Roslyn analyzer/source-generator assembly
-- `src/src/CodeFixers/` — Roslyn code-fix assembly (`Purview.DotNetProjectSdk.CodeFixers`)
+- `src/src/CodeFixers/` — Roslyn code-fix assembly (`Purview.BuildSdk.CodeFixers`)
 - `src/tests/Analyzers.UnitTests/` — analyzer-focused unit tests
 - `src/tests/Analyzers.IntegrationTests/` — analyzer integration tests (Roslyn end-to-end analyzer/suppressor/code-fix behavior)
-- `src/tests/DotNetProjectSdk.IntegrationTests/` — integration harness validating SDK behaviour
-- `src/DotNetProjectSdk.slnx` — solution entry point
+- `src/tests/BuildSdk.IntegrationTests/` — integration harness validating SDK behaviour
+- `src/BuildSdk.slnx` — solution entry point
 
 ## Test project placement and namespace conventions
 
@@ -60,14 +60,14 @@ When adding or changing tests in this repository:
   `src/tests/Analyzers.UnitTests/`.
 - Keep **analyzer integration tests** (behavior spanning analyzer diagnostics, suppressors, and code fixes)
   in `src/tests/Analyzers.IntegrationTests/`.
-- Keep **SDK integration harness tests** in `src/tests/DotNetProjectSdk.IntegrationTests/`.
+- Keep **SDK integration harness tests** in `src/tests/BuildSdk.IntegrationTests/`.
 
 Namespace expectations:
 
-- `Analyzers.UnitTests` sources use `Purview.DotNetProjectSdk.Analyzers`
+- `Analyzers.UnitTests` sources use `Purview.BuildSdk.Analyzers`
 - `Analyzers.IntegrationTests` sources use
-  `Purview.DotNetProjectSdk.Analyzers`
-- `DotNetProjectSdk.IntegrationTests` sources use `Purview.DotNetProjectSdk`
+  `Purview.BuildSdk.Analyzers`
+- `BuildSdk.IntegrationTests` sources use `Purview.BuildSdk`
 
 Do not mix analyzer unit/integration tests in the same project unless explicitly requested.
 
@@ -82,7 +82,7 @@ Prefer `just` tasks:
 - `just lint-fix`
 - `just pack`
 
-`dotnet` fallback uses `src/DotNetProjectSdk.slnx` and `Release`.
+`dotnet` fallback uses `src/BuildSdk.slnx` and `Release`.
 
 ## Testing rules (important)
 
@@ -122,7 +122,7 @@ For filtering syntax and troubleshooting, see:
 
 ### Integration harness for complex validation
 
-Use `src/tests/DotNetProjectSdk.IntegrationTests/Harness/ProjectHarness.cs` when validating behaviour that depends on MSBuild evaluation, import order, or generated project state.
+Use `src/tests/BuildSdk.IntegrationTests/Harness/ProjectHarness.cs` when validating behaviour that depends on MSBuild evaluation, import order, or generated project state.
 
 - Create throwaway projects with `ProjectHarness.For(...).BuildAsync()` (or `CreateAsync`/`CreateWithContentAsync`).
 - Prefer harness evaluation helpers over brittle log parsing:
@@ -135,8 +135,8 @@ Use `src/tests/DotNetProjectSdk.IntegrationTests/Harness/ProjectHarness.cs` when
 
 Supporting files:
 
-- `src/tests/DotNetProjectSdk.IntegrationTests/Harness/ProjectHarness.Builder.cs`
-- `src/tests/DotNetProjectSdk.IntegrationTests/TestHelpers.cs`
+- `src/tests/BuildSdk.IntegrationTests/Harness/ProjectHarness.Builder.cs`
+- `src/tests/BuildSdk.IntegrationTests/TestHelpers.cs`
 
 ## Conventions to preserve
 

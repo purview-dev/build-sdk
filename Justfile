@@ -1,6 +1,6 @@
 set quiet
 
-solution_file := "src/DotNetProjectSdk.slnx"
+solution_file := "src/BuildSdk.slnx"
 build_configuration := "Debug"
 artifacts_folder := "./artifacts"
 
@@ -89,7 +89,7 @@ restore *args:
 # Displays the current package version from package.json
 [group('Build and Test')]
 current_version:
-    echo "==> Current version: {{ GREEN }}{{ current_version }}{{ NORMAL }} (defined in package.json and automatically included in the build output through the Purview.DotNetProjectSdk package)"
+    echo "==> Current version: {{ GREEN }}{{ current_version }}{{ NORMAL }} (defined in package.json and automatically included in the build output through the Purview.BuildSdk package)"
 
 # Run tests for a specific project with a filter (e.g., "/*/*/*/*/", or "/*/*/*/*[Category=Unit]" to run just unit tests) and configuration (e.g., "Release")
 [group('Build and Test')]

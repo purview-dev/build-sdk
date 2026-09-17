@@ -1,0 +1,113 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<PackageId>Purview.BuildSdk</PackageId>
+		<PackageType>MSBuildSdk</PackageType>
+		<Description>A reusable MSBuild SDK that provides standardised .NET project defaults, code style enforcement, configurable testing framework wiring (TUnit, Xunit, or None), mocking provider wiring (TUnitMocks, NSubstitute, or None), and Central Package Management integration. Drop in via Directory.Build.props to apply uniformly across every project in a repo.</Description>
+		<PackageTags>msbuild;sdk;build;tunit;xunit;tunitmock;nsubstitute;bogus;csharp;dotnet</PackageTags>
+		<PackageLicenseExpression>MIT</PackageLicenseExpression>
+		<PackageReadmeFile>README.md</PackageReadmeFile>
+		<PackageIcon>purview-logo.png</PackageIcon>
+
+		<!-- No compiled output — this is a pure MSBuild SDK package -->
+		<TargetFramework>netstandard2.0</TargetFramework>
+		<IncludeBuildOutput>false</IncludeBuildOutput>
+		<GenerateDocumentationFile>false</GenerateDocumentationFile>
+		<DisableGenerateAssemblyInfoClass>true</DisableGenerateAssemblyInfoClass>
+		<IsPackable>true</IsPackable>
+
+		<!-- No telemetry packages for this meta-project -->
+		<ExcludePurviewTelemetry>true</ExcludePurviewTelemetry>
+		<ExcludeMSTelemetryExtension>true</ExcludeMSTelemetryExtension>
+		<!-- No compiled output, so no symbol package is produced -->
+		<IncludeSymbols>false</IncludeSymbols>
+		<IncludeSource>false</IncludeSource>
+		<!-- This is an MSBuild SDK package, not a standard .NET project; disable auto Sdk/ packing. -->
+		<PurviewAutoSdkPack>false</PurviewAutoSdkPack>
+		<!-- NU5128: expected for MSBuildSdk packages — no lib/ref assemblies by design -->
+		<NoWarn>$(NoWarn);NU5128</NoWarn>
+		<!-- Allow dotfiles (e.g., .editorconfig) to be packed -->
+		<NoDefaultExcludes>true</NoDefaultExcludes>
+		<!-- No C# so no need to generate useful usings -->
+		<AutoIncludeUsings>false</AutoIncludeUsings>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<ProjectReference
+			Include="..\Analyzers\Analyzers.csproj"
+			PrivateAssets="all"
+			ReferenceOutputAssembly="false"
+			OutputItemType="Analyzer"
+			Targets="GetSourceGeneratorAnalyzerFiles"
+		/>
+		<ProjectReference
+			Include="..\CodeFixers\CodeFixers.csproj"
+			PrivateAssets="all"
+			ReferenceOutputAssembly="false"
+			OutputItemType="Analyzer"
+			Targets="GetSourceGeneratorAnalyzerFiles"
+		/>
+	</ItemGroup>
+
+	<!-- Pack the Sdk/ folder contents into the correct locations in the NuGet package.
+	     .editorconfig must be listed explicitly — NuGet excludes dotfiles by default. -->
+	<ItemGroup>
+		<None
+			Include="$(MSBuildThisFileDirectory)../../../.editorconfig"
+			Pack="true"
+			PackagePath="Sdk/.editorconfig"
+			Visible="true"
+		/>
+
+		<None
+			Include="Sdk/.agents/**/*"
+			Pack="true"
+			PackagePath=".agents/$([System.String]::Copy('%(RecursiveDir)').Replace(&quot;\&quot;, &quot;/&quot;))%(Filename)%(Extension)"
+			Visible="true"
+		/>
+		<None
+			Include="Sdk/.github/**/*"
+			Pack="true"
+			PackagePath=".github/$([System.String]::Copy('%(RecursiveDir)').Replace(&quot;\&quot;, &quot;/&quot;))%(Filename)%(Extension)"
+			Visible="true"
+		/>
+		<None
+			Include="Sdk/build/**/*"
+			Pack="true"
+			PackagePath="build/$([System.String]::Copy('%(RecursiveDir)').Replace(&quot;\&quot;, &quot;/&quot;))%(Filename)%(Extension)"
+			Visible="true"
+		/>
+		<None
+			Include="Sdk/buildTransitive/**/*"
+			Pack="true"
+			PackagePath="buildTransitive/$([System.String]::Copy('%(RecursiveDir)').Replace(&quot;\&quot;, &quot;/&quot;))%(Filename)%(Extension)"
+			Visible="true"
+		/>
+		<None
+			Include="Sdk/buildMultiTargeting/**/*"
+			Pack="true"
+			PackagePath="buildMultiTargeting/$([System.String]::Copy('%(RecursiveDir)').Replace(&quot;\&quot;, &quot;/&quot;))%(Filename)%(Extension)"
+			Visible="true"
+		/>
+		<None
+			Include="Sdk/*.md;Sdk/*.png;Sdk/*.jpg;Sdk/*.jpeg;Sdk/*.gif;Sdk/*.svg"
+			Pack="true"
+			PackagePath="%(Filename)%(Extension)"
+			Visible="true"
+		/>
+		<None
+			Include="Sdk/**/*"
+			Pack="true"
+			PackagePath="Sdk/$([System.String]::Copy('%(RecursiveDir)').Replace(&quot;\&quot;, &quot;/&quot;))%(Filename)%(Extension)"
+			Visible="true"
+			Exclude="Sdk/.agents/**/*;Sdk/.github/**/*;Sdk/build/**/*;Sdk/buildTransitive/**/*;Sdk/buildMultiTargeting/**/*;Sdk/*.md;Sdk/*.png;Sdk/*.jpg;Sdk/*.jpeg;Sdk/*.gif;Sdk/*.svg"
+		/>
+
+		<None Include="$(MSBuildThisFileDirectory)../../../README.md" Pack="true" PackagePath="/" />
+		<None Include="$(MSBuildThisFileDirectory)../../../LICENSE.md" Pack="true" PackagePath="/" />
+		<None
+			Include="$(MSBuildThisFileDirectory)../../../assets/images/purview-logo.png"
+			Pack="true"
+			PackagePath="/"
+		/>
+	</ItemGroup>
+</Project>

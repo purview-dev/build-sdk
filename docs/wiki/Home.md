@@ -1,6 +1,6 @@
 # Purview .NET Project SDK Wiki
 
-This wiki is the project documentation hub for **Purview.DotNetProjectSdk** — a reusable MSBuild SDK
+This wiki is the project documentation hub for **Purview.BuildSdk** — a reusable MSBuild SDK
 NuGet package that delivers standardised .NET project defaults, code-style enforcement, test-framework
 wiring, and Central Package Management integration. Install it once per repo; every project beneath the
 repo root inherits everything automatically.
@@ -61,10 +61,10 @@ repo root inherits everything automatically.
 
 ## Repository layout
 
-- `src/src/DotNetProjectSdk` — the packable MSBuild SDK package (`Purview.DotNetProjectSdk`), with the
+- `src/src/BuildSdk` — the packable MSBuild SDK package (`Purview.BuildSdk`), with the
   SDK logic under `Sdk/`.
-- `src/src/Analyzers` — Roslyn analyzer/suppressor assembly (`Purview.DotNetProjectSdk.Analyzers`).
-- `src/src/CodeFixers` — Roslyn code-fix assembly (`Purview.DotNetProjectSdk.CodeFixers`).
+- `src/src/Analyzers` — Roslyn analyzer/suppressor assembly (`Purview.BuildSdk.Analyzers`).
+- `src/src/CodeFixers` — Roslyn code-fix assembly (`Purview.BuildSdk.CodeFixers`).
 - `src/tests` — unit, integration, and SDK harness test projects.
 - `docs/wiki` — this wiki.
 - `templates/` — ready-to-copy starter files for consuming repositories.

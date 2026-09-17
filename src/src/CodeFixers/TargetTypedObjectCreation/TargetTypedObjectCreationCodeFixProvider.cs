@@ -5,9 +5,9 @@ using Microsoft.CodeAnalysis.CodeActions;
 using Microsoft.CodeAnalysis.CodeFixes;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
-using Purview.DotNetProjectSdk.Analyzers.TargetTypedObjectCreation;
+using Purview.BuildSdk.Analyzers.TargetTypedObjectCreation;
 
-namespace Purview.DotNetProjectSdk.CodeFixers.TargetTypedObjectCreation;
+namespace Purview.BuildSdk.CodeFixers.TargetTypedObjectCreation;
 
 [ExportCodeFixProvider(LanguageNames.CSharp, Name = nameof(TargetTypedObjectCreationCodeFixProvider))]
 [Shared]

@@ -5,10 +5,10 @@ using Microsoft.CodeAnalysis.CodeActions;
 using Microsoft.CodeAnalysis.CodeFixes;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
-using Purview.DotNetProjectSdk.Analyzers;
-using Purview.DotNetProjectSdk.Analyzers.ExtensionsNamespace;
+using Purview.BuildSdk.Analyzers;
+using Purview.BuildSdk.Analyzers.ExtensionsNamespace;
 
-namespace Purview.DotNetProjectSdk.CodeFixers.ExtensionsNamespace;
+namespace Purview.BuildSdk.CodeFixers.ExtensionsNamespace;
 
 [ExportCodeFixProvider(LanguageNames.CSharp, Name = nameof(ExtensionsNamespaceCodeFixProvider))]
 [Shared]

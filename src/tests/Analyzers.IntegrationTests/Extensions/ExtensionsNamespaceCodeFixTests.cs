@@ -6,10 +6,10 @@ using Microsoft.CodeAnalysis.CodeFixes;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Diagnostics;
 using Microsoft.CodeAnalysis.Text;
-using Purview.DotNetProjectSdk.Analyzers.ExtensionsNamespace;
-using Purview.DotNetProjectSdk.CodeFixers.ExtensionsNamespace;
+using Purview.BuildSdk.Analyzers.ExtensionsNamespace;
+using Purview.BuildSdk.CodeFixers.ExtensionsNamespace;
 
-namespace Purview.DotNetProjectSdk.Analyzers.IntegrationTests.Extensions;
+namespace Purview.BuildSdk.Analyzers.IntegrationTests.Extensions;
 
 /// <summary>
 /// Integration tests for <see cref="ExtensionsNamespaceCodeFixProvider"/>.

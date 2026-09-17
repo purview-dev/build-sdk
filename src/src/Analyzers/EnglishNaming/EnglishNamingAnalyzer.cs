@@ -3,7 +3,7 @@ using System.Collections.Immutable;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Diagnostics;
 
-namespace Purview.DotNetProjectSdk.Analyzers.EnglishNaming;
+namespace Purview.BuildSdk.Analyzers.EnglishNaming;
 
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
 public sealed class EnglishNamingAnalyzer : DiagnosticAnalyzer

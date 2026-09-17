@@ -4,7 +4,7 @@ using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Diagnostics;
 
-namespace Purview.DotNetProjectSdk.Analyzers.ExtensionsNamespace;
+namespace Purview.BuildSdk.Analyzers.ExtensionsNamespace;
 
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
 public sealed class ExtensionsNamespaceAnalyzer : DiagnosticAnalyzer

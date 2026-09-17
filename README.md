@@ -1,7 +1,7 @@
-# Purview.DotNetProjectSdk
+# Purview.BuildSdk
 
-[![NuGet version](https://img.shields.io/nuget/v/Purview.DotNetProjectSdk.svg)](https://www.nuget.org/packages/Purview.DotNetProjectSdk)
-[![Release](https://github.com/purview-dev/dotnet-project-sdk/actions/workflows/release.yml/badge.svg)](https://github.com/purview-dev/dotnet-project-sdk/actions/workflows/release.yml)
+[![NuGet version](https://img.shields.io/nuget/v/Purview.BuildSdk.svg)](https://www.nuget.org/packages/Purview.BuildSdk)
+[![Release](https://github.com/purview-dev/build-sdk/actions/workflows/release.yml/badge.svg)](https://github.com/purview-dev/build-sdk/actions/workflows/release.yml)
 
 A reusable MSBuild SDK NuGet package that delivers standardised .NET project defaults, code-style enforcement, test-framework wiring, and Central Package Management integration. Install it once per repo — every project beneath the repo root inherits everything automatically.
 
@@ -41,7 +41,7 @@ A reusable MSBuild SDK NuGet package that delivers standardised .NET project def
     "runner": "Microsoft.Testing.Platform"
   },
   "msbuild-sdks": {
-    "Purview.DotNetProjectSdk": "1.0.0"
+    "Purview.BuildSdk": "1.0.0"
   }
 }
 ```
@@ -55,7 +55,7 @@ A reusable MSBuild SDK NuGet package that delivers standardised .NET project def
     <NamespacePrefix>YourCompany</NamespacePrefix>
   </PropertyGroup>
 
-  <Import Sdk="Purview.DotNetProjectSdk" Project="Sdk.props" />
+  <Import Sdk="Purview.BuildSdk" Project="Sdk.props" />
 </Project>
 ```
 
@@ -63,7 +63,7 @@ A reusable MSBuild SDK NuGet package that delivers standardised .NET project def
 
 ```xml
 <Project>
-  <Import Sdk="Purview.DotNetProjectSdk" Project="Sdk.targets" />
+  <Import Sdk="Purview.BuildSdk" Project="Sdk.targets" />
 </Project>
 ```
 
@@ -209,7 +209,7 @@ The extracted `version` field is applied to both `Version` and `PackageVersion`.
 
 Version detection logging is disabled by default. Set `VersionDetectionLogEnabled` to `true` to emit a high-importance message showing the detected package version.
 
-> **Important — set before the import:** Both `UsePackageJsonVersion` and `RootPackageJson` must be set **before** the `<Import Sdk="Purview.DotNetProjectSdk" Project="Sdk.props" />` line in your `Directory.Build.props`. The version logic runs during that import and cannot see properties set afterwards (e.g. in individual `.csproj` files).
+> **Important — set before the import:** Both `UsePackageJsonVersion` and `RootPackageJson` must be set **before** the `<Import Sdk="Purview.BuildSdk" Project="Sdk.props" />` line in your `Directory.Build.props`. The version logic runs during that import and cannot see properties set afterwards (e.g. in individual `.csproj` files).
 >
 > ```xml
 > <Project>
@@ -219,7 +219,7 @@ Version detection logging is disabled by default. Set `VersionDetectionLogEnable
 >     <RootPackageJson>$(MSBuildThisFileDirectory)package.json</RootPackageJson>
 >   </PropertyGroup>
 >
->   <Import Sdk="Purview.DotNetProjectSdk" Project="Sdk.props" />
+>   <Import Sdk="Purview.BuildSdk" Project="Sdk.props" />
 > </Project>
 > ```
 
@@ -270,7 +270,7 @@ Non-packable projects (including web applications) default `WarnOnPackingNonPack
 | `RepositoryEditorConfigFilePath` | *(auto-detected)* | Override the destination path for the bootstrapped `.editorconfig`. |
 | `BootstrapGlobalJsonToRepoRoot` | `true` | Creates a `global.json` at the repository root when missing. |
 | `RepositoryGlobalJsonFilePath` | *(auto-detected)* | Override the destination path for the bootstrapped `global.json`. |
-| `PurviewDotNetProjectSdkVersionForGlobalJson` | *(auto-detected or `1.0.0` fallback)* | Version written to the `msbuild-sdks.Purview.DotNetProjectSdk` entry in a bootstrapped `global.json`. |
+| `PurviewBuildSdkVersionForGlobalJson` | *(auto-detected or `1.0.0` fallback)* | Version written to the `msbuild-sdks.Purview.BuildSdk` entry in a bootstrapped `global.json`. |
 
 ### Agent folder
 
@@ -358,7 +358,7 @@ The SDK now exports its properties via `CompilerVisibleProperty`, so analyzers a
 | `BootstrapEditorConfigToRepoRoot` | When `true` (default), copies the SDK `.editorconfig` to `RepositoryEditorConfigFilePath` if missing. |
 | `RepositoryGlobalJsonFilePath` | Destination path for bootstrapping a physical repo-level `global.json` (defaults to git repo root; falls back to `Directory.Build.props` directory). |
 | `BootstrapGlobalJsonToRepoRoot` | When `true` (default), creates `global.json` at `RepositoryGlobalJsonFilePath` if missing. |
-| `PurviewDotNetProjectSdkVersionForGlobalJson` | Version used for `msbuild-sdks.Purview.DotNetProjectSdk` when bootstrapping `global.json` (auto-detected from SDK package path, fallback `1.0.0`). |
+| `PurviewBuildSdkVersionForGlobalJson` | Version used for `msbuild-sdks.Purview.BuildSdk` when bootstrapping `global.json` (auto-detected from SDK package path, fallback `1.0.0`). |
 | `DisableAutoCopySdkFiles` | When `true`, disables SDK auto-copy/bootstrap for repo files (`.editorconfig`, `global.json`). |
 | `PurviewAutoSdkPack` | When `true`, automatically packs the `Sdk/` folder contents into the NuGet package with the correct root-level paths. |
 | `CurrentYear` | Current year used in generated assembly metadata. |
@@ -375,7 +375,7 @@ The SDK now exports its properties via `CompilerVisibleProperty`, so analyzers a
     <TestDataFramework>None</TestDataFramework>
   </PropertyGroup>
 
-  <Import Sdk="Purview.DotNetProjectSdk" Project="Sdk.props" />
+  <Import Sdk="Purview.BuildSdk" Project="Sdk.props" />
 </Project>
 ```
 
@@ -499,7 +499,7 @@ document that references the type, so the move compiles everywhere.
 
 ## SDK-shipped analyzers
 
-The package ships `Purview.DotNetProjectSdk.Analyzers.dll` (plus a separate code-fix assembly for the IDE)
+The package ships `Purview.BuildSdk.Analyzers.dll` (plus a separate code-fix assembly for the IDE)
 and adds the analyzer to every C# project as an `<Analyzer>` item, so the rules surface in both
 command-line builds and Visual Studio.
 
@@ -583,15 +583,15 @@ To add project-specific packages, just append `PackageVersion` entries to your `
 
 ## Documentation
 
-- [Homepage](https://purview.dev/projects/dotnet-project-sdk/)
-- [Documentation](https://purview.dev/docs/dotnet-project-sdk/)
+- [Homepage](https://purview.dev/projects/build-sdk/)
+- [Documentation](https://purview.dev/docs/build-sdk/)
 
 ## Building the SDK
 
 ```sh
-dotnet build src/DotNetProjectSdk.slnx -c Release
-dotnet test src/DotNetProjectSdk.slnx -c Release
-dotnet pack src/src/DotNetProjectSdk/DotNetProjectSdk.csproj -o ./artifacts
+dotnet build src/BuildSdk.slnx -c Release
+dotnet test src/BuildSdk.slnx -c Release
+dotnet pack src/src/BuildSdk/BuildSdk.csproj -o ./artifacts
 ```
 
 ## License

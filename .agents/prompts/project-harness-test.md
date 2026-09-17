@@ -1,6 +1,6 @@
 # project-harness-test (generic prompt spec)
 
-Create or update an integration test in `src/tests/DotNetProjectSdk.IntegrationTests/` using `ProjectHarness`.
+Create or update an integration test in `src/tests/BuildSdk.IntegrationTests/` using `ProjectHarness`.
 
 ## Required behaviour
 
@@ -18,7 +18,7 @@ Create or update an integration test in `src/tests/DotNetProjectSdk.IntegrationT
 
 ## Suggested output structure
 
-- Add/modify one test file under `src/tests/DotNetProjectSdk.IntegrationTests/`.
+- Add/modify one test file under `src/tests/BuildSdk.IntegrationTests/`.
 - Include a short test comment describing **Given / When / Then** intent.
 - Validate by running targeted tests first, then broader tests if needed.
 

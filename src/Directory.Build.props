@@ -1,29 +1,29 @@
 <Project>
 	<!--
-		The DotNetProjectSdk repo bootstraps from its own source so that
+		The BuildSdk repo bootstraps from its own source so that
 		the package project can be built and tested without a published NuGet version.
 		Consuming repos should use the global.json + templates/Directory.Build.props
 		pattern instead (see README.md).
 	-->
 	<PropertyGroup>
-		<NamespacePrefix>Purview.DotNetProjectSdk</NamespacePrefix>
+		<NamespacePrefix>Purview.BuildSdk</NamespacePrefix>
 		<!-- Exclude telemetry packages from the packaging project itself -->
 		<ExcludePurviewTelemetry>true</ExcludePurviewTelemetry>
 		<!-- The SDK project is an MSBuild SDK; disable the auto Sdk/ packing intended for standard consuming projects. -->
-		<PurviewAutoSdkPack Condition="'$(MSBuildProjectName)' == 'DotNetProjectSdk'">false</PurviewAutoSdkPack>
+		<PurviewAutoSdkPack Condition="'$(MSBuildProjectName)' == 'BuildSdk'">false</PurviewAutoSdkPack>
 	</PropertyGroup>
 
 	<!-- Dog fooding the Sdk... -->
-	<Import Project="$(MSBuildThisFileDirectory)src/DotNetProjectSdk/Sdk/Sdk.props" />
+	<Import Project="$(MSBuildThisFileDirectory)src/BuildSdk/Sdk/Sdk.props" />
 
 	<PropertyGroup Label="Purview site URL metadata">
 		<PurviewHomepage>https://purview.dev/</PurviewHomepage>
-		<PurviewProjectUrl>$(PurviewHomepage)projects/dotnet-project-sdk/</PurviewProjectUrl>
-		<PurviewDocsUrl>$(PurviewHomepage)docs/dotnet-project-sdk/</PurviewDocsUrl>
+		<PurviewProjectUrl>$(PurviewHomepage)projects/build-sdk/</PurviewProjectUrl>
+		<PurviewDocsUrl>$(PurviewHomepage)docs/build-sdk/</PurviewDocsUrl>
 	</PropertyGroup>
 
 	<PropertyGroup Label="NuGet package metadata">
-		<RepositoryUrl>https://github.com/purview-dev/dotnet-project-sdk.git</RepositoryUrl>
+		<RepositoryUrl>https://github.com/purview-dev/build-sdk.git</RepositoryUrl>
 		<RepositoryType>git</RepositoryType>
 		<PackageProjectUrl>$(PurviewProjectUrl)</PackageProjectUrl>
 		<PublishRepositoryUrl>true</PublishRepositoryUrl>

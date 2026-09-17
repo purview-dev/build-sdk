@@ -1,4 +1,4 @@
-namespace Purview.DotNetProjectSdk.Analyzers.ExtensionsNamespace;
+namespace Purview.BuildSdk.Analyzers.ExtensionsNamespace;
 
 /// <summary>
 /// Unit tests for <see cref="ExtensionsNamespaceHelper"/> namespace derivation logic.

@@ -3,6 +3,6 @@
 		"runner": "Microsoft.Testing.Platform"
 	},
 	"msbuild-sdks": {
-		"Purview.DotNetProjectSdk": "1.0.0"
+		"Purview.BuildSdk": "1.0.0"
 	}
 }

@@ -4,7 +4,7 @@ using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Diagnostics;
 
-namespace Purview.DotNetProjectSdk.Analyzers.TargetTypedObjectCreation;
+namespace Purview.BuildSdk.Analyzers.TargetTypedObjectCreation;
 
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
 public sealed class TargetTypedObjectCreationAnalyzer : DiagnosticAnalyzer

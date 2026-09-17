@@ -14,7 +14,7 @@ the full PR/release cycle, and plain `dotnet`/`just` commands for focused local 
 
 ```text
 dotnet tool restore          # install local tools (csharpier, etc.)
-just build                   # dotnet build src/DotNetProjectSdk.slnx --configuration Debug
+just build                   # dotnet build src/BuildSdk.slnx --configuration Debug
 just test                    # dotnet test with a TUnit tree-node filter
 just lint-check              # csharpier check
 just lint-fix                # csharpier format .
@@ -38,7 +38,7 @@ The pipeline configuration lives in `purview-build.json`:
 ```json
 {
   "Build": {
-    "Solution": "src/DotNetProjectSdk.slnx",
+    "Solution": "src/BuildSdk.slnx",
     "TestRoot": "src/tests",
     "TestPatterns": "*Tests.csproj",
     "TestFilter": "/*/*/*/*[Category=Unit]/"
@@ -68,5 +68,5 @@ The pipeline configuration lives in `purview-build.json`:
 - CI runs the full suite on `ubuntu-latest`, so all tests and features must work identically on
   Windows, Linux, and macOS — never hardcode platform-specific paths in tests or fixtures.
 - The integration harness (`ProjectHarness`) creates throwaway projects under `Path.GetTempPath()`;
-  see `src/tests/DotNetProjectSdk.IntegrationTests/Harness/ProjectHarness.cs`.
+  see `src/tests/BuildSdk.IntegrationTests/Harness/ProjectHarness.cs`.
 - Linux agent-pack integration tests can be run locally via `just test-linux` (Docker-based).

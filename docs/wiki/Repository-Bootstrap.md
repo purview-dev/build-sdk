@@ -24,7 +24,7 @@ Control it with:
 ## `global.json` bootstrapping
 
 The SDK creates a `global.json` at the repository root when one is missing, registering
-`Purview.DotNetProjectSdk` in `msbuild-sdks` and setting the `Microsoft.Testing.Platform` test runner:
+`Purview.BuildSdk` in `msbuild-sdks` and setting the `Microsoft.Testing.Platform` test runner:
 
 ```json
 {
@@ -32,7 +32,7 @@ The SDK creates a `global.json` at the repository root when one is missing, regi
     "runner": "Microsoft.Testing.Platform"
   },
   "msbuild-sdks": {
-    "Purview.DotNetProjectSdk": "<version>"
+    "Purview.BuildSdk": "<version>"
   }
 }
 ```
@@ -43,7 +43,7 @@ Control it with:
 | -- | -- | -- |
 | `BootstrapGlobalJsonToRepoRoot` | `true` | Creates a `global.json` at the repository root when missing. |
 | `RepositoryGlobalJsonFilePath` | *(auto-detected)* | Override the destination path for the bootstrapped `global.json`. |
-| `PurviewDotNetProjectSdkVersionForGlobalJson` | *(auto-detected or `1.0.0` fallback)* | Version written to the `msbuild-sdks.Purview.DotNetProjectSdk` entry. |
+| `PurviewBuildSdkVersionForGlobalJson` | *(auto-detected or `1.0.0` fallback)* | Version written to the `msbuild-sdks.Purview.BuildSdk` entry. |
 | `DisableAutoCopySdkFiles` | `false` | Master switch that disables repo-level SDK file bootstrapping. |
 
 ## Repository root discovery
