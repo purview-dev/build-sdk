@@ -23,11 +23,11 @@ public sealed class AgentPackFolderTests
 			<ExcludePurviewTelemetry>true</ExcludePurviewTelemetry>
 			<PackageReadmeFile>README.md</PackageReadmeFile>
 			<PackageLicenseFile>LICENSE.md</PackageLicenseFile>
-			<PackageIcon>purview-logo.png</PackageIcon>
+			<PackageIcon>purview-logo-light.png</PackageIcon>
 			""",
 			extraItems: """
 			<None Include="..\LICENSE.md" Link="Sdk\LICENSE.md" />
-			<None Include="..\purview-logo.png" Link="Sdk\purview-logo.png" />
+			<None Include="..\purview-logo-light.png" Link="Sdk\purview-logo-light.png" />
 			""",
 			cancellationToken: cancellationToken
 		);
@@ -40,7 +40,7 @@ public sealed class AgentPackFolderTests
 		);
 		await File.WriteAllTextAsync(Path.Combine(h.SolutionDirectory, "LICENSE.md"), "License", cancellationToken);
 		await File.WriteAllBytesAsync(
-			Path.Combine(h.SolutionDirectory, "purview-logo.png"),
+			Path.Combine(h.SolutionDirectory, "purview-logo-light.png"),
 			[0xFF, 0xD8, 0xFF, 0xD9],
 			cancellationToken
 		);
@@ -61,7 +61,7 @@ public sealed class AgentPackFolderTests
 		var entries = package.Entries.Select(entry => entry.FullName).ToList();
 		await Assert.That(entries).Contains("README.md");
 		await Assert.That(entries).Contains("LICENSE.md");
-		await Assert.That(entries).Contains("purview-logo.png");
+		await Assert.That(entries).Contains("purview-logo-light.png");
 	}
 
 	[Test]
