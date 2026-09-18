@@ -6,7 +6,7 @@
 		<PackageTags>msbuild;sdk;build;tunit;xunit;tunitmock;nsubstitute;bogus;csharp;dotnet</PackageTags>
 		<PackageLicenseExpression>MIT</PackageLicenseExpression>
 		<PackageReadmeFile>README.md</PackageReadmeFile>
-		<PackageIcon>purview-logo.png</PackageIcon>
+		<PackageIcon>purview-logo-light.png</PackageIcon>
 
 		<!-- No compiled output — this is a pure MSBuild SDK package -->
 		<TargetFramework>netstandard2.0</TargetFramework>
@@ -105,7 +105,7 @@
 		<None Include="$(MSBuildThisFileDirectory)../../../README.md" Pack="true" PackagePath="/" />
 		<None Include="$(MSBuildThisFileDirectory)../../../LICENSE.md" Pack="true" PackagePath="/" />
 		<None
-			Include="$(MSBuildThisFileDirectory)../../../assets/images/purview-logo.png"
+			Include="$(MSBuildThisFileDirectory)../../../assets/images/purview-logo-light.png"
 			Pack="true"
 			PackagePath="/"
 		/>
