@@ -95,6 +95,12 @@
 			Condition="'$(IsRoslynComponent)' == '' AND $([System.Text.RegularExpressions.Regex]::IsMatch($([System.IO.File]::ReadAllText(`$(MSBuildProjectFullPath)`)), `(?is)&lt;IsRoslynComponent\s*&gt;\s*true\s*&lt;/IsRoslynComponent\s*&gt;`))"
 			>true</IsRoslynComponent>
 		<IsRoslynComponent Condition="'$(IsRoslynComponent)' == ''">false</IsRoslynComponent>
+		<IsRoslynComponentOnly
+			Condition="'$(IsRoslynComponentOnly)' == '' AND $([System.Text.RegularExpressions.Regex]::IsMatch($([System.IO.File]::ReadAllText(`$(MSBuildProjectFullPath)`)), `(?is)&lt;IsRoslynComponentOnly\s*&gt;\s*false\s*&lt;/IsRoslynComponentOnly\s*&gt;`))"
+			>false</IsRoslynComponentOnly>
+		<IsRoslynComponentOnly Condition="'$(IsRoslynComponentOnly)' == '' AND '$(IsRoslynComponent)' == 'true'"
+			>true</IsRoslynComponentOnly>
+		<IsRoslynComponentOnly Condition="'$(IsRoslynComponentOnly)' == ''">false</IsRoslynComponentOnly>
 		<IsPackable
 			Condition="$([System.Text.RegularExpressions.Regex]::IsMatch($([System.IO.File]::ReadAllText(`$(MSBuildProjectFullPath)`)), `(?is)&lt;IsPackable\s*&gt;\s*true\s*&lt;/IsPackable\s*&gt;`))"
 			>true</IsPackable>
@@ -363,18 +369,21 @@
 		     does not fail the pack. No symbol package is produced by default (the PDB ships in
 		     analyzers/dotnet/cs beside the analyzer assembly), and any explicit opt-in uses the
 		     modern snupkg format rather than the legacy symbols.nupkg. -->
-		<IncludeSymbols Condition="'$(IncludeSymbols)' == '' OR '$(IncludeSymbols)' == 'true'">false</IncludeSymbols>
-		<NoWarn>$(NoWarn);NU5128;</NoWarn>
+		<IncludeSymbols
+			Condition="'$(IsRoslynComponentOnly)' == 'true' AND ('$(IncludeSymbols)' == '' OR '$(IncludeSymbols)' == 'true')"
+			>false</IncludeSymbols>
+		<NoWarn Condition="'$(IsRoslynComponentOnly)' == 'true'">$(NoWarn);NU5128;</NoWarn>
 		<!-- The analyzer PDB ships inside the .nupkg under analyzers/dotnet/cs by default so symbols
 		     are always delivered. NuGet's .snupkg only carries build-output (lib) symbols, so opt out
 		     with PurviewPackAnalyzerPdb=false only when symbols are delivered another way. -->
-		<PurviewPackAnalyzerPdb Condition="'$(PurviewPackAnalyzerPdb)' == ''">true</PurviewPackAnalyzerPdb>
+		<PurviewPackAnalyzerPdb Condition="'$(IsRoslynComponentOnly)' == 'true' AND '$(PurviewPackAnalyzerPdb)' == ''"
+			>true</PurviewPackAnalyzerPdb>
 		<!-- Roslyn components get the same SourceLink and source-embedding treatment as regular
 		     packages so the shipped analyzer PDBs are source-linked and reproducible. -->
 		<EmbedUntrackedSources Condition="'$(EmbedUntrackedSources)' == ''">true</EmbedUntrackedSources>
 		<GenerateDependencyFile>false</GenerateDependencyFile>
 		<ExcludePurviewTelemetry>true</ExcludePurviewTelemetry>
-		<IncludeBuildOutput>false</IncludeBuildOutput>
+		<IncludeBuildOutput Condition="'$(IsRoslynComponentOnly)' == 'true'">false</IncludeBuildOutput>
 	</PropertyGroup>
 
 	<PropertyGroup Label="C# Project Property Groups" Condition="'$(IsCSharpProject)' == 'true'">

@@ -147,6 +147,7 @@ public sealed class RoslynComponentDefaultsTests
 			"GenerateDependencyFile",
 			"CompilerGeneratedFilesOutputPath",
 			"SymbolPackageFormat",
+			"IsRoslynComponentOnly",
 			"ExcludePurviewTelemetry",
 			"IncludeBuildOutput"
 		);
@@ -173,8 +174,32 @@ public sealed class RoslynComponentDefaultsTests
 			.That(properties["SymbolPackageFormat"])
 			.IsEqualTo("snupkg")
 			.Because("Roslyn components must use the modern snupkg format, never the legacy symbols.nupkg.");
+		await Assert.That(properties["IsRoslynComponentOnly"]).IsEqualTo("true");
 		await Assert.That(properties["ExcludePurviewTelemetry"]).IsEqualTo("true");
 		await Assert.That(properties["IncludeBuildOutput"]).IsEqualTo("false");
+	}
+
+	[Test]
+	public async Task RoslynComponentOnlyFalse_UsesRegularSymbolPackaging(CancellationToken cancellationToken)
+	{
+		using var harness = await ProjectHarness
+			.For("SourceGeneration")
+			.WithProjectFileContent(
+				"""
+				<Project Sdk="Microsoft.NET.Sdk">
+					<PropertyGroup>
+						<IsRoslynComponent>true</IsRoslynComponent>
+						<IsRoslynComponentOnly>false</IsRoslynComponentOnly>
+					</PropertyGroup>
+				</Project>
+				"""
+			)
+			.BuildAsync(cancellationToken);
+
+		var properties = await harness.GetPropertiesAsync(cancellationToken, "IsRoslynComponentOnly", "IncludeSymbols");
+
+		await Assert.That(properties["IsRoslynComponentOnly"]).IsEqualTo("false");
+		await Assert.That(properties["IncludeSymbols"]).IsEqualTo("true");
 	}
 
 	[Test]
