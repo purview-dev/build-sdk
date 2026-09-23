@@ -148,8 +148,8 @@ This is why consistent naming and placement matter so much in repos that use the
 
 ### For Roslyn component (analyzer/source-generator) projects
 
-- Defaults a single `netstandard2.0` target, `LangVersion=latest`, `Nullable=enable`, `TreatWarningsAsErrors=true`, `Deterministic=true`, extended analyzer rules, SourceLink with `EmbedUntrackedSources=true`, and excluded normal build output (`IncludeBuildOutput=false`)
-- Defaults `IncludeSymbols=false` — no `.symbols.nupkg` or `.snupkg` is produced by default; the analyzer PDB ships inside the main `.nupkg` under `analyzers/dotnet/cs/` beside the analyzer assembly (`PurviewPackAnalyzerPdb=true`; set `false` only when symbols are delivered another way, since NuGet's `.snupkg` cannot host `analyzers/dotnet/cs` symbols)
+- Defaults a single `netstandard2.0` target, `LangVersion=latest`, `Nullable=enable`, `TreatWarningsAsErrors=true`, `Deterministic=true`, extended analyzer rules, and SourceLink with `EmbedUntrackedSources=true`
+- `IsRoslynComponentOnly` defaults to `true`, excluding normal build output (`IncludeBuildOutput=false`) and setting `IncludeSymbols=false`; no `.symbols.nupkg` or `.snupkg` is produced and the analyzer PDB ships inside the main `.nupkg` under `analyzers/dotnet/cs/` beside the analyzer assembly (`PurviewPackAnalyzerPdb=true`). Set it to `false` for a dual-role component that uses normal library symbol packaging.
 - Packable Roslyn components automatically pack the built analyzer assembly (and PDB) into `analyzers/dotnet/cs/`; `SymbolPackageFormat` defaults to the modern `snupkg` if symbols are explicitly opted into
 - `Microsoft.CodeAnalysis.*` and `Microsoft.CodeAnalysis.Analyzers` references are defaulted to `PrivateAssets=all` (development-only dependencies) so they never leak into the packed nuspec
 - A pack-time validation (`ValidateRoslynComponentCompilerSettings`) fails the pack of a packable Roslyn component if `LangVersion`, `Nullable`, `TreatWarningsAsErrors`, or `EnforceExtendedAnalyzerRules` is missing; opt out with `DisableRoslynCompilerDefaultsValidation=true`
