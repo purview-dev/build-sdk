@@ -22,11 +22,10 @@ public sealed class AgentPackFolderTests
 			<DisableSourceLink>true</DisableSourceLink>
 			<ExcludePurviewTelemetry>true</ExcludePurviewTelemetry>
 			<PackageReadmeFile>README.md</PackageReadmeFile>
-			<PackageLicenseFile>LICENSE.md</PackageLicenseFile>
+			<PackageLicensesExpression>MIT</PackageLicensesExpression>
 			<PackageIcon>purview-logo-light.png</PackageIcon>
 			""",
 			extraItems: """
-			<None Include="..\LICENSE.md" Link="Sdk\LICENSE.md" />
 			<None Include="..\purview-logo-light.png" Link="Sdk\purview-logo-light.png" />
 			""",
 			cancellationToken: cancellationToken
@@ -38,7 +37,6 @@ public sealed class AgentPackFolderTests
 			"# Package",
 			cancellationToken
 		);
-		await File.WriteAllTextAsync(Path.Combine(h.SolutionDirectory, "LICENSE.md"), "License", cancellationToken);
 		await File.WriteAllBytesAsync(
 			Path.Combine(h.SolutionDirectory, "purview-logo-light.png"),
 			[0xFF, 0xD8, 0xFF, 0xD9],
@@ -60,7 +58,6 @@ public sealed class AgentPackFolderTests
 		using var package = await ZipFile.OpenReadAsync(packagePath, cancellationToken);
 		var entries = package.Entries.Select(entry => entry.FullName).ToList();
 		await Assert.That(entries).Contains("README.md");
-		await Assert.That(entries).Contains("LICENSE.md");
 		await Assert.That(entries).Contains("purview-logo-light.png");
 	}
 
