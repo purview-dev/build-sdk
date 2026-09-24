@@ -6,7 +6,22 @@
 		"TestFilter": "/*/*/*/*[Category=Unit]/"
 	},
 	"PackValidation": {
-		"RequireSymbolPackage": false
+		"RequireSymbolPackage": false,
+		"RequiredContent": {
+			"purview.buildsdk": [
+				".agents/**/*",
+				"analyzers/dotnet/cs/Purview.BuildSdk.Analyzers.dll",
+				"analyzers/dotnet/cs/Purview.BuildSdk.CodeFixers.dll",
+				"purview-logo-light.png",
+				"README.md",
+				"Sdk/.editorconfig",
+				"Sdk/Props/Defaults.props",
+				"Sdk/Props/VersionDetection.props",
+				"Sdk/Sdk.props",
+				"Sdk/Sdk.targets",
+				"Sdk/Targets/VersionDetection.targets"
+			]
+		}
 	},
 	"Release": {
 		"Mode": "None"

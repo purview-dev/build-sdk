@@ -103,7 +103,6 @@
 		/>
 
 		<None Include="$(MSBuildThisFileDirectory)../../../README.md" Pack="true" PackagePath="/" />
-		<None Include="$(MSBuildThisFileDirectory)../../../LICENSE.md" Pack="true" PackagePath="/" />
 		<None
 			Include="$(MSBuildThisFileDirectory)../../../assets/images/purview-logo-light.png"
 			Pack="true"
