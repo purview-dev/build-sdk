@@ -228,6 +228,36 @@
 		<CompilerVisibleProperty Include="AgentPackDestinationFolder">
 			<Description>Repo-relative destination folder that receives copied .agents content. Defaults to .agents.</Description>
 		</CompilerVisibleProperty>
+		<CompilerVisibleProperty Include="PurviewAgentSyncManifestPath">
+			<Description>Overrides the change-detection manifest used to skip unchanged .agents syncs. Defaults to the repository .purview/agent-sync.cache file.</Description>
+		</CompilerVisibleProperty>
+		<CompilerVisibleProperty Include="PurviewAgentFolderCopyRetries">
+			<Description>Number of copy attempts used when syncing bundled .agents content into the consuming repository. Defaults to 3.</Description>
+		</CompilerVisibleProperty>
+		<CompilerVisibleProperty Include="PurviewAgentFolderCopyRetryDelayMilliseconds">
+			<Description>Delay in milliseconds between .agents copy retry attempts. Defaults to 500.</Description>
+		</CompilerVisibleProperty>
+		<CompilerVisibleProperty Include="PurviewAgentFolderCopyFailureAsError">
+			<Description>When true, an .agents sync that still fails after every retry is reported as an error instead of a warning. Defaults to true.</Description>
+		</CompilerVisibleProperty>
+		<CompilerVisibleProperty Include="PurviewRepoBootstrapMode">
+			<Description>Controls repo-level file bootstrapping (IfMissing, Always, WarnOnDrift or Never). Defaults to IfMissing.</Description>
+		</CompilerVisibleProperty>
+		<CompilerVisibleProperty Include="PurviewAgentFolderSourcePath">
+			<Description>Source folder that provides the bundled .agents content mirrored into the consuming repository. Defaults to the package-level .agents folder beside Sdk/.</Description>
+		</CompilerVisibleProperty>
+		<CompilerVisibleProperty Include="PurviewRepoBootstrapCopyRetries">
+			<Description>Number of copy attempts used when bootstrapping repo-level files such as .editorconfig and global.json. Defaults to 3.</Description>
+		</CompilerVisibleProperty>
+		<CompilerVisibleProperty Include="PurviewRepoBootstrapCopyRetryDelayMilliseconds">
+			<Description>Delay in milliseconds between repo-level bootstrap copy retry attempts. Defaults to 500.</Description>
+		</CompilerVisibleProperty>
+		<CompilerVisibleProperty Include="PurviewRepoBootstrapCopyFailureAsError">
+			<Description>When true, a repo-level bootstrap that still fails after every retry is reported as an error instead of a warning. Defaults to true.</Description>
+		</CompilerVisibleProperty>
+		<CompilerVisibleProperty Include="PurviewSuppressCopyRetryWarnings">
+			<Description>When true, demotes MSB3026 copy retry notices to messages while terminal copy failures stay errors. Defaults to true.</Description>
+		</CompilerVisibleProperty>
 		<CompilerVisibleProperty Include="PurviewAutoSdkPack">
 			<Description>When true, automatically packs the Sdk/ folder contents into the NuGet package with the correct root-level paths. Defaults to true.</Description>
 		</CompilerVisibleProperty>
@@ -408,6 +438,12 @@
 			>$([System.IO.Path]::GetFullPath('$(_PurviewDiscoveredEditorConfigFilePath)'))</_PurviewDiscoveredEditorConfigFullPath>
 		<!-- Also bootstrap a physical repo-level .editorconfig for tools (for example CSharpier) that don't read @(EditorConfigFiles). -->
 		<DisableAutoCopySdkFiles Condition="'$(DisableAutoCopySdkFiles)' == ''">false</DisableAutoCopySdkFiles>
+		<!-- Where the bundled .agents content is mirrored from. The package packs Sdk/.agents
+		     into the package root, so the content sits beside this Sdk/ folder. The default is
+		     defined here (not in Props/Defaults.props) because $(MSBuildThisFileDirectory) must
+		     resolve relative to Sdk/, not Sdk/Props/. -->
+		<PurviewAgentFolderSourcePath Condition="'$(PurviewAgentFolderSourcePath)' == ''"
+			>$([MSBuild]::NormalizePath('$(MSBuildThisFileDirectory)', '..', '.agents'))</PurviewAgentFolderSourcePath>
 		<BootstrapEditorConfigToRepoRoot Condition="'$(BootstrapEditorConfigToRepoRoot)' == ''"
 			>true</BootstrapEditorConfigToRepoRoot>
 		<RepositoryEditorConfigFilePath

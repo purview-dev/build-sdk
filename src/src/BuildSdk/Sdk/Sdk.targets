@@ -469,6 +469,695 @@
 	</UsingTask>
 
 	<!-- =====================================================================
+	     SHARED REPOSITORY DESTINATION COPY RETRIES
+	     .agents content, .editorconfig and global.json are written by every
+	     project in a solution, so several projects legitimately race for the
+	     same destination and the built-in copy task's retry notice (MSB3026)
+	     is pure noise. Retries still happen and a copy that never succeeds is
+	     still reported - as an error by default, or a warning when the relevant
+	     *FailureAsError property is false. Set PurviewSuppressCopyRetryWarnings
+	     to false (project body or Directory.Build.props) to see every retry.
+
+	     This lives in Sdk.targets rather than Sdk.props because targets are
+	     imported after the project body, so the toggle honours values set in
+	     the project file as well as earlier imports.
+	     ===================================================================== -->
+	<PropertyGroup Label="Shared repository copy retry diagnostics">
+		<PurviewSuppressCopyRetryWarnings Condition="'$(PurviewSuppressCopyRetryWarnings)' == ''"
+			>true</PurviewSuppressCopyRetryWarnings>
+		<MSBuildWarningsAsMessages
+			Condition="'$(PurviewSuppressCopyRetryWarnings)' != 'false' AND !$([System.String]::Copy('$(MSBuildWarningsAsMessages)').Contains('MSB3026'))"
+			>$(MSBuildWarningsAsMessages);MSB3026</MSBuildWarningsAsMessages>
+	</PropertyGroup>
+
+	<!-- =====================================================================
+	     REPOSITORY FILE SYNC
+	     Copies SDK/package-provided files into shared repository locations
+	     (.agents content, .editorconfig, global.json) without the failure modes
+	     of the built-in Copy task:
+
+	       * retry attempts are logged as low-importance messages instead of
+	         MSB3026 warnings, and only the terminal failure is surfaced - as an
+	         error by default, or a warning when the caller opts out,
+	       * writes are staged into a temporary file in the destination directory
+	         and renamed into place, so a reader never observes a partial file and
+	         concurrent writers cannot interleave,
+	       * unchanged content is skipped using a portable content fingerprint
+	         (FNV-1a over raw bytes) recorded in a repository manifest, so a
+	         republished package that keeps the same version still re-syncs,
+	       * bootstrap files (WriteFile mode) are only written when missing by
+	         default, which makes a lost race between parallel projects a no-op
+	         instead of a build failure.
+
+	     The copy logic deliberately avoids crypto, JSON and LINQ APIs so the
+	     inline task compiles on both MSBuild flavours (Visual Studio's .NET
+	     Framework MSBuild and the .NET SDK MSBuild) on Windows, Linux and macOS.
+	     ===================================================================== -->
+	<UsingTask
+		TaskName="SyncPurviewRepositoryFiles"
+		TaskFactory="RoslynCodeTaskFactory"
+		AssemblyFile="$([System.IO.Path]::Combine('$(MSBuildToolsPath)', 'Microsoft.Build.Tasks.Core.dll'))"
+	>
+		<ParameterGroup>
+			<Mode ParameterType="System.String" Required="true" />
+			<Sources ParameterType="Microsoft.Build.Framework.ITaskItem[]" Required="false" />
+			<DestinationRoot ParameterType="System.String" Required="false" />
+			<DestinationFile ParameterType="System.String" Required="false" />
+			<SourceFile ParameterType="System.String" Required="false" />
+			<Lines ParameterType="Microsoft.Build.Framework.ITaskItem[]" Required="false" />
+			<ManifestPath ParameterType="System.String" Required="false" />
+			<OverwriteExisting ParameterType="System.Boolean" Required="false" />
+			<VerifyExistingContent ParameterType="System.Boolean" Required="false" />
+			<Retries ParameterType="System.Int32" Required="false" />
+			<RetryDelayMilliseconds ParameterType="System.Int32" Required="false" />
+			<TreatFailureAsError ParameterType="System.Boolean" Required="false" />
+			<UpToDate ParameterType="System.Boolean" Output="true" />
+			<CopiedCount ParameterType="System.Int32" Output="true" />
+			<SkippedCount ParameterType="System.Int32" Output="true" />
+			<FailedCount ParameterType="System.Int32" Output="true" />
+		</ParameterGroup>
+		<Task>
+			<Using Namespace="System" />
+			<Using Namespace="System.Collections.Generic" />
+			<Using Namespace="System.Globalization" />
+			<Using Namespace="System.IO" />
+			<Using Namespace="System.Text" />
+			<Using Namespace="System.Threading" />
+			<Using Namespace="Microsoft.Build.Framework" />
+			<Using Namespace="Microsoft.Build.Utilities" />
+			<Reference Include="$([System.IO.Path]::Combine('$(MSBuildToolsPath)', 'Microsoft.Build.Framework.dll'))" />
+			<Reference Include="$([System.IO.Path]::Combine('$(MSBuildToolsPath)', 'Microsoft.Build.Utilities.Core.dll'))" />
+			<Code Type="Fragment" Language="cs">
+				<![CDATA[
+					var isMirror = string.Equals(Mode, "Mirror", StringComparison.OrdinalIgnoreCase);
+					var attemptLimit = Retries > 0 ? Retries : 3;
+					var retryDelay = RetryDelayMilliseconds > 0 ? RetryDelayMilliseconds : 500;
+					var pathComparison = Path.DirectorySeparatorChar == '\\'
+						? StringComparison.OrdinalIgnoreCase
+						: StringComparison.Ordinal;
+
+					var copied = 0;
+					var skipped = 0;
+					var failed = 0;
+					var upToDate = false;
+
+					bool IsTransient(Exception exception) =>
+						exception is IOException || exception is UnauthorizedAccessException;
+
+					bool IsPermanent(Exception exception) =>
+						exception is ArgumentException
+						|| exception is NotSupportedException
+						|| exception is PathTooLongException
+						|| exception is DirectoryNotFoundException;
+
+					string NormalizeSlashes(string value) =>
+						string.IsNullOrEmpty(value) ? string.Empty : value.Replace('\\', '/');
+
+					ulong ComputeHash(byte[] bytes)
+					{
+						unchecked
+						{
+							// FNV-1a: dependency-free and identical on every platform, which
+							// matters because the manifest outlives a single operating system.
+							var hash = 14695981039346656037UL;
+							foreach (var value in bytes)
+							{
+								hash ^= value;
+								hash *= 1099511628211UL;
+							}
+							return hash;
+						}
+					}
+
+					string ComputeFileHash(string path) =>
+						ComputeHash(File.ReadAllBytes(path)).ToString("x16", CultureInfo.InvariantCulture);
+
+					string GetRelativePath(string root, string file)
+					{
+						var rootFull = Path.GetFullPath(root);
+						if (!rootFull.EndsWith(Path.DirectorySeparatorChar.ToString(), StringComparison.Ordinal))
+							rootFull += Path.DirectorySeparatorChar;
+
+						var fileFull = Path.GetFullPath(file);
+						return fileFull.StartsWith(rootFull, pathComparison)
+							? NormalizeSlashes(fileFull.Substring(rootFull.Length))
+							: NormalizeSlashes(Path.GetFileName(fileFull));
+					}
+
+					void ClearReadOnlyAttribute(string path)
+					{
+						try
+						{
+							var attributes = File.GetAttributes(path);
+							if ((attributes & FileAttributes.ReadOnly) == FileAttributes.ReadOnly)
+								File.SetAttributes(path, attributes & ~FileAttributes.ReadOnly);
+						}
+						catch (Exception e) when (e is IOException || e is UnauthorizedAccessException)
+						{
+							// Reported by the retry loop when the write itself fails.
+						}
+					}
+
+					bool FilesMatch(string first, string second)
+					{
+						var firstInfo = new FileInfo(first);
+						var secondInfo = new FileInfo(second);
+						if (!secondInfo.Exists || firstInfo.Length != secondInfo.Length)
+							return false;
+
+						return ComputeFileHash(first) == ComputeFileHash(second);
+					}
+
+					bool TextMatches(string first, string second)
+					{
+						try
+						{
+							// Line endings differ between checkouts (core.autocrlf, .gitattributes),
+							// so drift detection compares normalized text.
+							var firstText = File.ReadAllText(first).Replace("\r\n", "\n");
+							var secondText = File.ReadAllText(second).Replace("\r\n", "\n");
+							return string.Equals(firstText, secondText, StringComparison.Ordinal);
+						}
+						catch (Exception e) when (e is IOException || e is UnauthorizedAccessException)
+						{
+							return false;
+						}
+					}
+
+					// Stage the write next to the destination so the final rename stays
+					// on one volume and is atomic on Windows, Linux and macOS.
+					void WriteAtomically(string destination, Action<string> writeTemporary)
+					{
+						var directory = Path.GetDirectoryName(destination);
+						if (!string.IsNullOrEmpty(directory))
+							Directory.CreateDirectory(directory);
+
+						var temporary = destination + "." + Guid.NewGuid().ToString("N") + ".tmp";
+						try
+						{
+							writeTemporary(temporary);
+
+							if (File.Exists(destination))
+							{
+								ClearReadOnlyAttribute(destination);
+								try
+								{
+									File.Replace(temporary, destination, null);
+								}
+								catch (Exception e) when (e is PlatformNotSupportedException || e is IOException)
+								{
+									// Some file systems reject Replace; overwrite in place instead
+									// and let the retry loop report a genuinely locked destination.
+									File.Copy(temporary, destination, true);
+								}
+							}
+							else
+							{
+								File.Move(temporary, destination);
+							}
+						}
+						finally
+						{
+							if (File.Exists(temporary))
+							{
+								try
+								{
+									File.Delete(temporary);
+								}
+								catch (Exception e) when (e is IOException || e is UnauthorizedAccessException)
+								{
+									// A leftover temp file is harmless; the next build reuses the name.
+								}
+							}
+						}
+					}
+
+					void ReportFailure(string source, string destination, int attempts, string message)
+					{
+						failed++;
+						if (TreatFailureAsError)
+						{
+							Log.LogError(
+								"The Purview SDK could not copy '{0}' to '{1}' after {2} attempt(s): {3}",
+								source,
+								destination,
+								attempts,
+								message
+							);
+						}
+						else
+						{
+							Log.LogWarning(
+								"The Purview SDK could not copy '{0}' to '{1}' after {2} attempt(s): {3}",
+								source,
+								destination,
+								attempts,
+								message
+							);
+						}
+					}
+
+					bool Finish()
+					{
+						UpToDate = upToDate;
+						CopiedCount = copied;
+						SkippedCount = skipped;
+						FailedCount = failed;
+						return !Log.HasLoggedErrors;
+					}
+
+					if (isMirror)
+					{
+						var sources = Sources ?? Array.Empty<ITaskItem>();
+						var destinationRoot = DestinationRoot ?? string.Empty;
+						if (sources.Length == 0 || string.IsNullOrEmpty(destinationRoot))
+						{
+							upToDate = true;
+							return Finish();
+						}
+
+						var manifestFile = ManifestPath ?? string.Empty;
+						if (!string.IsNullOrEmpty(manifestFile))
+						{
+							// Keep the manifest folder invisible to Git without requiring any
+							// consumer configuration; the folder contents are build artifacts.
+							try
+							{
+								var manifestDirectory = Path.GetDirectoryName(manifestFile);
+								if (!string.IsNullOrEmpty(manifestDirectory))
+								{
+									Directory.CreateDirectory(manifestDirectory);
+									var ignoreFile = Path.Combine(manifestDirectory, ".gitignore");
+									if (!File.Exists(ignoreFile))
+										File.WriteAllText(ignoreFile, "*" + Environment.NewLine, new UTF8Encoding(false));
+								}
+							}
+							catch (Exception e) when (IsTransient(e))
+							{
+								Log.LogMessage(
+									MessageImportance.Low,
+									"Could not prepare the agent sync manifest folder '{0}': {1}",
+									manifestFile,
+									e.Message
+								);
+							}
+						}
+
+						var previous = new Dictionary<string, string>(StringComparer.Ordinal);
+						if (!string.IsNullOrEmpty(manifestFile) && File.Exists(manifestFile))
+						{
+							try
+							{
+								foreach (var line in File.ReadAllLines(manifestFile))
+								{
+									var parts = line.Split('|');
+									if (parts.Length >= 6 && parts[0] == "file")
+										previous[parts[1] + "|" + parts[2]] = parts[3] + "|" + parts[4] + "|" + parts[5];
+								}
+							}
+							catch (Exception e) when (IsTransient(e))
+							{
+								Log.LogMessage(
+									MessageImportance.Low,
+									"Ignoring unreadable agent sync manifest '{0}': {1}",
+									manifestFile,
+									e.Message
+								);
+								previous.Clear();
+							}
+						}
+
+						var groups = new HashSet<string>(StringComparer.Ordinal);
+						var assets = new List<ITaskItem>();
+						foreach (var source in sources)
+						{
+							var root = source.ItemSpec;
+							if (string.IsNullOrEmpty(root) || !Directory.Exists(root))
+								continue;
+
+							var group = source.GetMetadata("ChangeGroup");
+							if (string.IsNullOrEmpty(group))
+								group = NormalizeSlashes(Path.GetFullPath(root));
+							groups.Add(group);
+
+							try
+							{
+								foreach (var file in Directory.GetFiles(root, "*", SearchOption.AllDirectories))
+								{
+									var relative = GetRelativePath(root, file);
+									var asset = new TaskItem(file);
+									asset.SetMetadata("PurviewGroup", group);
+									asset.SetMetadata("PurviewRelativePath", relative);
+									asset.SetMetadata(
+										"PurviewDestination",
+										Path.GetFullPath(
+											Path.Combine(destinationRoot, relative.Replace('/', Path.DirectorySeparatorChar))
+										)
+									);
+									assets.Add(asset);
+								}
+							}
+							catch (Exception e) when (IsTransient(e))
+							{
+								ReportFailure(root, destinationRoot, attemptLimit, e.Message);
+							}
+						}
+
+						var desired = new Dictionary<string, string>(StringComparer.Ordinal);
+						foreach (var asset in assets)
+						{
+							var assetSource = asset.ItemSpec;
+							var destination = asset.GetMetadata("PurviewDestination");
+							var key = asset.GetMetadata("PurviewGroup") + "|" + asset.GetMetadata("PurviewRelativePath");
+
+							string fingerprint;
+							string hash;
+							try
+							{
+								var info = new FileInfo(assetSource);
+								var length = info.Length.ToString(CultureInfo.InvariantCulture);
+								var ticks = info.LastWriteTimeUtc.Ticks.ToString(CultureInfo.InvariantCulture);
+								fingerprint = length + "|" + ticks;
+
+								var reuseCachedHash = false;
+								if (previous.TryGetValue(key, out var prior))
+								{
+									var priorParts = prior.Split('|');
+									// Only re-hash content when the cheap fingerprint moved. Hashing
+									// is what detects an in-place republish that keeps the package
+									// version and therefore may keep extraction timestamps.
+									reuseCachedHash =
+										priorParts.Length == 3
+										&& string.Equals(priorParts[0], length, StringComparison.Ordinal)
+										&& string.Equals(priorParts[1], ticks, StringComparison.Ordinal);
+									if (reuseCachedHash)
+										hash = priorParts[2];
+									else
+										hash = ComputeFileHash(assetSource);
+								}
+								else
+								{
+									hash = ComputeFileHash(assetSource);
+								}
+							}
+							catch (Exception e) when (IsTransient(e))
+							{
+								ReportFailure(assetSource, destination, attemptLimit, e.Message);
+								continue;
+							}
+
+							var value = fingerprint + "|" + hash;
+							desired[key] = value;
+
+							if (
+								File.Exists(destination)
+								&& previous.TryGetValue(key, out var previousValue)
+								&& string.Equals(previousValue, value, StringComparison.Ordinal)
+							)
+							{
+								skipped++;
+								continue;
+							}
+
+							upToDate = false;
+							for (var attempt = 1; attempt <= attemptLimit; attempt++)
+							{
+								try
+								{
+									if (File.Exists(destination) && FilesMatch(assetSource, destination))
+									{
+										// Another project or node already produced identical content,
+										// so the race is a no-op rather than a failure.
+										skipped++;
+										break;
+									}
+
+									WriteAtomically(destination, temporary => File.Copy(assetSource, temporary, true));
+									copied++;
+									break;
+								}
+								catch (Exception e) when (IsTransient(e))
+								{
+									if (attempt < attemptLimit)
+									{
+										Log.LogMessage(
+											MessageImportance.Low,
+											"Retrying copy of '{0}' to '{1}' (attempt {2} of {3}): {4}",
+											assetSource,
+											destination,
+											attempt + 1,
+											attemptLimit,
+											e.Message
+										);
+										Thread.Sleep(retryDelay + ((attempt - 1) * 100));
+									}
+									else
+									{
+										ReportFailure(assetSource, destination, attempt, e.Message);
+									}
+								}
+								catch (Exception e) when (IsPermanent(e))
+								{
+									ReportFailure(assetSource, destination, attempt, e.Message);
+									break;
+								}
+							}
+						}
+
+						if (!string.IsNullOrEmpty(manifestFile) && failed == 0)
+						{
+							var lines = new List<string> { "schema|1" };
+							var counts = new Dictionary<string, int>(StringComparer.Ordinal);
+							foreach (var pair in desired)
+							{
+								var separator = pair.Key.IndexOf('|');
+								if (separator < 0)
+									continue;
+
+								var group = pair.Key.Substring(0, separator);
+								counts[group] = counts.ContainsKey(group) ? counts[group] + 1 : 1;
+								lines.Add("file|" + group + "|" + pair.Key.Substring(separator + 1) + "|" + pair.Value);
+							}
+
+							foreach (var group in groups)
+								lines.Add("group|" + group + "|" + (counts.ContainsKey(group) ? counts[group] : 0));
+
+							// Entries owned by another target (the packaged agent folders, for
+							// example) are preserved so both targets can share one manifest.
+							if (File.Exists(manifestFile))
+							{
+								try
+								{
+									foreach (var line in File.ReadAllLines(manifestFile))
+									{
+										var parts = line.Split('|');
+										if (
+											parts.Length >= 3
+											&& (parts[0] == "file" || parts[0] == "group")
+											&& !groups.Contains(parts[1])
+										)
+										{
+											lines.Add(line);
+										}
+									}
+								}
+								catch (Exception e) when (IsTransient(e))
+								{
+									Log.LogMessage(
+										MessageImportance.Low,
+										"Could not preserve existing agent sync manifest entries: {0}",
+										e.Message
+									);
+								}
+							}
+
+							// A no-op build must not touch repository files at all, so the
+							// manifest is only written when its content actually changes.
+							var manifestUpToDate = false;
+							try
+							{
+								if (File.Exists(manifestFile))
+								{
+									var desiredManifest = new StringBuilder();
+									foreach (var line in lines)
+										desiredManifest.Append(line).Append('\n');
+
+									manifestUpToDate = string.Equals(
+										File.ReadAllText(manifestFile).Replace("\r\n", "\n"),
+										desiredManifest.ToString(),
+										StringComparison.Ordinal
+									);
+								}
+							}
+							catch (Exception e) when (IsTransient(e))
+							{
+								manifestUpToDate = false;
+							}
+
+							for (var attempt = 1; attempt <= attemptLimit && !manifestUpToDate; attempt++)
+							{
+								try
+								{
+									WriteAtomically(
+										manifestFile,
+										temporary => File.WriteAllLines(temporary, lines, new UTF8Encoding(false))
+									);
+									break;
+								}
+								catch (Exception e) when (IsTransient(e))
+								{
+									if (attempt < attemptLimit)
+									{
+										Thread.Sleep(retryDelay);
+									}
+									else
+									{
+										Log.LogMessage(
+											MessageImportance.Low,
+											"Could not update the agent sync manifest '{0}': {1}",
+											manifestFile,
+											e.Message
+										);
+									}
+								}
+							}
+						}
+
+						upToDate = upToDate || copied == 0;
+						Log.LogMessage(
+							MessageImportance.Low,
+							"Purview .agents sync: {0} copied, {1} unchanged, {2} failed.",
+							copied,
+							skipped,
+							failed
+						);
+						return Finish();
+					}
+
+					var destinationFile = DestinationFile ?? string.Empty;
+					if (string.IsNullOrEmpty(destinationFile))
+					{
+						upToDate = true;
+						return Finish();
+					}
+
+					if (File.Exists(destinationFile))
+					{
+						if (!OverwriteExisting)
+						{
+							// Bootstraps are user-owned: an existing file is never touched, which
+							// turns a lost race between parallel projects into a no-op.
+							if (
+								VerifyExistingContent
+								&& !string.IsNullOrEmpty(SourceFile)
+								&& File.Exists(SourceFile)
+								&& !TextMatches(destinationFile, SourceFile)
+							)
+							{
+								Log.LogWarning(
+									"'{0}' already exists and was left untouched, but it differs from the SDK-provided '{1}'. Set PurviewRepoBootstrapMode=Always to overwrite it.",
+									destinationFile,
+									SourceFile
+								);
+							}
+
+							skipped++;
+							upToDate = true;
+							return Finish();
+						}
+
+						if (!string.IsNullOrEmpty(SourceFile) && File.Exists(SourceFile) && FilesMatch(SourceFile, destinationFile))
+						{
+							skipped++;
+							upToDate = true;
+							return Finish();
+						}
+					}
+
+					byte[] content;
+					var lineItems = Lines ?? Array.Empty<ITaskItem>();
+					var sourceDescription = string.IsNullOrEmpty(SourceFile) ? "generated content" : SourceFile;
+					if (!string.IsNullOrEmpty(SourceFile) && File.Exists(SourceFile))
+					{
+						content = File.ReadAllBytes(SourceFile);
+					}
+					else if (lineItems.Length > 0)
+					{
+						var builder = new StringBuilder();
+						foreach (var line in lineItems)
+							builder.Append(line.ItemSpec).Append(Environment.NewLine);
+						content = new UTF8Encoding(false).GetBytes(builder.ToString());
+					}
+					else if (!string.IsNullOrEmpty(SourceFile))
+					{
+						ReportFailure(sourceDescription, destinationFile, attemptLimit, "the source file does not exist");
+						return Finish();
+					}
+					else
+					{
+						upToDate = true;
+						return Finish();
+					}
+
+					for (var attempt = 1; attempt <= attemptLimit; attempt++)
+					{
+						try
+						{
+							WriteAtomically(destinationFile, temporary => File.WriteAllBytes(temporary, content));
+							copied++;
+							upToDate = true;
+							break;
+						}
+						catch (Exception e) when (IsTransient(e))
+						{
+							if (attempt < attemptLimit)
+							{
+								Log.LogMessage(
+									MessageImportance.Low,
+									"Retrying bootstrap write of '{0}' (attempt {1} of {2}): {3}",
+									destinationFile,
+									attempt + 1,
+									attemptLimit,
+									e.Message
+								);
+								Thread.Sleep(retryDelay + ((attempt - 1) * 100));
+							}
+							else
+							{
+								ReportFailure(sourceDescription, destinationFile, attempt, e.Message);
+							}
+						}
+						catch (Exception e) when (IsPermanent(e))
+						{
+							ReportFailure(sourceDescription, destinationFile, attempt, e.Message);
+							break;
+						}
+					}
+
+					Log.LogMessage(
+						MessageImportance.Low,
+						"Purview repository bootstrap: '{0}' {1}, {2} skipped, {3} failed.",
+						destinationFile,
+						copied > 0 ? "written" : "unchanged",
+						skipped,
+						failed
+					);
+
+					// This fragment deliberately ends without a return statement: the code task
+					// factory appends its own success return, so ending on a return here would
+					// make that generated statement unreachable (CS0162). Logged errors still
+					// fail the target, and the explicit check below keeps the task contract.
+					Finish();
+					if (Log.HasLoggedErrors)
+					{
+						return false;
+					}
+				]]>
+			</Code>
+		</Task>
+	</UsingTask>
+
+	<!-- =====================================================================
 	     FIX ROOT NAMESPACE
 	     Strips known suffixes from RootNamespace. @(NamespaceRemoveSuffix) only
 	     expands inside a Target (after static item evaluation), so the regex
@@ -499,9 +1188,27 @@
 	     Disable with <DisableNamespacePrefixCheck>true</DisableNamespacePrefixCheck>.
 	     ===================================================================== -->
 	<Target
+		Name="ResolvePurviewRepoBootstrapModeTarget"
+		Label="Maps PurviewRepoBootstrapMode onto the repository file sync overwrite and drift-check switches."
+	>
+		<PropertyGroup>
+			<_PurviewRepoBootstrapOverwriteExisting Condition="'$(PurviewRepoBootstrapMode)' == 'Always'"
+				>true</_PurviewRepoBootstrapOverwriteExisting>
+			<_PurviewRepoBootstrapVerifyExistingContent Condition="'$(PurviewRepoBootstrapMode)' == 'WarnOnDrift'"
+				>true</_PurviewRepoBootstrapVerifyExistingContent>
+			<_PurviewRepoBootstrapOverwriteExisting Condition="'$(_PurviewRepoBootstrapOverwriteExisting)' == ''"
+				>false</_PurviewRepoBootstrapOverwriteExisting>
+			<_PurviewRepoBootstrapVerifyExistingContent
+				Condition="'$(_PurviewRepoBootstrapVerifyExistingContent)' == ''"
+				>false</_PurviewRepoBootstrapVerifyExistingContent>
+		</PropertyGroup>
+	</Target>
+
+	<Target
 		Name="EnsureRepositoryEditorConfigTarget"
 		BeforeTargets="PrepareForBuild"
-		Condition="'$(IsCSharpProject)' == 'true' AND '$(DisableAutoCopySdkFiles)' != 'true' AND '$(BootstrapEditorConfigToRepoRoot)' == 'true' AND Exists('$(EditorConfigFilePath)')"
+		DependsOnTargets="ResolvePurviewRepoBootstrapModeTarget"
+		Condition="'$(IsCSharpProject)' == 'true' AND '$(DisableAutoCopySdkFiles)' != 'true' AND '$(BootstrapEditorConfigToRepoRoot)' == 'true' AND '$(PurviewRepoBootstrapMode)' != 'Never' AND Exists('$(EditorConfigFilePath)')"
 		Label="Bootstraps a physical .editorconfig at the repo root for external tooling."
 	>
 		<PropertyGroup>
@@ -556,14 +1263,16 @@
 				Condition="'$(RepositoryEditorConfigFilePath)' == '' AND '$(_EffectiveRepositoryEditorConfigFilePath)' != ''"
 				>$(_EffectiveRepositoryEditorConfigFilePath)</RepositoryEditorConfigFilePath>
 		</PropertyGroup>
-		<MakeDir
-			Directories="$(_RepositoryEditorConfigDirectory)"
-			Condition="'$(_RepositoryEditorConfigDirectory)' != '' AND !Exists('$(_RepositoryEditorConfigDirectory)') AND !Exists('$(_EffectiveRepositoryEditorConfigFilePath)')"
-		/>
-		<Copy
-			SourceFiles="$(EditorConfigFilePath)"
-			DestinationFiles="$(_EffectiveRepositoryEditorConfigFilePath)"
-			Condition="'$(_EffectiveRepositoryEditorConfigFilePath)' != '' AND !Exists('$(_EffectiveRepositoryEditorConfigFilePath)')"
+		<SyncPurviewRepositoryFiles
+			Mode="WriteFile"
+			DestinationFile="$(_EffectiveRepositoryEditorConfigFilePath)"
+			SourceFile="$(EditorConfigFilePath)"
+			OverwriteExisting="$(_PurviewRepoBootstrapOverwriteExisting)"
+			VerifyExistingContent="$(_PurviewRepoBootstrapVerifyExistingContent)"
+			Retries="$(PurviewRepoBootstrapCopyRetries)"
+			RetryDelayMilliseconds="$(PurviewRepoBootstrapCopyRetryDelayMilliseconds)"
+			TreatFailureAsError="$(PurviewRepoBootstrapCopyFailureAsError)"
+			Condition="'$(_EffectiveRepositoryEditorConfigFilePath)' != ''"
 		/>
 	</Target>
 
@@ -591,66 +1300,79 @@
 	</Target>
 
 	<Target
+		Name="ResolveAgentSyncManifestPathTarget"
+		DependsOnTargets="ResolveAgentPackDestinationRootTarget"
+		Condition="'$(EnableAgentFolderInPackage)' != 'false' AND '$(_PurviewAgentSyncManifestPath)' == ''"
+		Label="Resolves the change-detection manifest used to skip unchanged .agents syncs."
+	>
+		<PropertyGroup Condition="'$(_PurviewAgentFolderRepoRoot)' != ''">
+			<_PurviewAgentSyncManifestPath>$([MSBuild]::NormalizePath('$(_PurviewAgentFolderRepoRoot)', '.purview', 'agent-sync.cache'))</_PurviewAgentSyncManifestPath>
+		</PropertyGroup>
+		<PropertyGroup Condition="'$(PurviewAgentSyncManifestPath)' != ''">
+			<_PurviewAgentSyncManifestPath>$(PurviewAgentSyncManifestPath)</_PurviewAgentSyncManifestPath>
+		</PropertyGroup>
+	</Target>
+
+	<Target
 		Name="EnsureAgentFolderInPackageTarget"
 		BeforeTargets="PrepareForBuild"
-		DependsOnTargets="ResolveAgentPackDestinationRootTarget"
-		Condition="'$(EnableAgentFolderInPackage)' != 'false' AND Exists('$(MSBuildThisFileDirectory)..\.agents') AND ('$(DefaultTargetFramework)' == '' OR '$(TargetFramework)' == '$(DefaultTargetFramework)')"
+		DependsOnTargets="ResolveAgentPackDestinationRootTarget;ResolveAgentSyncManifestPathTarget"
+		Condition="'$(EnableAgentFolderInPackage)' != 'false' AND Exists('$(PurviewAgentFolderSourcePath)') AND ('$(DefaultTargetFramework)' == '' OR '$(TargetFramework)' == '$(DefaultTargetFramework)')"
 		Label="Copies the bundled .agents folder into the consuming repository for agent discovery."
 	>
 		<ItemGroup Condition="'$(_PurviewAgentFolderDestinationRoot)' != ''">
-			<_PurviewAgentFolderFiles Include="$(MSBuildThisFileDirectory)..\.agents\**\*" />
-			<_PurviewAgentFolderDirectories Include="@(_PurviewAgentFolderFiles -> '$(_PurviewAgentFolderDestinationRoot)\%(RecursiveDir)')" />
+			<_PurviewAgentFolderSyncSource Include="$(PurviewAgentFolderSourcePath)">
+				<ChangeGroup>sdk:$(PurviewBuildSdkVersionForGlobalJson)</ChangeGroup>
+			</_PurviewAgentFolderSyncSource>
 		</ItemGroup>
-		<MakeDir
-			Directories="$(_PurviewAgentFolderDestinationRoot)"
-			Condition="'$(_PurviewAgentFolderDestinationRoot)' != ''"
-			ContinueOnError="true"
-		/>
-		<MakeDir
-			Directories="@(_PurviewAgentFolderDirectories)"
-			Condition="'$(_PurviewAgentFolderDestinationRoot)' != ''"
-			ContinueOnError="true"
-		/>
-		<Copy
-			SourceFiles="@(_PurviewAgentFolderFiles)"
-			DestinationFolder="$(_PurviewAgentFolderDestinationRoot)\%(RecursiveDir)"
-			SkipUnchangedFiles="true"
-			Condition="'$(_PurviewAgentFolderDestinationRoot)' != ''"
-			ContinueOnError="true"
+		<SyncPurviewRepositoryFiles
+			Mode="Mirror"
+			Sources="@(_PurviewAgentFolderSyncSource)"
+			DestinationRoot="$(_PurviewAgentFolderDestinationRoot)"
+			ManifestPath="$(_PurviewAgentSyncManifestPath)"
+			Retries="$(PurviewAgentFolderCopyRetries)"
+			RetryDelayMilliseconds="$(PurviewAgentFolderCopyRetryDelayMilliseconds)"
+			TreatFailureAsError="$(PurviewAgentFolderCopyFailureAsError)"
+			Condition="'@(_PurviewAgentFolderSyncSource)' != '' AND '$(_PurviewAgentFolderDestinationRoot)' != ''"
+		>
+			<Output TaskParameter="UpToDate" PropertyName="_PurviewAgentFolderUpToDate" />
+			<Output TaskParameter="CopiedCount" PropertyName="_PurviewAgentFolderCopiedCount" />
+		</SyncPurviewRepositoryFiles>
+		<Message
+			Condition="'$(_PurviewAgentFolderUpToDate)' == 'true'"
+			Importance="Low"
+			Text="Bundled .agents content is already in sync with '$(_PurviewAgentFolderDestinationRoot)'."
 		/>
 	</Target>
 
 	<Target
 		Name="CopyPackagedAgentFoldersTarget"
 		BeforeTargets="PrepareForBuild"
-		DependsOnTargets="ResolveAgentPackDestinationRootTarget"
+		DependsOnTargets="ResolveAgentPackDestinationRootTarget;ResolveAgentSyncManifestPathTarget"
 		Condition="'$(EnableAgentFolderInPackage)' != 'false' AND '$(_PurviewAgentFolderDestinationRoot)' != '' AND Exists('$(ProjectAssetsFile)') AND ('$(DefaultTargetFramework)' == '' OR '$(TargetFramework)' == '$(DefaultTargetFramework)')"
 		Label="Copies bundled .agents folders shipped by any restored NuGet package (via PurviewAutoSdkPack) into the consuming repository."
 	>
 		<DiscoverAgentPackageFolders
 			ProjectAssetsFile="$(ProjectAssetsFile)"
 			NuGetPackageFolders="$(NuGetPackageFolders)"
-			ExcludeFolder="$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\.agents'))"
+			ExcludeFolder="$([System.IO.Path]::GetFullPath('$(PurviewAgentFolderSourcePath)'))"
 		>
 			<Output TaskParameter="AgentFolders" ItemName="_PurviewPackagedAgentFolder" />
 		</DiscoverAgentPackageFolders>
 		<ItemGroup Condition="'@(_PurviewPackagedAgentFolder)' != ''">
-			<_PurviewPackagedAgentFolderFiles Include="%(_PurviewPackagedAgentFolder.Identity)\**\*" />
+			<_PurviewPackagedAgentFolderSyncSource Include="@(_PurviewPackagedAgentFolder)">
+				<ChangeGroup>package:%(PackageId)</ChangeGroup>
+			</_PurviewPackagedAgentFolderSyncSource>
 		</ItemGroup>
-		<ItemGroup Condition="'@(_PurviewPackagedAgentFolderFiles)' != ''">
-			<_PurviewPackagedAgentFolderDirectories Include="@(_PurviewPackagedAgentFolderFiles -> '$(_PurviewAgentFolderDestinationRoot)\%(RecursiveDir)')" />
-		</ItemGroup>
-		<MakeDir
-			Directories="@(_PurviewPackagedAgentFolderDirectories)"
-			Condition="'@(_PurviewPackagedAgentFolderDirectories)' != ''"
-			ContinueOnError="true"
-		/>
-		<Copy
-			SourceFiles="@(_PurviewPackagedAgentFolderFiles)"
-			DestinationFolder="$(_PurviewAgentFolderDestinationRoot)\%(RecursiveDir)"
-			SkipUnchangedFiles="true"
-			Condition="'@(_PurviewPackagedAgentFolderFiles)' != ''"
-			ContinueOnError="true"
+		<SyncPurviewRepositoryFiles
+			Mode="Mirror"
+			Sources="@(_PurviewPackagedAgentFolderSyncSource)"
+			DestinationRoot="$(_PurviewAgentFolderDestinationRoot)"
+			ManifestPath="$(_PurviewAgentSyncManifestPath)"
+			Retries="$(PurviewAgentFolderCopyRetries)"
+			RetryDelayMilliseconds="$(PurviewAgentFolderCopyRetryDelayMilliseconds)"
+			TreatFailureAsError="$(PurviewAgentFolderCopyFailureAsError)"
+			Condition="'@(_PurviewPackagedAgentFolderSyncSource)' != ''"
 		/>
 	</Target>
 
@@ -777,7 +1499,8 @@
 	<Target
 		Name="EnsureRepositoryGlobalJsonTarget"
 		BeforeTargets="PrepareForBuild"
-		Condition="'$(IsCSharpProject)' == 'true' AND '$(DisableAutoCopySdkFiles)' != 'true' AND '$(BootstrapGlobalJsonToRepoRoot)' == 'true'"
+		DependsOnTargets="ResolvePurviewRepoBootstrapModeTarget"
+		Condition="'$(IsCSharpProject)' == 'true' AND '$(DisableAutoCopySdkFiles)' != 'true' AND '$(BootstrapGlobalJsonToRepoRoot)' == 'true' AND '$(PurviewRepoBootstrapMode)' != 'Never'"
 		Label="Bootstraps a physical global.json at the repo root for SDK/tool resolution."
 	>
 		<PropertyGroup>
@@ -832,11 +1555,7 @@
 				Condition="'$(RepositoryGlobalJsonFilePath)' == '' AND '$(_EffectiveRepositoryGlobalJsonFilePath)' != ''"
 				>$(_EffectiveRepositoryGlobalJsonFilePath)</RepositoryGlobalJsonFilePath>
 		</PropertyGroup>
-		<MakeDir
-			Directories="$(_RepositoryGlobalJsonDirectory)"
-			Condition="'$(_RepositoryGlobalJsonDirectory)' != '' AND !Exists('$(_RepositoryGlobalJsonDirectory)') AND !Exists('$(_EffectiveRepositoryGlobalJsonFilePath)')"
-		/>
-		<ItemGroup Condition="'$(_EffectiveRepositoryGlobalJsonFilePath)' != '' AND !Exists('$(_EffectiveRepositoryGlobalJsonFilePath)')">
+		<ItemGroup Condition="'$(_EffectiveRepositoryGlobalJsonFilePath)' != ''">
 			<_RepositoryGlobalJsonLines Include="{" />
 			<_RepositoryGlobalJsonLines Include="  &quot;test&quot;: {" />
 			<_RepositoryGlobalJsonLines Include="    &quot;runner&quot;: &quot;Microsoft.Testing.Platform&quot;" />
@@ -846,11 +1565,16 @@
 			<_RepositoryGlobalJsonLines Include="  }" />
 			<_RepositoryGlobalJsonLines Include="}" />
 		</ItemGroup>
-		<WriteLinesToFile
-			File="$(_EffectiveRepositoryGlobalJsonFilePath)"
+		<SyncPurviewRepositoryFiles
+			Mode="WriteFile"
+			DestinationFile="$(_EffectiveRepositoryGlobalJsonFilePath)"
 			Lines="@(_RepositoryGlobalJsonLines)"
-			Overwrite="true"
-			Condition="'$(_EffectiveRepositoryGlobalJsonFilePath)' != '' AND !Exists('$(_EffectiveRepositoryGlobalJsonFilePath)')"
+			OverwriteExisting="$(_PurviewRepoBootstrapOverwriteExisting)"
+			VerifyExistingContent="$(_PurviewRepoBootstrapVerifyExistingContent)"
+			Retries="$(PurviewRepoBootstrapCopyRetries)"
+			RetryDelayMilliseconds="$(PurviewRepoBootstrapCopyRetryDelayMilliseconds)"
+			TreatFailureAsError="$(PurviewRepoBootstrapCopyFailureAsError)"
+			Condition="'$(_EffectiveRepositoryGlobalJsonFilePath)' != ''"
 		/>
 	</Target>
 

@@ -183,7 +183,15 @@ The `templates/` folder contains ready-to-copy starter files for new repos:
 | `.gitattributes` | Line-ending normalisation for .cs, .json, .yml, etc. |
 | `.config/dotnet-tools.json` | CSharpier tool manifest |
 
-The package also ships bundled agent content under `.agents/**`. During build, the SDK copies it into the consuming repository's `.agents/` folder by default so compatible coding agents can discover repository-aware guidance automatically. The SDK also injects a `.gitignore` file into each second-level agent folder with the content `# Ignore all files\n*\n\n# Don't ignore directories, so Git can traverse them\n!*/\n\n# Keep this file\n!.gitignore`, so the copied folder is ignored by Git while keeping the folder structure discoverable.
+The package also ships bundled agent content under `.agents/**`. During build, the SDK mirrors it into the consuming repository's `.agents/` folder by default so compatible coding agents can discover repository-aware guidance automatically. The SDK also injects a `.gitignore` file into each second-level agent folder with the content `# Ignore all files\n*\n\n# Don't ignore directories, so Git can traverse them\n!*/\n\n# Keep this file\n!.gitignore`, so the copied folder is ignored by Git while keeping the folder structure discoverable.
+
+The mirror is change-aware: file fingerprints and content hashes are recorded in
+`.purview/agent-sync.cache` at the repository root, so unchanged content is skipped and repeat builds
+touch no files. Every write is staged into a temporary file and renamed into place, and because all
+projects in a solution share these destinations the retries are silent — copy retry notices (`MSB3026`)
+are demoted to low-importance messages while a copy that still fails after every retry is reported as an
+error. See [Agent Folder](docs/wiki/Agent-Folder.md) and
+[Repository Bootstrap](docs/wiki/Repository-Bootstrap.md) for the retry and failure properties.
 
 ---
 
@@ -272,14 +280,24 @@ Non-packable projects (including web applications) default `WarnOnPackingNonPack
 | `BootstrapGlobalJsonToRepoRoot` | `true` | Creates a `global.json` at the repository root when missing. |
 | `RepositoryGlobalJsonFilePath` | *(auto-detected)* | Override the destination path for the bootstrapped `global.json`. |
 | `PurviewBuildSdkVersionForGlobalJson` | *(auto-detected or `1.0.0` fallback)* | Version written to the `msbuild-sdks.Purview.BuildSdk` entry in a bootstrapped `global.json`. |
+| `PurviewRepoBootstrapMode` | `IfMissing` | `IfMissing` never touches an existing file, `Always` overwrites it, `WarnOnDrift` reports a file that differs from the SDK-provided one, and `Never` skips bootstrapping. |
+| `PurviewRepoBootstrapCopyRetries` | `3` | Write attempts before a bootstrap write failure is reported. |
+| `PurviewRepoBootstrapCopyRetryDelayMilliseconds` | `500` | Base delay between bootstrap write attempts. |
+| `PurviewRepoBootstrapCopyFailureAsError` | `true` | When `false`, a failed bootstrap write is a warning instead of an error. |
+| `PurviewSuppressCopyRetryWarnings` | `true` | Demotes built-in copy retry notices (`MSB3026`) to messages. Set to `false` to see every retry attempt. |
 
 ### Agent folder
 
 | Property | Default | Description |
 | -- | -- | -- |
 | `PurviewAutoSdkPack` | `true` | When `true`, automatically packs the `Sdk/` folder contents into the NuGet package with the correct root-level paths. Disable this for MSBuild SDK projects. |
-| `EnableAgentFolderInPackage` | `true` | Copies the bundled `.agents/**` folder from the SDK NuGet package into the consuming repository's `.agents/` folder (or `$(AgentPackDestinationFolder)/`) before build. |
-| `AgentPackDestinationFolder` | `.agents` | Repo-relative destination folder that receives the copied agent folder contents when `EnableAgentFolderInPackage` is `true`. |
+| `EnableAgentFolderInPackage` | `true` | Mirrors the bundled `.agents/**` folder from the SDK NuGet package into the consuming repository's `.agents/` folder (or `$(AgentPackDestinationFolder)/`) before build. |
+| `AgentPackDestinationFolder` | `.agents` | Repo-relative destination folder that receives the mirrored agent folder contents when `EnableAgentFolderInPackage` is `true`. |
+| `PurviewAgentFolderSourcePath` | *(package-level `.agents`)* | Overrides the folder that provides the bundled `.agents` content. |
+| `PurviewAgentFolderCopyRetries` | `3` | Copy attempts per file before the failure is reported. |
+| `PurviewAgentFolderCopyRetryDelayMilliseconds` | `500` | Base delay between copy attempts. |
+| `PurviewAgentFolderCopyFailureAsError` | `true` | When `false`, a copy that still fails after every retry is a warning instead of an error. |
+| `PurviewAgentSyncManifestPath` | `<repo root>/.purview/agent-sync.cache` | Overrides the change-detection manifest used to skip unchanged agent content. |
 
 To disable bundled agent folder copying in a consuming repo, set the opt-out property before importing the SDK:
 
@@ -361,6 +379,16 @@ The SDK now exports its properties via `CompilerVisibleProperty`, so analyzers a
 | `BootstrapGlobalJsonToRepoRoot` | When `true` (default), creates `global.json` at `RepositoryGlobalJsonFilePath` if missing. |
 | `PurviewBuildSdkVersionForGlobalJson` | Version used for `msbuild-sdks.Purview.BuildSdk` when bootstrapping `global.json` (auto-detected from SDK package path, fallback `1.0.0`). |
 | `DisableAutoCopySdkFiles` | When `true`, disables SDK auto-copy/bootstrap for repo files (`.editorconfig`, `global.json`). |
+| `PurviewRepoBootstrapMode` | Controls repo file bootstrapping: `IfMissing` (default), `Always`, `WarnOnDrift` or `Never`. |
+| `PurviewRepoBootstrapCopyRetries` | Number of write attempts before a bootstrap failure is reported (default `3`). |
+| `PurviewRepoBootstrapCopyRetryDelayMilliseconds` | Base delay between bootstrap write attempts (default `500`). |
+| `PurviewRepoBootstrapCopyFailureAsError` | When `true` (default), a bootstrap write that still fails after every retry is an error. |
+| `PurviewAgentFolderSourcePath` | Folder that provides the bundled `.agents` content mirrored into the repository. |
+| `PurviewAgentFolderCopyRetries` | Number of copy attempts per file before an agent folder sync failure is reported (default `3`). |
+| `PurviewAgentFolderCopyRetryDelayMilliseconds` | Base delay between agent folder copy attempts (default `500`). |
+| `PurviewAgentFolderCopyFailureAsError` | When `true` (default), an agent folder copy that still fails after every retry is an error. |
+| `PurviewAgentSyncManifestPath` | Change-detection manifest used to skip unchanged agent content (default `<repo root>/.purview/agent-sync.cache`). |
+| `PurviewSuppressCopyRetryWarnings` | When `true` (default), built-in copy retry notices (`MSB3026`) are demoted to messages. |
 | `PurviewAutoSdkPack` | When `true`, automatically packs the `Sdk/` folder contents into the NuGet package with the correct root-level paths. |
 | `CurrentYear` | Current year used in generated assembly metadata. |
 | `AutoGeneratedAssemblyInfoFile` | Relative path to generated AssemblyInfo source file. |

@@ -34,13 +34,15 @@ For packable projects, `PurviewAutoSdkPack` (default `true`) automatically adds 
 - `Sdk/*.md`, `Sdk/*.png`, `Sdk/*.jpg`, etc. → package root
 - everything else under `Sdk/` → `Sdk/`
 
-The `BuildSdk.csproj` itself is an MSBuild SDK, so it disables `PurviewAutoSdkPack` and explicitly packs its `Sdk/` contents instead. This is an exception for the SDK project only; every other project that consumes this SDK relies on `PurviewAutoSdkPack` to ship its `Sdk/` folder. Consuming repositories that use this SDK get the bundled agent folder copied into `$(AgentPackDestinationFolder)/` (default `.agents/`) before build when `EnableAgentFolderInPackage` is `true` (default).
+The `BuildSdk.csproj` itself is an MSBuild SDK, so it disables `PurviewAutoSdkPack` and explicitly packs its `Sdk/` contents instead. This is an exception for the SDK project only; every other project that consumes this SDK relies on `PurviewAutoSdkPack` to ship its `Sdk/` folder. Consuming repositories that use this SDK get the bundled agent folder mirrored into `$(AgentPackDestinationFolder)/` (default `.agents/`) before build when `EnableAgentFolderInPackage` is `true` (default).
+
+The mirror is change-aware and lock tolerant: `SyncPurviewRepositoryFiles` (inline task in `Sdk/Sdk.targets`) skips unchanged files via the `<repo root>/.purview/agent-sync.cache` manifest, stages every write into a temporary file next to the destination before renaming it into place, treats "another project already wrote identical content" as success, retries quietly, and escalates only after `PurviewAgentFolderCopyRetries` attempts (`PurviewAgentFolderCopyFailureAsError=false` downgrades that to a warning). `PurviewSuppressCopyRetryWarnings` (default `true`) demotes the built-in copy task's retry notice (`MSB3026`) to a message, which is set in `Sdk.targets` so it can be toggled from the project file. The same task performs the `.editorconfig`/`global.json` bootstraps (`PurviewRepoBootstrapMode`: `IfMissing`/`Always`/`WarnOnDrift`/`Never`). `PurviewAgentFolderSourcePath` defaults to the package-level `.agents` folder and is deliberately defined in `Sdk/Sdk.props` — defining it in `Sdk/Props/Defaults.props` resolves `$(MSBuildThisFileDirectory)` to `Sdk/Props/` and silently breaks the packaged layout.
 
 During packaging, the SDK injects a `.gitignore` file into each second-level folder under `Sdk/.agents` with the content `# Ignore all files\n*\n\n# Don't ignore directories, so Git can traverse them\n!*/\n\n# Keep this file\n!.gitignore`, so the copied folder is ignored by Git in consuming repositories while keeping the folder structure discoverable.
 
 Any edit, addition, or deletion in `src/src/BuildSdk/Sdk/.agents/` therefore changes the contents delivered to every repository that consumes this SDK.
 
-Tests for this feature live in `src/tests/BuildSdk.IntegrationTests/AgentPackFolderTests.cs`.
+Tests for this feature live in `src/tests/BuildSdk.IntegrationTests/AgentPackFolderTests.cs` (packaging) and `src/tests/BuildSdk.IntegrationTests/RepositoryFileSyncTests.cs` (repository mirroring, change detection, retry and failure behaviour).
 
 ## Repository map
 

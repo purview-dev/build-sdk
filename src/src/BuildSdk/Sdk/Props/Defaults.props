@@ -53,6 +53,26 @@
 			>true</EnableAssemblyNameGeneration>
 		<AgentPackDestinationFolder Condition="'$(AgentPackDestinationFolder)' == ''"
 			>.agents</AgentPackDestinationFolder>
+		<PurviewAgentFolderCopyFailureAsError Condition="'$(PurviewAgentFolderCopyFailureAsError)' == ''"
+			>true</PurviewAgentFolderCopyFailureAsError>
+		<PurviewAgentFolderCopyRetries Condition="'$(PurviewAgentFolderCopyRetries)' == ''"
+			>3</PurviewAgentFolderCopyRetries>
+		<PurviewAgentFolderCopyRetryDelayMilliseconds
+			Condition="'$(PurviewAgentFolderCopyRetryDelayMilliseconds)' == ''"
+			>500</PurviewAgentFolderCopyRetryDelayMilliseconds>
+		<PurviewAgentSyncManifestPath
+			Condition="'$(PurviewAgentSyncManifestPath)' == ''"
+		></PurviewAgentSyncManifestPath>
+		<PurviewRepoBootstrapCopyFailureAsError Condition="'$(PurviewRepoBootstrapCopyFailureAsError)' == ''"
+			>true</PurviewRepoBootstrapCopyFailureAsError>
+		<PurviewRepoBootstrapCopyRetries Condition="'$(PurviewRepoBootstrapCopyRetries)' == ''"
+			>3</PurviewRepoBootstrapCopyRetries>
+		<PurviewRepoBootstrapCopyRetryDelayMilliseconds
+			Condition="'$(PurviewRepoBootstrapCopyRetryDelayMilliseconds)' == ''"
+			>500</PurviewRepoBootstrapCopyRetryDelayMilliseconds>
+		<PurviewRepoBootstrapMode Condition="'$(PurviewRepoBootstrapMode)' == ''">IfMissing</PurviewRepoBootstrapMode>
+		<PurviewSuppressCopyRetryWarnings Condition="'$(PurviewSuppressCopyRetryWarnings)' == ''"
+			>true</PurviewSuppressCopyRetryWarnings>
 		<Exclude Condition="'$(Exclude)' == ''"></Exclude>
 		<ExcludeByAttribute Condition="'$(ExcludeByAttribute)' == ''"></ExcludeByAttribute>
 		<ExcludeMSTelemetryExtension Condition="'$(ExcludeMSTelemetryExtension)' == ''"
