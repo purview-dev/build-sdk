@@ -67,14 +67,34 @@ operations skip them silently.
 | `BootstrapGlobalJsonToRepoRoot` | `true` | Creates a `global.json` at the repository root when missing. |
 | `RepositoryGlobalJsonFilePath` | *(auto-detected)* | Override the destination path for the bootstrapped `global.json`. |
 | `PurviewBuildSdkVersionForGlobalJson` | *(auto-detected or `1.0.0` fallback)* | Version written to the `msbuild-sdks.Purview.BuildSdk` entry in a bootstrapped `global.json`. |
+| `PurviewRepoBootstrapMode` | `IfMissing` | `IfMissing` never touches an existing file, `Always` overwrites it, `WarnOnDrift` reports that an existing file differs from the SDK-provided one, and `Never` skips bootstrapping entirely. |
+| `PurviewRepoBootstrapCopyRetries` | `3` | Copy attempts before a bootstrap write failure is reported. |
+| `PurviewRepoBootstrapCopyRetryDelayMilliseconds` | `500` | Base delay between bootstrap write attempts. |
+| `PurviewRepoBootstrapCopyFailureAsError` | `true` | When `false`, a bootstrap write that still fails after every retry is reported as a warning and the build continues. |
+| `PurviewSuppressCopyRetryWarnings` | `true` | Demotes MSB3026 copy retry notices to messages. Set to `false` to see every retry attempt. |
+
+Bootstrap writes are staged into a temporary file and renamed into place, so editors and tools never
+observe a partially written `.editorconfig` or `global.json`. Because every project in a solution runs
+the same bootstrapping targets, a lost race between parallel projects is a no-op: an existing file is
+treated as success rather than a copy failure.
 
 ## Agent folder
 
 | Property | Default | Description |
 | -- | -- | -- |
 | `PurviewAutoSdkPack` | `true` | When `true`, automatically packs the `Sdk/` folder contents into the NuGet package with the correct root-level paths. Disable this for MSBuild SDK projects. |
-| `EnableAgentFolderInPackage` | `true` | Copies the bundled `.agents/**` folder from the SDK NuGet package into the consuming repository's `.agents/` folder (or `$(AgentPackDestinationFolder)/`) before build. |
-| `AgentPackDestinationFolder` | `.agents` | Repo-relative destination folder that receives the copied agent folder contents when `EnableAgentFolderInPackage` is `true`. |
+| `EnableAgentFolderInPackage` | `true` | Mirrors the bundled `.agents/**` folder from the SDK NuGet package into the consuming repository's `.agents/` folder (or `$(AgentPackDestinationFolder)/`) before build. |
+| `AgentPackDestinationFolder` | `.agents` | Repo-relative destination folder that receives the mirrored agent folder contents when `EnableAgentFolderInPackage` is `true`. |
+| `PurviewAgentFolderSourcePath` | *(package-level `.agents`)* | Overrides the folder that provides the bundled `.agents` content. |
+| `PurviewAgentFolderCopyRetries` | `3` | Copy attempts per file before the failure is reported. |
+| `PurviewAgentFolderCopyRetryDelayMilliseconds` | `500` | Base delay between copy attempts. |
+| `PurviewAgentFolderCopyFailureAsError` | `true` | When `false`, a copy that still fails after every retry is reported as a warning and the build continues. |
+| `PurviewAgentSyncManifestPath` | `<repo root>/.purview/agent-sync.cache` | Overrides the change-detection manifest used to skip unchanged agent content. |
+
+The mirror is change-aware: content that already matches the manifest is skipped entirely, which keeps
+repeat builds free of file writes and file locks. Retry notices are demoted to low-importance messages
+(`MSB3026`); a copy that still fails after every retry is reported as an error that names the source,
+destination and OS error.
 
 To disable bundled agent folder copying in a consuming repo, set the opt-out property before
 importing the SDK:
