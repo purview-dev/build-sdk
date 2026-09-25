@@ -640,6 +640,28 @@
 		<TargetsForTfmSpecificContentInPackage>$(TargetsForTfmSpecificContentInPackage);IncludeLinkedSdkFiles;IncludeSdkDotAgentsGitIgnoreFiles;IncludeRepoReadmeInPackage</TargetsForTfmSpecificContentInPackage>
 	</PropertyGroup>
 
+	<PropertyGroup Label="Analyzer Closure and Project-Reference Assets">
+		<!-- A component that references another Roslyn component includes the referenced component's
+		     analyzer artifact in its returned closure. -->
+		<PurviewIncludeComponentReferenceAnalyzerClosure
+			Condition="'$(PurviewIncludeComponentReferenceAnalyzerClosure)' == ''"
+			>true</PurviewIncludeComponentReferenceAnalyzerClosure>
+		<!-- Registers CompilerVisibleProperty items from referenced projects' buildTransitive assets,
+		     which NuGet imports for PackageReference consumers only. -->
+		<PurviewImportProjectReferenceBuildTransitive
+			Condition="'$(PurviewImportProjectReferenceBuildTransitive)' == ''"
+			>true</PurviewImportProjectReferenceBuildTransitive>
+		<!-- Host-provided assemblies an analyzer-closure file may reference; simple-name prefixes. -->
+		<PurviewAnalyzerClosurePermittedReferences Condition="'$(PurviewAnalyzerClosurePermittedReferences)' == ''"
+			>Microsoft.CodeAnalysis;System.Composition;System.Collections.Immutable;System.Memory;System.Threading.Tasks.Extensions;netstandard;mscorlib;System.</PurviewAnalyzerClosurePermittedReferences>
+	</PropertyGroup>
+
+	<ItemGroup Label="Analyzer Closure and Project-Reference Assets">
+		<CompilerVisibleProperty Include="PurviewSourceGeneratorFrameworkAnalyzerValidation">
+			<Description>False to opt out of PRSGD0005 self-contained analyzer-closure validation.</Description>
+		</CompilerVisibleProperty>
+	</ItemGroup>
+
 	<!-- Analyzer project references are build-time assets and are not packed by NuGet's
 	     normal ProjectReference handling. Collect them automatically for packable projects. -->
 	<PropertyGroup Label="Automatic Source Generator Packaging">
