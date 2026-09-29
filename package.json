@@ -1,6 +1,6 @@
 {
 	"name": "purview-build-sdk",
-	"version": "1.0.0-prerelease.60",
+	"version": "1.0.0-prerelease.61",
 	"homepage": "https://purview.dev/projects/build-sdk/",
 	"bugs": {
 		"url": "https://github.com/purview-dev/build-sdk/issues"
