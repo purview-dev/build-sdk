@@ -9,7 +9,7 @@ namespace Purview.BuildSdk;
 /// feature that allows projects to transparently depend on shared libraries without
 /// explicit ProjectReference declarations.
 /// </summary>
-public sealed class AutoSharedProjectReferencingTests
+sealed class AutoSharedProjectReferencingTests
 {
 	[Test]
 	public async Task AspireHostProject_WithSharedProject_HasIsAspireProjectResourceFalse(

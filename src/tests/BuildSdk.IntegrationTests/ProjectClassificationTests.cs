@@ -6,7 +6,7 @@ namespace Purview.BuildSdk;
 /// Verifies that Sdk.props correctly classifies project types from file names, Sdk attributes,
 /// and the presence of a Dockerfile — all without triggering a build.
 /// </summary>
-public sealed class ProjectClassificationTests
+sealed class ProjectClassificationTests
 {
 	[Test]
 	public async Task CSharpProject_IsCSharpProject_True(CancellationToken cancellationToken)

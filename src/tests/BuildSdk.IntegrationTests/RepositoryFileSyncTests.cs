@@ -14,7 +14,7 @@ namespace Purview.BuildSdk;
 ///   default, or a warning when the caller opts out,
 /// * bootstrap files are never overwritten unless explicitly requested.
 /// </summary>
-public sealed class RepositoryFileSyncTests
+sealed class RepositoryFileSyncTests
 {
 	const string AgentSourceFolder = "agent-source";
 	const string AgentsFolder = ".agents";
@@ -285,6 +285,130 @@ public sealed class RepositoryFileSyncTests
 		await Assert.That(success).IsTrue().Because(TestHelpers.GenerateError(output, errors));
 		await Assert.That(File.Exists(Path.Combine(h.SolutionDirectory, "global.json"))).IsFalse();
 		await Assert.That(File.Exists(Path.Combine(h.SolutionDirectory, ".editorconfig"))).IsFalse();
+	}
+
+	[Test]
+	public async Task StylePolicy_DisabledInEditorConfig_FailsTheBuild(CancellationToken cancellationToken)
+	{
+		using var h = await CreateHarnessAsync(extraProps: null, cancellationToken: cancellationToken);
+
+		var editorConfigPath = Path.Combine(h.SolutionDirectory, ".editorconfig");
+		await File.WriteAllTextAsync(
+			editorConfigPath,
+			"[*.cs]\ndotnet_diagnostic.IDE0040.severity = none\n",
+			cancellationToken
+		);
+
+		var (success, output, errors) = await h.BuildAsync(restore: true, verbose: true, cancellationToken);
+
+		await Assert.That(success).IsFalse();
+		await Assert.That(output + errors).Contains("PRSGD0007");
+	}
+
+	[Test]
+	public async Task StylePolicy_ModifierOptionOverride_FailsTheBuild(CancellationToken cancellationToken)
+	{
+		using var h = await CreateHarnessAsync(extraProps: null, cancellationToken: cancellationToken);
+
+		var editorConfigPath = Path.Combine(h.SolutionDirectory, ".editorconfig");
+		await File.WriteAllTextAsync(
+			editorConfigPath,
+			"[*.cs]\ndotnet_style_require_accessibility_modifiers = always\n",
+			cancellationToken
+		);
+
+		var (success, output, errors) = await h.BuildAsync(restore: true, verbose: true, cancellationToken);
+
+		await Assert.That(success).IsFalse();
+		await Assert.That(output + errors).Contains("PRSGD0006");
+	}
+
+	[Test]
+	public async Task StylePolicy_SuppressedThroughNoWarn_FailsTheBuild(CancellationToken cancellationToken)
+	{
+		using var h = await CreateHarnessAsync(
+			extraProps: "<NoWarn>$(NoWarn);CA1515</NoWarn>",
+			cancellationToken: cancellationToken
+		);
+
+		var (success, output, errors) = await h.BuildAsync(restore: true, verbose: true, cancellationToken);
+
+		await Assert.That(success).IsFalse();
+		await Assert.That(output + errors).Contains("PRSGD0008");
+	}
+
+	[Test]
+	public async Task StylePolicy_ValidationCanBeDisabled(CancellationToken cancellationToken)
+	{
+		using var h = await CreateHarnessAsync(
+			extraProps: "<DisablePurviewStylePolicyValidation>true</DisablePurviewStylePolicyValidation>",
+			cancellationToken: cancellationToken
+		);
+
+		var editorConfigPath = Path.Combine(h.SolutionDirectory, ".editorconfig");
+		await File.WriteAllTextAsync(
+			editorConfigPath,
+			"[*.cs]\ndotnet_diagnostic.IDE0040.severity = none\n",
+			cancellationToken
+		);
+
+		var (success, output, errors) = await h.BuildAsync(restore: true, verbose: true, cancellationToken);
+
+		await Assert.That(success).IsTrue().Because(TestHelpers.GenerateError(output, errors));
+	}
+
+	[Test]
+	public async Task StylePolicy_NamingDiagnosticHidden_FailsTheBuild(CancellationToken cancellationToken)
+	{
+		using var h = await CreateHarnessAsync(extraProps: null, cancellationToken: cancellationToken);
+
+		var editorConfigPath = Path.Combine(h.SolutionDirectory, ".editorconfig");
+		await File.WriteAllTextAsync(
+			editorConfigPath,
+			"[*.cs]\ndotnet_diagnostic.IDE1006.severity = silent\n",
+			cancellationToken
+		);
+
+		var (success, output, errors) = await h.BuildAsync(restore: true, verbose: true, cancellationToken);
+
+		await Assert.That(success).IsFalse();
+		await Assert.That(output + errors).Contains("PRSGD0009");
+	}
+
+	[Test]
+	public async Task StylePolicy_FieldNamingRuleDisabled_FailsTheBuild(CancellationToken cancellationToken)
+	{
+		using var h = await CreateHarnessAsync(extraProps: null, cancellationToken: cancellationToken);
+
+		var editorConfigPath = Path.Combine(h.SolutionDirectory, ".editorconfig");
+		await File.WriteAllTextAsync(
+			editorConfigPath,
+			"[*.cs]\ndotnet_naming_rule.private_instance_fields_must_be_camel_case_with_underscore_prefix.severity = none\n",
+			cancellationToken
+		);
+
+		var (success, output, errors) = await h.BuildAsync(restore: true, verbose: true, cancellationToken);
+
+		await Assert.That(success).IsFalse();
+		await Assert.That(output + errors).Contains("PRSGD0009");
+	}
+
+	[Test]
+	public async Task StylePolicy_FieldPrefixRemoved_FailsTheBuild(CancellationToken cancellationToken)
+	{
+		using var h = await CreateHarnessAsync(extraProps: null, cancellationToken: cancellationToken);
+
+		var editorConfigPath = Path.Combine(h.SolutionDirectory, ".editorconfig");
+		await File.WriteAllTextAsync(
+			editorConfigPath,
+			"[*.cs]\ndotnet_naming_style.camel_case_underscore_style.required_prefix =\n",
+			cancellationToken
+		);
+
+		var (success, output, errors) = await h.BuildAsync(restore: true, verbose: true, cancellationToken);
+
+		await Assert.That(success).IsFalse();
+		await Assert.That(output + errors).Contains("PRSGD0009");
 	}
 
 	[Test]

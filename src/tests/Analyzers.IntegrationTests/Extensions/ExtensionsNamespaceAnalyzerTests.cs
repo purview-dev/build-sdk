@@ -11,7 +11,7 @@ namespace Purview.BuildSdk.Analyzers.Extensions;
 /// testing harness with TUnit.
 /// </summary>
 [Category("Integration")]
-public sealed class ExtensionsNamespaceAnalyzerTests
+sealed class ExtensionsNamespaceAnalyzerTests
 {
 	static async Task<ImmutableArray<Diagnostic>> AnalyzeAsync(
 		string filePath,

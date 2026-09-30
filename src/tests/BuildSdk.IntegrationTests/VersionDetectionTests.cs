@@ -6,7 +6,7 @@ namespace Purview.BuildSdk;
 /// Verifies SDK version detection from package.json: property defaults, explicit and
 /// auto-discovered package.json paths, opt-out behaviour, and build-time validation errors.
 /// </summary>
-public sealed partial class VersionDetectionTests
+sealed partial class VersionDetectionTests
 {
 	[Test]
 	public async Task UsePackageJsonVersion_DefaultsToTrue(CancellationToken cancellationToken)

@@ -12,6 +12,34 @@ command-line builds and Visual Studio.
 | `PDS0004` | Naming | Warning | Use correct acronym capitalization (`Api` → `API`) |
 | `PDS0005` | (suppressor) | — | Suppresses `IDE0130` for files rooted under `Extensions/` |
 
+## Style policy
+
+The SDK ships the modifier/visibility **and field-naming** policy in `.editorconfig` and enforces it with
+`ValidatePurviewStylePolicy` (`PRSGD0006`-`PRSGD0009`), so a repository cannot neuter it:
+
+- `dotnet_style_require_accessibility_modifiers = omit_if_default:warning`: a declared modifier that
+  matches the language default (`private` inside a type, `internal` at namespace scope, `public` inside
+  an interface) is reported by `IDE0040` and must be removed.
+- Private instance fields must be `_camelCase` (`_name`, never `name`): the `_` prefix keeps field
+  access unambiguous, so the noisy `this.` qualifier is never needed. Constants and `static readonly`
+  fields stay PascalCase, and local constants stay camelCase.
+- `CA1515` (public type in an application/test assembly) ships at warning; `CA1852` (seal internal
+  types) is not suppressed for types exposed through `InternalsVisibleTo`; `CA1034` is not disabled for
+  `Extensions/` files; the API-surface rules `CA1062`/`CA1707` are not pre-suppressed for test projects.
+- Test projects are executables, so their test classes must be non-public (`sealed class MyTests`,
+  `internal` by default) rather than the rules being hidden through `NoWarn`.
+
+| Code | Reported when |
+| -- | -- |
+| `PRSGD0006` | `dotnet_style_require_accessibility_modifiers` is set to anything other than `omit_if_default`. |
+| `PRSGD0007` | A policy rule is downgraded below warning (`IDE0040`, `CA1515`, `CA1852`, `CA1034`), any policy rule is set to `none`/`silent`, or the `Style` category is disabled in bulk without an explicit `IDE0040` severity. |
+| `PRSGD0008` | One of the accessibility rules (`IDE0040`, `CA1515`, `CA1852`, `CA1034`, `CA1012`, `CA1047`, `CA1050`, `CA1051`, `CA1062`, `CA1064`, `CA1707`) is added to `NoWarn`. |
+| `PRSGD0009` | `IDE1006` is hidden, the private instance field naming rule is downgraded below warning, or the `_` prefix is removed from the field naming style. |
+
+Opt out with `<DisablePurviewStylePolicyValidation>true</DisablePurviewStylePolicyValidation>`. A stale
+bootstrapped `.editorconfig` is reported rather than obeyed — refresh it with
+`PurviewRepoBootstrapMode=Always` (or delete it).
+
 ## PDS0002 — Extensions namespace rule
 
 When a file is placed under a project-root `Extensions/` folder, the analyzer intentionally treats

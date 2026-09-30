@@ -8,7 +8,7 @@ namespace Purview.BuildSdk;
 /// Projects ending with CLI, Console, or CommandLine (case-insensitive) should be classified
 /// as CLI projects.
 /// </summary>
-public sealed class IsCLIProjectTests
+sealed class IsCLIProjectTests
 {
 	/// <summary>
 	/// Helper to create a project and evaluate its IsCLIProject property.
@@ -109,7 +109,7 @@ public sealed class IsCLIProjectTests
 	}
 
 	[Test]
-	public async Task ProjectCLI_HasNoWarnCA1515(CancellationToken cancellationToken)
+	public async Task ProjectCLI_DoesNotSilenceAccessibilityRules(CancellationToken cancellationToken)
 	{
 		var (harness, _) = await CreateProjectAndEvaluateAsync("MyCLI", cancellationToken);
 
@@ -117,8 +117,11 @@ public sealed class IsCLIProjectTests
 		{
 			var properties = await harness.GetPropertiesAsync(cancellationToken, "NoWarn");
 
+			// CLI applications are executables, so public types are flagged by CA1515; the fix is to
+			// make them internal, never to silence the rule through NoWarn.
 			await Assert.That(properties).ContainsKey("NoWarn");
-			await Assert.That(properties["NoWarn"]).Contains("CA1515");
+			await Assert.That(properties["NoWarn"]).DoesNotContain("CA1515");
+			await Assert.That(properties["NoWarn"]).DoesNotContain("IDE0040");
 		}
 	}
 

@@ -8,7 +8,7 @@ namespace Purview.BuildSdk.Analyzers.EnglishNaming;
 /// <see cref="EnglishNamingConfig"/> .editorconfig-driven customisation.
 /// </summary>
 [Category("Unit")]
-public sealed class EnglishNamingHelperTests
+sealed class EnglishNamingHelperTests
 {
 	static readonly EnglishNamingConfig Defaults = EnglishNamingConfig.Create(
 		EnglishNamingHelper.DefaultAcronymMap,

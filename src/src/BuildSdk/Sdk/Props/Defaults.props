@@ -33,6 +33,8 @@
 			>false</DisableGenerateAssemblyInfoClass>
 		<DisableNamespacePrefixCheck Condition="'$(DisableNamespacePrefixCheck)' == ''"
 			>false</DisableNamespacePrefixCheck>
+		<DisablePurviewStylePolicyValidation Condition="'$(DisablePurviewStylePolicyValidation)' == ''"
+			>false</DisablePurviewStylePolicyValidation>
 		<DisableRoslynCompilerDefaultsValidation Condition="'$(DisableRoslynCompilerDefaultsValidation)' == ''"
 			>false</DisableRoslynCompilerDefaultsValidation>
 		<DisableSourceLink Condition="'$(DisableSourceLink)' == ''">false</DisableSourceLink>

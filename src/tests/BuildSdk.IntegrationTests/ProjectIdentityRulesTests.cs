@@ -5,7 +5,7 @@ using Purview.BuildSdk.Infra;
 
 namespace Purview.BuildSdk;
 
-public sealed class ProjectIdentityRulesTests
+sealed class ProjectIdentityRulesTests
 {
 	[Test]
 	public async Task RootProject_UsesNamespacePrefixAsIs(CancellationToken cancellationToken)

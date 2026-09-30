@@ -10,7 +10,7 @@ namespace Purview.BuildSdk;
 /// Proves the packed SDK can be consumed from a local NuGet feed and that its .editorconfig
 /// is resolved and applied as an EditorConfigFiles entry in a fresh consumer project.
 /// </summary>
-public sealed class SdkPackageConsumptionTests
+sealed class SdkPackageConsumptionTests
 {
 	// Both tests in this class build the shared BuildSdk/Analyzers project in place via `dotnet pack`;
 	// serialize them to avoid concurrent CSC file-lock conflicts on the same obj/bin outputs.
@@ -533,6 +533,58 @@ public sealed class SdkPackageConsumptionTests
 				.Because(
 					"The Extensions section must suppress namespace-conflict diagnostics so no pragmas are required."
 				);
+			await Assert
+				.That(editorConfig)
+				.Contains("dotnet_style_require_accessibility_modifiers = omit_if_default:warning")
+				.Because(
+					"The modifier policy must ship as omit_if_default: a declared accessibility modifier that equals the language default is noise and must be removed."
+				);
+			await Assert
+				.That(editorConfig)
+				.Contains("dotnet_diagnostic.CA1515.severity = warning")
+				.Because("CA1515 must ship at warning so over-visible types cannot be ignored.");
+			await Assert
+				.That(editorConfig)
+				.DoesNotContain("dotnet_code_quality.require_accessibility_modifiers")
+				.Because("Unsupported 'dotnet_code_quality' keys are silently ignored and must not ship.");
+			await Assert
+				.That(editorConfig)
+				.DoesNotContain("ignore_internalsvisibleto")
+				.Because("CA1852 must not be suppressed for types exposed through InternalsVisibleTo.");
+			await Assert
+				.That(editorConfig.Split("dotnet_diagnostic.IDE0040.severity").Length - 1)
+				.IsEqualTo(1)
+				.Because("IDE0040 must be declared exactly once so its effective severity is unambiguous.");
+			await Assert
+				.That(editorConfig)
+				.Contains(
+					"dotnet_naming_rule.private_instance_fields_must_be_camel_case_with_underscore_prefix.severity = warning"
+				)
+				.Because("Private instance fields must be enforced as '_camelCase'.");
+			await Assert
+				.That(editorConfig)
+				.Contains("dotnet_naming_style.camel_case_underscore_style.required_prefix = _")
+				.Because("The '_' prefix is what keeps field access free of the noisy 'this.' qualifier.");
+			await Assert
+				.That(editorConfig)
+				.Contains("dotnet_diagnostic.IDE1006.severity = warning")
+				.Because("Naming rules are only reported while the naming diagnostic is visible.");
+			await Assert
+				.That(editorConfig)
+				.Contains("dotnet_naming_rule.local_functions_should_be_pascal_case.symbols = local_functions")
+				.Because("A catch-all symbol group makes the local-function rule demand PascalCase everywhere.");
+			await Assert
+				.That(editorConfig)
+				.DoesNotContain("all_members")
+				.Because("The catch-all symbol group must not ship: it flags locals, fields and parameters.");
+			await Assert
+				.That(editorConfig)
+				.DoesNotContain("dotnet_naming_rule.private_fields.severity")
+				.Because("A rule that references undefined styles/symbol groups enforces nothing.");
+			await Assert
+				.That(editorConfig)
+				.DoesNotContain("dotnet_naming_rule.types_should_be_pascal_case.severity")
+				.Because("A rule that references undefined styles/symbol groups enforces nothing.");
 		}
 	}
 

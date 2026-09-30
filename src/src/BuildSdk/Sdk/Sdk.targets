@@ -1496,6 +1496,282 @@
 		/>
 	</Target>
 
+	<!-- =====================================================================
+	     STYLE POLICY VALIDATION (PRSGD0006-PRSGD0009)
+	     The modifier/visibility policy ('dotnet_style_require_accessibility_modifiers =
+	     omit_if_default', plus IDE0040/CA1515/CA1852/CA1034 and the api-surface rules) and the
+	     field-naming policy (private instance fields are '_camelCase', never 'camelCase') are part of
+	     the SDK's code-style contract. Repositories must not neuter them by overriding the options,
+	     disabling the rules, disabling the Style category in bulk, or adding the rules to NoWarn:
+	     everything the policy reports is fixed, not suppressed (a declared modifier that matches the
+	     language default is removed, a field is renamed to '_name', and so on).
+	     Opt out with DisablePurviewStylePolicyValidation=true.
+	     ===================================================================== -->
+	<UsingTask
+		TaskName="ValidatePurviewStylePolicy"
+		TaskFactory="RoslynCodeTaskFactory"
+		AssemblyFile="$([System.IO.Path]::Combine('$(MSBuildToolsPath)', 'Microsoft.Build.Tasks.Core.dll'))"
+	>
+		<ParameterGroup>
+			<ProjectDirectory ParameterType="System.String" Required="true" />
+			<NoWarn ParameterType="System.String" Required="false" />
+		</ParameterGroup>
+		<Task>
+			<Using Namespace="System" />
+			<Using Namespace="System.Collections.Generic" />
+			<Using Namespace="System.IO" />
+			<Using Namespace="Microsoft.Build.Framework" />
+			<Using Namespace="Microsoft.Build.Utilities" />
+			<Reference Include="$([System.IO.Path]::Combine('$(MSBuildToolsPath)', 'Microsoft.Build.Framework.dll'))" />
+			<Reference Include="$([System.IO.Path]::Combine('$(MSBuildToolsPath)', 'Microsoft.Build.Utilities.Core.dll'))" />
+			<Code Type="Fragment" Language="cs">
+				<![CDATA[
+					// Purview accessibility policy validation (PRSGD0006-PRSGD0008).
+					var policyRules = new[]
+					{
+						"IDE0040", "CA1515", "CA1852", "CA1034", "CA1012", "CA1047", "CA1050", "CA1051",
+						"CA1062", "CA1064", "CA1707"
+					};
+					var mustStayAtWarning = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+					{
+						"IDE0040", "CA1515", "CA1852", "CA1034"
+					};
+					var hiddenSeverities = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+					{
+						"none", "silent", "suggestion"
+					};
+					var offSeverities = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+					{
+						"none", "silent"
+					};
+
+					if (!string.IsNullOrEmpty(NoWarn))
+					{
+						foreach (var raw in NoWarn.Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries))
+						{
+							var id = raw.Trim();
+							if (id.Length == 0)
+								continue;
+
+							foreach (var rule in policyRules)
+							{
+								if (!string.Equals(id, rule, StringComparison.OrdinalIgnoreCase))
+									continue;
+
+								Log.LogError(null, "PRSGD0008", null, null, 0, 0, 0, 0,
+									"The project silences the accessibility rule '{0}' through NoWarn. Accessibility modifier and visibility rules are part of the Purview.BuildSdk policy and must be fixed rather than suppressed; remove '{0}' from NoWarn, or set DisablePurviewStylePolicyValidation=true to opt out of this validation.", id);
+							}
+						}
+					}
+
+					// Walk the .editorconfig chain the way the compiler does: the nearest file wins,
+					// later entries beat earlier ones, and the walk stops at a file declaring 'root = true'.
+					var chain = new List<string>();
+					var directory = ProjectDirectory;
+					while (!string.IsNullOrEmpty(directory) && Directory.Exists(directory))
+					{
+						var candidate = Path.Combine(directory, ".editorconfig");
+						if (File.Exists(candidate))
+						{
+							chain.Add(candidate);
+							if (DeclaresRoot(candidate))
+								break;
+						}
+
+						var trimmed = directory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+						var parent = Path.GetDirectoryName(trimmed);
+						if (string.IsNullOrEmpty(parent) || string.Equals(parent, directory, StringComparison.OrdinalIgnoreCase))
+							break;
+
+						directory = parent;
+					}
+
+					chain.Reverse();
+
+					var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+					var sources = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+					foreach (var file in chain)
+						MergeEditorConfig(file, values, sources);
+
+					string optionValue;
+					if (values.TryGetValue("dotnet_style_require_accessibility_modifiers", out optionValue))
+					{
+						if (!string.Equals(optionValue.Split(':')[0].Trim(), "omit_if_default", StringComparison.OrdinalIgnoreCase))
+						{
+							Log.LogError(null, "PRSGD0006", null, sources["dotnet_style_require_accessibility_modifiers"], 0, 0, 0, 0,
+								"This repository overrides 'dotnet_style_require_accessibility_modifiers' with '{0}'. The Purview.BuildSdk modifier policy requires 'omit_if_default': a declared accessibility modifier that matches the language default is noise and must be removed. Remove the override, or set DisablePurviewStylePolicyValidation=true to opt out of this validation.", optionValue);
+						}
+					}
+
+					string ide0040;
+					if (values.TryGetValue("dotnet_diagnostic.IDE0040.severity", out ide0040))
+					{
+						if (hiddenSeverities.Contains(ide0040.Split(':')[0].Trim()))
+						{
+							Log.LogError(null, "PRSGD0007", null, sources["dotnet_diagnostic.IDE0040.severity"], 0, 0, 0, 0,
+								"This repository sets 'dotnet_diagnostic.IDE0040.severity' to '{0}'. The accessibility modifier policy cannot be turned off or hidden; remove the override, or set DisablePurviewStylePolicyValidation=true to opt out of this validation.", ide0040);
+						}
+					}
+					else if (IsHidden(values, "dotnet_analyzer_diagnostic.category-Style.severity") || IsHidden(values, "dotnet_analyzer_diagnostic.severity"))
+					{
+						Log.LogError(null, "PRSGD0007", null, chain.Count > 0 ? chain[chain.Count - 1] : null, 0, 0, 0, 0,
+							"This repository disables analyzer rules in bulk, which hides IDE0040 ('dotnet_analyzer_diagnostic.*'). Configure the Style category (or all analyzers) to a visible severity, or set DisablePurviewStylePolicyValidation=true to opt out of this validation.");
+					}
+
+					foreach (var rule in policyRules)
+					{
+						var key = "dotnet_diagnostic." + rule + ".severity";
+						string ruleSeverity;
+						if (!values.TryGetValue(key, out ruleSeverity))
+							continue;
+
+						var forbidden = mustStayAtWarning.Contains(rule) ? hiddenSeverities : offSeverities;
+						if (!forbidden.Contains(ruleSeverity.Split(':')[0].Trim()))
+							continue;
+
+						Log.LogError(null, "PRSGD0007", null, sources[key], 0, 0, 0, 0,
+							"This repository sets '{0}' to '{1}'. The accessibility policy requires '{0}' to stay at warning or above; remove the override, or set DisablePurviewStylePolicyValidation=true to opt out of this validation.", key, ruleSeverity);
+					}
+
+					// Field-naming policy: private instance fields must be '_camelCase', and the naming
+					// diagnostic that reports the violation must stay visible.
+					var namingSeverityKey = "dotnet_diagnostic.IDE1006.severity";
+					string namingSeverity;
+					if (values.TryGetValue(namingSeverityKey, out namingSeverity))
+					{
+						if (hiddenSeverities.Contains(namingSeverity.Split(':')[0].Trim()))
+						{
+							Log.LogError(null, "PRSGD0009", null, sources[namingSeverityKey], 0, 0, 0, 0,
+								"This repository sets '{0}' to '{1}', which hides every naming rule - including the '_'-prefixed private instance field rule. Keep it at warning or above (a stale bootstrapped .editorconfig can be refreshed with PurviewRepoBootstrapMode=Always), or set DisablePurviewStylePolicyValidation=true to opt out of this validation.", namingSeverityKey, namingSeverity);
+						}
+					}
+
+					var fieldNamingRuleKey = "dotnet_naming_rule.private_instance_fields_must_be_camel_case_with_underscore_prefix.severity";
+					string fieldNamingSeverity;
+					if (values.TryGetValue(fieldNamingRuleKey, out fieldNamingSeverity))
+					{
+						if (hiddenSeverities.Contains(fieldNamingSeverity.Split(':')[0].Trim()))
+						{
+							Log.LogError(null, "PRSGD0009", null, sources[fieldNamingRuleKey], 0, 0, 0, 0,
+								"This repository sets '{0}' to '{1}'. Private instance fields must be named '_camelCase' so field access never needs the noisy 'this.' qualifier; keep the rule at warning or above, or set DisablePurviewStylePolicyValidation=true to opt out of this validation.", fieldNamingRuleKey, fieldNamingSeverity);
+						}
+					}
+
+					var fieldNamingPrefixKey = "dotnet_naming_style.camel_case_underscore_style.required_prefix";
+					string fieldNamingPrefix;
+					if (
+						values.TryGetValue(fieldNamingPrefixKey, out fieldNamingPrefix)
+						&& !string.Equals(fieldNamingPrefix.Trim(), "_", StringComparison.Ordinal)
+					)
+					{
+						Log.LogError(null, "PRSGD0009", null, sources[fieldNamingPrefixKey], 0, 0, 0, 0,
+							"This repository sets '{0}' to '{1}'. Private instance fields must keep the '_' prefix ('_name', never 'name'); restore the prefix, or set DisablePurviewStylePolicyValidation=true to opt out of this validation.", fieldNamingPrefixKey, fieldNamingPrefix);
+					}
+
+					bool DeclaresRoot(string file)
+					{
+						string[] lines;
+						try
+						{
+							lines = File.ReadAllLines(file);
+						}
+						catch (Exception)
+						{
+							return false;
+						}
+
+						foreach (var line in lines)
+						{
+							var text = StripComment(line).Trim();
+							if (text.Length == 0 || text[0] == '[')
+								continue;
+
+							var separator = text.IndexOf('=');
+							if (separator <= 0)
+								continue;
+
+							if (!string.Equals(text.Substring(0, separator).Trim(), "root", StringComparison.OrdinalIgnoreCase))
+								continue;
+
+							if (string.Equals(text.Substring(separator + 1).Trim(), "true", StringComparison.OrdinalIgnoreCase))
+								return true;
+						}
+
+						return false;
+					}
+
+					void MergeEditorConfig(string file, Dictionary<string, string> target, Dictionary<string, string> targetSources)
+					{
+						string[] lines;
+						try
+						{
+							lines = File.ReadAllLines(file);
+						}
+						catch (Exception)
+						{
+							return;
+						}
+
+						var section = string.Empty;
+						foreach (var line in lines)
+						{
+							var text = StripComment(line).Trim();
+							if (text.Length == 0)
+								continue;
+
+							if (text[0] == '[')
+							{
+								var end = text.IndexOf(']');
+								section = end > 0 ? text.Substring(0, end + 1) : text;
+								continue;
+							}
+
+							var separator = text.IndexOf('=');
+							if (separator <= 0 || !SectionAppliesToCSharp(section))
+								continue;
+
+							var key = text.Substring(0, separator).Trim();
+							target[key] = text.Substring(separator + 1).Trim();
+							targetSources[key] = file;
+						}
+					}
+
+					string StripComment(string line)
+					{
+						var index = line.IndexOf('#');
+						return index < 0 ? line : line.Substring(0, index);
+					}
+
+					bool SectionAppliesToCSharp(string section)
+					{
+						if (section.Length == 0 || string.Equals(section, "[*]", StringComparison.OrdinalIgnoreCase))
+							return true;
+
+						return section.IndexOf(".cs", StringComparison.OrdinalIgnoreCase) >= 0;
+					}
+
+					bool IsHidden(Dictionary<string, string> source, string key)
+					{
+						string value;
+						if (!source.TryGetValue(key, out value))
+							return false;
+
+						return hiddenSeverities.Contains(value.Split(':')[0].Trim());
+					}
+				]]>
+			</Code>
+		</Task>
+	</UsingTask>
+
+	<Target
+		Name="ValidatePurviewStylePolicy"
+		BeforeTargets="CoreCompile"
+		Condition="'$(IsCSharpProject)' == 'true' AND '$(DisablePurviewStylePolicyValidation)' != 'true' AND '$(DesignTimeBuild)' != 'true'"
+		Label="Ensures the modifier/visibility and field-naming policy is not silenced (PRSGD0006-PRSGD0009)."
+	>
+		<ValidatePurviewStylePolicy ProjectDirectory="$(MSBuildProjectDirectory)" NoWarn="$(NoWarn)" />
+	</Target>
+
 	<Target
 		Name="EnsureRepositoryGlobalJsonTarget"
 		BeforeTargets="PrepareForBuild"

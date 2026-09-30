@@ -9,7 +9,7 @@ namespace Purview.BuildSdk.Analyzers.IntegrationTests.Extensions;
 /// Integration tests for <see cref="ExtensionsNamespaceSuppressor"/> behavior.
 /// </summary>
 [Category("Integration")]
-public sealed class ExtensionsNamespaceSuppressorTests
+sealed class ExtensionsNamespaceSuppressorTests
 {
 	static async Task<ImmutableArray<Diagnostic>> AnalyzeAsync(
 		string filePath,

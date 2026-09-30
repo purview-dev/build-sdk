@@ -4,7 +4,7 @@ namespace Purview.BuildSdk.Analyzers.ExtensionsNamespace;
 /// Unit tests for <see cref="ExtensionsNamespaceHelper"/> namespace derivation logic.
 /// </summary>
 [Category("Unit")]
-public sealed class NamespaceCalculatorTests
+sealed class NamespaceCalculatorTests
 {
 	[Test]
 	[Arguments(

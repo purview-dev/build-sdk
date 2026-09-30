@@ -2,7 +2,7 @@ using Purview.BuildSdk.Harness;
 
 namespace Purview.BuildSdk;
 
-public class TestTypeDetectionTests
+class TestTypeDetectionTests
 {
 	[Test]
 	[MethodDataSource(nameof(TestTypes))]

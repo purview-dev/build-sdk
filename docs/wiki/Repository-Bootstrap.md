@@ -13,6 +13,16 @@ The package ships an `.editorconfig` in `Sdk/.editorconfig`. It is:
 2. Written to the repository root (as a physical file) when a `.editorconfig` does not already exist
    there, so tools like CSharpier pick it up.
 
+The shipped file also defines the style policy
+(`dotnet_style_require_accessibility_modifiers = omit_if_default`, private instance fields named
+`_camelCase`, with `IDE0040`, `CA1515`, `CA1852` and `CA1034` at warning or above). Because a repository
+owner can edit a bootstrapped copy, the `ValidatePurviewStylePolicy` target re-checks the *effective*
+configuration on every compile and fails the build (`PRSGD0006`-`PRSGD0009`) when that policy has been
+overridden, hidden, or silenced through `NoWarn`. A stale copy that predates the current policy (for
+example one that still hides `IDE1006`) is therefore reported rather than obeyed — refresh it with
+`PurviewRepoBootstrapMode=Always`. Opt out with `DisablePurviewStylePolicyValidation=true`; see
+[Style policy](Analyzers.md#style-policy).
+
 The write is atomic (a temporary file is renamed into place) and retried quietly, so parallel projects
 sharing the repository root cannot corrupt it or fail the build by racing. An existing file is never
 overwritten unless you ask for it.
