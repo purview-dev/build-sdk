@@ -26,21 +26,6 @@ sealed class TestWiringTests
 	}
 
 	[Test]
-	public async Task TestProject_DoesNotSilenceAccessibilityRules(CancellationToken cancellationToken)
-	{
-		using var h = await ProjectHarness.CreateAsync("MyApp.UnitTests", cancellationToken: cancellationToken);
-
-		var noWarn = await h.GetPropertyAsync("NoWarn", cancellationToken);
-
-		// Test projects are executables, so the accessibility rules are reported for them; test
-		// classes must be non-public instead of the rules being suppressed through NoWarn.
-		await Assert.That(noWarn).DoesNotContain("CA1515");
-		await Assert.That(noWarn).DoesNotContain("CA1062");
-		await Assert.That(noWarn).DoesNotContain("CA1707");
-		await Assert.That(noWarn).DoesNotContain("IDE0040");
-	}
-
-	[Test]
 	public async Task TestProject_Xunit_WhenOptedIn(CancellationToken cancellationToken)
 	{
 		using var h = await ProjectHarness.CreateAsync(
@@ -111,5 +96,65 @@ sealed class TestWiringTests
 		var props = await h.GetPropertiesAsync(cancellationToken, "IsTestProject", "IsSharedTestingProject");
 		await Assert.That(props["IsSharedTestingProject"]).IsEqualTo("true");
 		await Assert.That(props["IsTestProject"]).IsEqualTo("false");
+	}
+
+	[Test]
+	public async Task SharedTestingProject_StaysALibrary_WhenTestPackagesRequestATestExecutable(
+		CancellationToken cancellationToken
+	)
+	{
+		// TUnit's engine props (pulled in transitively by TUnit/TUnit.Aspire) set these from the
+		// project's own package imports, i.e. after Sdk.props has already run. A shared testing
+		// project is a helper library - that is what keeps its fixtures out of CA1515's Exe-only
+		// scope - so Sdk.targets (imported last) reasserts the documented shape.
+		using var h = await ProjectHarness.CreateAsync(
+			"SharedTestingFramework",
+			extraProps: """
+			<IsTestProject>true</IsTestProject>
+			<IsTestingPlatformApplication>true</IsTestingPlatformApplication>
+			<OutputType>Exe</OutputType>
+			""",
+			cancellationToken: cancellationToken
+		);
+
+		var props = await h.GetPropertiesAsync(
+			cancellationToken,
+			"OutputType",
+			"IsTestProject",
+			"IsTestingPlatformApplication"
+		);
+
+		await Assert.That(props["OutputType"]).IsEqualTo("Library");
+		await Assert.That(props["IsTestProject"]).IsEqualTo("false");
+		await Assert.That(props["IsTestingPlatformApplication"]).IsEqualTo("false");
+	}
+
+	[Test]
+	public async Task SharedTestingProject_CanOptIntoATestHostExecutable(CancellationToken cancellationToken)
+	{
+		// Opting into 'Exe' means "keep the package-driven test-host shape": the SDK stops forcing
+		// Library and leaves IsTestProject/IsTestingPlatformApplication exactly as the test packages
+		// set them.
+		using var h = await ProjectHarness.CreateAsync(
+			"SharedTestingFramework",
+			preImportProps: "<PurviewSharedTestingOutputType>Exe</PurviewSharedTestingOutputType>",
+			extraProps: """
+			<IsTestProject>true</IsTestProject>
+			<IsTestingPlatformApplication>true</IsTestingPlatformApplication>
+			<OutputType>Exe</OutputType>
+			""",
+			cancellationToken: cancellationToken
+		);
+
+		var props = await h.GetPropertiesAsync(
+			cancellationToken,
+			"OutputType",
+			"IsTestProject",
+			"IsTestingPlatformApplication"
+		);
+
+		await Assert.That(props["OutputType"]).IsEqualTo("Exe");
+		await Assert.That(props["IsTestProject"]).IsEqualTo("true");
+		await Assert.That(props["IsTestingPlatformApplication"]).IsEqualTo("true");
 	}
 }

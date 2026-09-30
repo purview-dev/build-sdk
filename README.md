@@ -238,6 +238,9 @@ Version detection logging is disabled by default. Set `VersionDetectionLogEnable
 | `NamespacePrefix` | *(required)* | Root namespace prefix, e.g. `Acme`. Results in `Acme.MyProject`. |
 | `DisableNamespacePrefixCheck` | `false` | Set to `true` to suppress the build error for missing `NamespacePrefix`. |
 | `DisablePurviewStylePolicyValidation` | `false` | Set to `true` to stop the build failing (`PRSGD0006`-`PRSGD0009`) when the repository `.editorconfig` overrides the modifier policy, hides `IDE0040`/`IDE1006`, disables the Style category in bulk, weakens the `_camelCase` field-naming rule, or adds the accessibility rules to `NoWarn`. |
+| `PurviewTestContextNoWarn` | `CA1002;CA1012;CA1034;CA1047;CA1050;CA1051;CA1062;CA1064;CA1515;CA1707` | Semicolon-fenced rule set exempted in test and shared-testing projects, so test classes stay public, `Method_Scenario_Expectation` names keep their underscores, and helpers need no null guards. Override before the SDK import to narrow or extend it. |
+| `DisablePurviewTestContextRuleSet` | `false` | Set to `true` to make test and shared-testing projects enforce the production API-surface rules as well (the strict style contract applies either way). |
+| `PurviewSharedTestingOutputType` | `Library` | Output type forced on `IsSharedTestingProject` projects. `Library` (default) keeps them helper libraries - with `IsTestProject`/`IsTestingPlatformApplication` cleared - which also keeps their fixtures out of `CA1515`'s Exe-only scope. Set to `Exe` before the SDK import to keep the test packages' executable/test-host shape instead. |
 | `TargetFramework` | `net10.0` | Override the default TFM per-project or globally. Defaults to `netstandard2.0` for projects declaring `IsRoslynComponent=true`. |
 | `IsRoslynComponent` | `false` | When explicitly `true`, applies source-generator defaults: a single `netstandard2.0` target, `LangVersion=latest`, `Nullable=enable`, `TreatWarningsAsErrors=true`, `Deterministic=true`, extended analyzer rules, SourceLink with `EmbedUntrackedSources=true`, compiler-generated output under the intermediate directory, no dependency file, telemetry exclusion, and package build output. Pack-time validation (`ValidateRoslynComponentCompilerSettings`) fails the pack if the compiler defaults are missing unless `DisableRoslynCompilerDefaultsValidation=true`. Roslyn development dependencies (`Microsoft.CodeAnalysis.*`, `Microsoft.CodeAnalysis.Analyzers`) default to `PrivateAssets="all"`. |
 | `IsRoslynComponentOnly` | `true` for Roslyn components | Produces an analyzer-only package: `IncludeBuildOutput=false`, `IncludeSymbols=false`, and the analyzer assembly and portable PDB are packed under `analyzers/dotnet/cs/`. Set to `false` for a dual-role Roslyn component that uses normal library symbol packaging. |
@@ -542,13 +545,26 @@ deliberately not silenceable:
   matches the language default (`private` inside a type, `internal` at namespace scope, `public` inside
   an interface) is reported by `IDE0040` and must be **removed**. Omit the default modifier instead.
 - Private instance fields must be `_camelCase`, never `camelCase` or `PascalCase`: the `_` prefix keeps
-  field access unambiguous, so the noisy `this.` qualifier is never needed. Constants and `static
-  readonly` fields stay PascalCase, and local constants stay camelCase.
+  field access unambiguous, so the noisy `this.` qualifier is never needed. Private constants and private
+  `static readonly` fields are type-level state and stay PascalCase; non-private constants and
+  `static readonly` fields follow the same PascalCase rule, and local constants stay camelCase.
 - `CA1515` (public type in an application/test assembly) ships at **warning**, `CA1852` (seal internal
   types) is no longer suppressed for internals exposed through `InternalsVisibleTo`, and `CA1034` is no
-  longer disabled for `Extensions/` files.
-- Test projects are executables, so test classes must be non-public (`sealed class MyTests`, which is
-  `internal` by default) instead of `CA1515`/`CA1707`/`CA1062` being hidden through `NoWarn`.
+  longer disabled for `Extensions/` files. Project shapes whose public surface is mandated by a
+  framework are exempt by the SDK itself: Aspire hosts and CLI apps keep their nested public options
+  types, and test projects use the test-context rule set below.
+- Test and shared-testing projects get a **test-context rule set** (`PurviewTestContextNoWarn`) that
+  exempts the production API-surface rules (`CA1002`, `CA1012`, `CA1034`, `CA1047`, `CA1050`, `CA1051`,
+  `CA1062`, `CA1064`, `CA1515`, `CA1707`), because test classes and fixtures are legitimately public,
+  test names use `Method_Scenario_Expectation`, helpers expose fields and take fixture parameters
+  without null guards, and abstract test bases have public constructors. Everything stylistic still
+  applies to tests (`IDE0040`, field naming, formatting, the `IDE1006` naming rules). Set
+  `DisablePurviewTestContextRuleSet=true` to enforce the production rules in tests as well, or override
+  `PurviewTestContextNoWarn` with your own semicolon-fenced list before the SDK import.
+- Shared testing projects stay **libraries** even though their test packages request the test-host shape,
+  so their fixtures remain legitimate public API and `CA1515` does not apply to them at all. Use
+  `<PurviewSharedTestingOutputType>Exe</PurviewSharedTestingOutputType>` to opt back into the
+  package-driven executable.
 
 `ValidatePurviewStylePolicy` runs before every C# compile and fails the build when a repository neuters
 the policy:
@@ -557,7 +573,7 @@ the policy:
 | -- | -- |
 | `PRSGD0006` | `dotnet_style_require_accessibility_modifiers` is overridden with anything other than `omit_if_default`. |
 | `PRSGD0007` | A policy rule (`IDE0040`, `CA1515`, `CA1852`, `CA1034`) is downgraded below warning, any policy rule is set to `none`/`silent`, or the `Style` category is disabled in bulk without an explicit `IDE0040` severity. |
-| `PRSGD0008` | `IDE0040`, `CA1515`, `CA1852`, `CA1034`, `CA1012`, `CA1047`, `CA1050`, `CA1051`, `CA1062`, `CA1064`, or `CA1707` is added to `NoWarn`. |
+| `PRSGD0008` | `IDE0040`, `CA1515`, `CA1852`, `CA1034`, `CA1012`, `CA1047`, `CA1050`, `CA1051`, `CA1062`, `CA1064`, or `CA1707` is added to `NoWarn` by the repository. Entries the SDK injects itself (the test-context rule set for test/shared-testing projects and `CA1515` for Aspire hosts and CLI apps) are ignored so the SDK's own context-aware defaults stay usable. |
 | `PRSGD0009` | `IDE1006` is hidden, the private instance field rule is downgraded below warning, or the `_` prefix is removed from the field naming style. |
 
 The validator walks the same `.editorconfig` chain as the compiler (nearest file wins, later entries

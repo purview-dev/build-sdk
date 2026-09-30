@@ -487,6 +487,16 @@
 		Condition="'$(IsAspireHostProject)' == 'true' AND '$(IsTestProject)' != 'true' AND '$(IsSharedTestingProject)' != 'true'"
 	>
 		<OutputType Condition="'$(OutputType)' == ''">Exe</OutputType>
+		<!--
+			Hosts and CLI apps routinely declare nested public options classes (Spectre.Console
+			command settings, Aspire resource-kit options bound by [ZodSchema], and so on). CA1515
+			has no reasonable fix there — the nested type must stay public for the framework to bind
+			or source-generate it — so the rule is exempt by SDK policy instead of every repository
+			silencing it ad hoc. The exemption is recorded so ValidatePurviewStylePolicy (PRSGD0008)
+			can distinguish it from a repository-authored NoWarn entry.
+		-->
+		<NoWarn>$(NoWarn);CA1515;</NoWarn>
+		<PurviewPolicyExemptNoWarn>$(PurviewPolicyExemptNoWarn);CA1515;</PurviewPolicyExemptNoWarn>
 	</PropertyGroup>
 
 	<PropertyGroup
@@ -494,6 +504,9 @@
 		Condition="'$(IsCLIProject)' == 'true' AND '$(IsTestProject)' != 'true' AND '$(IsSharedTestingProject)' != 'true'"
 	>
 		<OutputType Condition="'$(OutputType)' == ''">Exe</OutputType>
+		<!-- Same rationale as Aspire hosts: nested public options classes (Spectre.Console settings). -->
+		<NoWarn>$(NoWarn);CA1515;</NoWarn>
+		<PurviewPolicyExemptNoWarn>$(PurviewPolicyExemptNoWarn);CA1515;</PurviewPolicyExemptNoWarn>
 	</PropertyGroup>
 
 	<ItemGroup Label="CLI Item Properties" Condition="'$(IsCLIProject)' == 'true'">
@@ -822,6 +835,18 @@
 
 	<!-- =====================================================================
 	     SHARED TEST PROJECT PROPERTIES
+	     Test and shared-testing projects keep the same strict structure and style as
+	     the rest of the repository (modifier policy, field naming, formatting, naming
+	     rules), but not the production API-surface rules: test classes and fixtures
+	     are legitimately public, test names use 'Method_Scenario_Expectation', helpers
+	     expose fields and take fixture parameters without null guards, and abstract
+	     test bases have public constructors.
+	     That context-aware rule set lives in PurviewTestContextNoWarn, is injected here
+	     and recorded in PurviewPolicyExemptNoWarn so PRSGD0008 accepts it as provided by
+	     the SDK rather than a repository override. Set
+	     DisablePurviewTestContextRuleSet=true to make test projects enforce the
+	     production rules as well, or set PurviewTestContextNoWarn to a custom
+	     (semicolon-fenced) list before the SDK import.
 	     ===================================================================== -->
 	<PropertyGroup
 		Condition="'$(IsTestProject)' == 'true' OR '$(IsSharedTestingProject)' == 'true'"
@@ -829,6 +854,10 @@
 	>
 		<NoWarn>$(NoWarn);CA1822;</NoWarn>
 		<NoWarn>$(NoWarn);CS1591;</NoWarn>
+		<NoWarn Condition="'$(DisablePurviewTestContextRuleSet)' != 'true'"
+			>$(NoWarn);$(PurviewTestContextNoWarn)</NoWarn>
+		<PurviewPolicyExemptNoWarn Condition="'$(DisablePurviewTestContextRuleSet)' != 'true'"
+			>$(PurviewPolicyExemptNoWarn);$(PurviewTestContextNoWarn)</PurviewPolicyExemptNoWarn>
 		<Packable>false</Packable>
 		<IsPackable>false</IsPackable>
 		<IsPublishable>false</IsPublishable>

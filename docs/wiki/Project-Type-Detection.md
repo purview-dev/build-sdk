@@ -31,6 +31,10 @@ targets.
 ### Test projects (`IsTestProject=true`)
 
 - `OutputType=Exe` when the testing framework is not `None`.
+- A **test-context rule set** (`PurviewTestContextNoWarn`): the production API-surface rules
+  (`CA1002`, `CA1012`, `CA1034`, `CA1047`, `CA1050`, `CA1051`, `CA1062`, `CA1064`, `CA1515`, `CA1707`)
+  are exempt, while the strict style contract (`IDE0040`, field naming, formatting, `IDE1006` naming
+  rules) still applies. `DisablePurviewTestContextRuleSet=true` enforces the production rules instead.
 - `CollectCoverage=true` with coverage exclusions for framework and mocking packages.
 - `IsPackable=false`, `IsPublishable=false`, `MaxCpuCount=0`.
 - Disabled native instrumentation by default.
@@ -44,6 +48,10 @@ targets.
 - Test package references, but not the test runner or coverage settings.
 - A `[Skip]` attribute (TUnit) so the shared assembly is never executed directly.
 - `TUnit.Core` instead of the full `TUnit` package.
+- `OutputType=Library` with `IsTestProject`/`IsTestingPlatformApplication` cleared, reasserted after the
+  package props (which otherwise flip the project into an executable test host). The fixtures are consumed
+  by the test assemblies, so staying a library avoids `CA1515` (which only targets executables). Set
+  `PurviewSharedTestingOutputType=Exe` before the SDK import to keep the package-driven test-host shape.
 
 ### Shared projects (`IsSharedProject=true`)
 

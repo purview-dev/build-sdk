@@ -35,6 +35,8 @@
 			>false</DisableNamespacePrefixCheck>
 		<DisablePurviewStylePolicyValidation Condition="'$(DisablePurviewStylePolicyValidation)' == ''"
 			>false</DisablePurviewStylePolicyValidation>
+		<DisablePurviewTestContextRuleSet Condition="'$(DisablePurviewTestContextRuleSet)' == ''"
+			>false</DisablePurviewTestContextRuleSet>
 		<DisableRoslynCompilerDefaultsValidation Condition="'$(DisableRoslynCompilerDefaultsValidation)' == ''"
 			>false</DisableRoslynCompilerDefaultsValidation>
 		<DisableSourceLink Condition="'$(DisableSourceLink)' == ''">false</DisableSourceLink>
@@ -123,6 +125,11 @@
 		<PurviewNamespacePrefix Condition="'$(PurviewNamespacePrefix)' == ''"></PurviewNamespacePrefix>
 		<PurviewProjectShortName Condition="'$(PurviewProjectShortName)' == ''"></PurviewProjectShortName>
 		<PurviewTestType Condition="'$(PurviewTestType)' == ''"></PurviewTestType>
+		<PurviewTestContextNoWarn Condition="'$(PurviewTestContextNoWarn)' == ''"
+			>;CA1002;CA1012;CA1034;CA1047;CA1050;CA1051;CA1062;CA1064;CA1515;CA1707;</PurviewTestContextNoWarn>
+		<PurviewPolicyExemptNoWarn Condition="'$(PurviewPolicyExemptNoWarn)' == ''"></PurviewPolicyExemptNoWarn>
+		<PurviewSharedTestingOutputType Condition="'$(PurviewSharedTestingOutputType)' == ''"
+			>Library</PurviewSharedTestingOutputType>
 		<PublishAot Condition="'$(PublishAot)' == ''">false</PublishAot>
 		<PublishRepositoryUrl Condition="'$(PublishRepositoryUrl)' == ''">true</PublishRepositoryUrl>
 		<PurviewBuildSdkVersionForGlobalJson Condition="'$(PurviewBuildSdkVersionForGlobalJson)' == ''"
