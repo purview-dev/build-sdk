@@ -11,7 +11,7 @@ namespace Purview.BuildSdk.Analyzers.EditorBrowsable;
 /// <c>InternalsVisibleTo</c> attribute that <c>Sdk.targets</c> auto-generates for every
 /// &lt;TestType&gt; variant when building the analyzer project.
 /// </summary>
-public sealed class EditorBrowsableSuppressorTests
+sealed class EditorBrowsableSuppressorTests
 {
 	static readonly string[] TrustedAssemblies = (
 		(string?)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") ?? ""

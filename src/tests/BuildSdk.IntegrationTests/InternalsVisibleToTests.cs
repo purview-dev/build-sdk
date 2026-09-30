@@ -6,7 +6,7 @@ namespace Purview.BuildSdk;
 /// Verifies that the SDK correctly generates InternalsVisibleToAttribute entries for test types
 /// and shared testing projects, and that this behaviour can be disabled.
 /// </summary>
-public sealed class InternalsVisibleToTests
+sealed class InternalsVisibleToTests
 {
 	[Test]
 	public async Task InternalsVisibleTo_Generated_For_NonTestProjects_ByDefault(CancellationToken cancellationToken)

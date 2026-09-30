@@ -17,7 +17,7 @@ namespace Purview.BuildSdk.Analyzers.EnglishNaming;
 /// <see cref="EnglishNamingCodeFixProvider"/>.
 /// </summary>
 [Category("Integration")]
-public sealed class EnglishNamingTests
+sealed class EnglishNamingTests
 {
 	[Test]
 	public async Task Analyzer_TypeNamedApi_ReportsDiagnostic(CancellationToken cancellationToken)

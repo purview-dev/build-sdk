@@ -14,7 +14,7 @@ A reusable MSBuild SDK NuGet package that delivers standardised .NET project def
 | -- | -- |
 | **Project type detection** | `IsCSharpProject`, `IsTestProject`, `IsSharedTestingProject`, `IsContainerProject`, `IsWebSdkProject`, `IsAspireHostProject`, … |
 | **C# defaults** | `net10.0` TFM (overridable), `LangVersion=preview`, `Nullable=enable`, `ImplicitUsings=enable`, deterministic builds |
-| **Code style** | `.editorconfig` baked into the package, applied via `EditorConfigFilePath`, and auto-bootstrapped to repo root if missing; `EnforceCodeStyleInBuild=true`, `EnableNETAnalyzers=true`, `AnalysisLevel=latest`, `AnalysisMode=All` |
+| **Code style** | `.editorconfig` baked into the package, applied via `EditorConfigFilePath`, and auto-bootstrapped to repo root if missing; `EnforceCodeStyleInBuild=true`, `EnableNETAnalyzers=true`, `AnalysisLevel=latest`, `AnalysisMode=All`. Style policy: `dotnet_style_require_accessibility_modifiers=omit_if_default`, private instance fields named `_camelCase`, and `IDE0040`/`CA1515`/`CA1852`/`CA1034` at warning or above, enforced by `ValidatePurviewStylePolicy` (opt out with `DisablePurviewStylePolicyValidation=true`) |
 | **NuGet packaging** | `AssemblyName`/`PackageId` default to the fully evaluated `RootNamespace`; packable projects get `GenerateDocumentationFile=true`, `PublishRepositoryUrl=true`, `IncludeSymbols=true`, `SymbolPackageFormat=snupkg`, `EmbedUntrackedSources=true`, and portable PDBs delivered via `.snupkg` (not the `.nupkg`) |
 | **Repo bootstrap** | Missing repo-root `.editorconfig` and `global.json` are auto-copied/created by default (disable via `DisableAutoCopySdkFiles=true`) |
 | **CI detection** | `ContinuousIntegrationBuild` set automatically when `CI`, `GITHUB_ACTIONS`, or `TF_BUILD` env vars are present |
@@ -237,6 +237,7 @@ Version detection logging is disabled by default. Set `VersionDetectionLogEnable
 | -- | -- | -- |
 | `NamespacePrefix` | *(required)* | Root namespace prefix, e.g. `Acme`. Results in `Acme.MyProject`. |
 | `DisableNamespacePrefixCheck` | `false` | Set to `true` to suppress the build error for missing `NamespacePrefix`. |
+| `DisablePurviewStylePolicyValidation` | `false` | Set to `true` to stop the build failing (`PRSGD0006`-`PRSGD0009`) when the repository `.editorconfig` overrides the modifier policy, hides `IDE0040`/`IDE1006`, disables the Style category in bulk, weakens the `_camelCase` field-naming rule, or adds the accessibility rules to `NoWarn`. |
 | `TargetFramework` | `net10.0` | Override the default TFM per-project or globally. Defaults to `netstandard2.0` for projects declaring `IsRoslynComponent=true`. |
 | `IsRoslynComponent` | `false` | When explicitly `true`, applies source-generator defaults: a single `netstandard2.0` target, `LangVersion=latest`, `Nullable=enable`, `TreatWarningsAsErrors=true`, `Deterministic=true`, extended analyzer rules, SourceLink with `EmbedUntrackedSources=true`, compiler-generated output under the intermediate directory, no dependency file, telemetry exclusion, and package build output. Pack-time validation (`ValidateRoslynComponentCompilerSettings`) fails the pack if the compiler defaults are missing unless `DisableRoslynCompilerDefaultsValidation=true`. Roslyn development dependencies (`Microsoft.CodeAnalysis.*`, `Microsoft.CodeAnalysis.Analyzers`) default to `PrivateAssets="all"`. |
 | `IsRoslynComponentOnly` | `true` for Roslyn components | Produces an analyzer-only package: `IncludeBuildOutput=false`, `IncludeSymbols=false`, and the analyzer assembly and portable PDB are packed under `analyzers/dotnet/cs/`. Set to `false` for a dual-role Roslyn component that uses normal library symbol packaging. |
@@ -531,6 +532,39 @@ document that references the type, so the move compiles everywhere.
 The package ships `Purview.BuildSdk.Analyzers.dll` (plus a separate code-fix assembly for the IDE)
 and adds the analyzer to every C# project as an `<Analyzer>` item, so the rules surface in both
 command-line builds and Visual Studio.
+
+### Style policy
+
+The shipped `.editorconfig` enforces a modifier/visibility **and field-naming** policy, and it is
+deliberately not silenceable:
+
+- `dotnet_style_require_accessibility_modifiers = omit_if_default:warning` — a declared modifier that
+  matches the language default (`private` inside a type, `internal` at namespace scope, `public` inside
+  an interface) is reported by `IDE0040` and must be **removed**. Omit the default modifier instead.
+- Private instance fields must be `_camelCase`, never `camelCase` or `PascalCase`: the `_` prefix keeps
+  field access unambiguous, so the noisy `this.` qualifier is never needed. Constants and `static
+  readonly` fields stay PascalCase, and local constants stay camelCase.
+- `CA1515` (public type in an application/test assembly) ships at **warning**, `CA1852` (seal internal
+  types) is no longer suppressed for internals exposed through `InternalsVisibleTo`, and `CA1034` is no
+  longer disabled for `Extensions/` files.
+- Test projects are executables, so test classes must be non-public (`sealed class MyTests`, which is
+  `internal` by default) instead of `CA1515`/`CA1707`/`CA1062` being hidden through `NoWarn`.
+
+`ValidatePurviewStylePolicy` runs before every C# compile and fails the build when a repository neuters
+the policy:
+
+| Code | Fails when |
+| -- | -- |
+| `PRSGD0006` | `dotnet_style_require_accessibility_modifiers` is overridden with anything other than `omit_if_default`. |
+| `PRSGD0007` | A policy rule (`IDE0040`, `CA1515`, `CA1852`, `CA1034`) is downgraded below warning, any policy rule is set to `none`/`silent`, or the `Style` category is disabled in bulk without an explicit `IDE0040` severity. |
+| `PRSGD0008` | `IDE0040`, `CA1515`, `CA1852`, `CA1034`, `CA1012`, `CA1047`, `CA1050`, `CA1051`, `CA1062`, `CA1064`, or `CA1707` is added to `NoWarn`. |
+| `PRSGD0009` | `IDE1006` is hidden, the private instance field rule is downgraded below warning, or the `_` prefix is removed from the field naming style. |
+
+The validator walks the same `.editorconfig` chain as the compiler (nearest file wins, later entries
+beat earlier ones, `root = true` stops the walk). Because a repository can keep an older bootstrapped
+copy of the shipped file, a stale copy is reported rather than obeyed: refresh it with
+`PurviewRepoBootstrapMode=Always` (or delete it), or opt out per repository/project with
+`DisablePurviewStylePolicyValidation=true`.
 
 | Rule | Category | Severity | Description |
 | -- | -- | -- | -- |

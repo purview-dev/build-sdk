@@ -14,7 +14,7 @@ namespace Purview.BuildSdk.Analyzers.IntegrationTests.Extensions;
 /// Integration tests for <see cref="SplitExtensionsClassCodeRefactoringProvider"/>.
 /// </summary>
 [Category("Integration")]
-public sealed class SplitExtensionsClassTests
+sealed class SplitExtensionsClassTests
 {
 	const string SplitReceiverSource = """
 		namespace Microsoft.Extensions.Hosting

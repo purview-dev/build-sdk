@@ -2,7 +2,7 @@ using System.Diagnostics;
 
 namespace Purview.BuildSdk;
 
-public sealed class DefaultsPropsTests
+sealed class DefaultsPropsTests
 {
 	[Test]
 	public async Task NonCsprojEvaluation_DoesNotFailOnBooleanConditions(CancellationToken cancellationToken)

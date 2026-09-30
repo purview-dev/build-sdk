@@ -8,7 +8,7 @@ namespace Purview.BuildSdk;
 /// Default-property assertions are batched into a single MSBuild evaluation per test
 /// so the suite stays fast without losing any assertion.
 /// </summary>
-public sealed class CoreDefaultsTests
+sealed class CoreDefaultsTests
 {
 	[Test]
 	public async Task DefaultProject_CSharpCompilerDefaults(CancellationToken cancellationToken)

@@ -6,7 +6,7 @@ namespace Purview.BuildSdk;
 /// Verifies that the SDK wires the correct test framework packages and output type
 /// for projects that match the test-project naming convention.
 /// </summary>
-public sealed class TestWiringTests
+sealed class TestWiringTests
 {
 	[Test]
 	public async Task TestProject_DefaultFrameworks_AreTUnitTUnitMocksAndBogus(CancellationToken cancellationToken)
@@ -23,6 +23,21 @@ public sealed class TestWiringTests
 		await Assert.That(eval.Properties["TestingFramework"]).IsEqualTo("TUnit");
 		await Assert.That(eval.Properties["SubstituteFramework"]).IsEqualTo("TUnitMocks");
 		await Assert.That(eval.Properties["TestDataFramework"]).IsEqualTo("Bogus");
+	}
+
+	[Test]
+	public async Task TestProject_DoesNotSilenceAccessibilityRules(CancellationToken cancellationToken)
+	{
+		using var h = await ProjectHarness.CreateAsync("MyApp.UnitTests", cancellationToken: cancellationToken);
+
+		var noWarn = await h.GetPropertyAsync("NoWarn", cancellationToken);
+
+		// Test projects are executables, so the accessibility rules are reported for them; test
+		// classes must be non-public instead of the rules being suppressed through NoWarn.
+		await Assert.That(noWarn).DoesNotContain("CA1515");
+		await Assert.That(noWarn).DoesNotContain("CA1062");
+		await Assert.That(noWarn).DoesNotContain("CA1707");
+		await Assert.That(noWarn).DoesNotContain("IDE0040");
 	}
 
 	[Test]

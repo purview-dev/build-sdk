@@ -15,7 +15,7 @@ namespace Purview.BuildSdk.Analyzers.IntegrationTests.Extensions;
 /// Integration tests for <see cref="ExtensionsNamespaceCodeFixProvider"/>.
 /// </summary>
 [Category("Integration")]
-public sealed class ExtensionsNamespaceCodeFixTests
+sealed class ExtensionsNamespaceCodeFixTests
 {
 	static async Task<string> ApplyCodeFixAsync(string fileName, string source, CancellationToken cancellationToken)
 	{

@@ -7,7 +7,7 @@ namespace Purview.BuildSdk;
 /// <summary>
 /// Verifies the source-generator defaults applied to Roslyn component projects.
 /// </summary>
-public sealed class RoslynComponentDefaultsTests
+sealed class RoslynComponentDefaultsTests
 {
 	[Test]
 	public async Task RepositoryTargetFramework_DoesNotOverrideRoslynComponentDefault(

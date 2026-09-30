@@ -8,7 +8,7 @@ namespace Purview.BuildSdk;
 /// <summary>
 /// Verifies the Sdk/.agents folder packaging workflow and PurviewAutoSdkPack behaviour.
 /// </summary>
-public sealed class AgentPackFolderTests
+sealed class AgentPackFolderTests
 {
 	[Test]
 	public async Task PurviewAutoSdkPack_PacksPhysicalAndLinkedRootAssets(CancellationToken cancellationToken)

@@ -13,7 +13,7 @@ namespace Purview.BuildSdk;
 /// auto-inclusion works when present, and solution-wide packs skip non-packable projects without
 /// warnings unless explicitly opted in.
 /// </summary>
-public sealed class PackableProjectDefaultsTests
+sealed class PackableProjectDefaultsTests
 {
 	const string OfflinePackProps =
 		"<IsPackable>true</IsPackable>"

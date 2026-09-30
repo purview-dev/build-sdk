@@ -7,7 +7,7 @@ namespace Purview.BuildSdk;
 /// evaluated RootNamespace, explicit overrides always win, and no literal $(...) expression
 /// survives into either name.
 /// </summary>
-public sealed class RootNamespaceNamingTests
+sealed class RootNamespaceNamingTests
 {
 	[Test]
 	public async Task PackableLibrary_AssemblyNameAndPackageId_DefaultToRootNamespace(

@@ -6,7 +6,7 @@ namespace Purview.BuildSdk;
 /// Verifies SDK properties are exported as CompilerVisibleProperty items so Roslyn
 /// analyzers/source generators can consume them via build_property.*.
 /// </summary>
-public sealed class CompilerVisiblePropertyTests
+sealed class CompilerVisiblePropertyTests
 {
 	[Test]
 	public async Task CompilerVisibleProperties_Include_AllSdkProperties(CancellationToken cancellationToken)

@@ -9,7 +9,7 @@ using Purview.BuildSdk.CodeFixers.TargetTypedObjectCreation;
 
 namespace Purview.BuildSdk.Analyzers.TargetTypedObjectCreation;
 
-public sealed class TargetTypedObjectCreationTests
+sealed class TargetTypedObjectCreationTests
 {
 	[Test]
 	public async Task Analyzer_MethodCallResult_DoesNotReportDiagnostic(CancellationToken cancellationToken)

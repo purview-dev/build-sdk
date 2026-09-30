@@ -6,7 +6,7 @@ namespace Purview.BuildSdk;
 /// Verifies SDK-controlled package and packaging behaviour — IsPackable defaults,
 /// SourceLink opt-in/opt-out, and telemetry exclusion flags.
 /// </summary>
-public sealed class PackagebehaviourTests
+sealed class PackagebehaviourTests
 {
 	[Test]
 	public async Task Library_IsPackable_False_ByDefault(CancellationToken cancellationToken)

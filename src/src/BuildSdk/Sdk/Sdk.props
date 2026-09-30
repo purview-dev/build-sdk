@@ -487,12 +487,6 @@
 		Condition="'$(IsAspireHostProject)' == 'true' AND '$(IsTestProject)' != 'true' AND '$(IsSharedTestingProject)' != 'true'"
 	>
 		<OutputType Condition="'$(OutputType)' == ''">Exe</OutputType>
-		<!--
-			When  using things like SpectreConsole, you generally define the settings
-			as a nested public class to the internal command. However, this still forces
-			CA1515 to be created which is a pain as it's not really relevant.
-		-->
-		<NoWarn>$(NoWarn);CA1515;</NoWarn>
 	</PropertyGroup>
 
 	<PropertyGroup
@@ -500,12 +494,6 @@
 		Condition="'$(IsCLIProject)' == 'true' AND '$(IsTestProject)' != 'true' AND '$(IsSharedTestingProject)' != 'true'"
 	>
 		<OutputType Condition="'$(OutputType)' == ''">Exe</OutputType>
-		<!--
-			When  using things like SpectreConsole, you generally define the settings
-			as a nested public class to the internal command. However, this still forces
-			CA1515 to be created which is a pain as it's not really relevant.
-		-->
-		<NoWarn>$(NoWarn);CA1515;</NoWarn>
 	</PropertyGroup>
 
 	<ItemGroup Label="CLI Item Properties" Condition="'$(IsCLIProject)' == 'true'">
@@ -839,7 +827,7 @@
 		Condition="'$(IsTestProject)' == 'true' OR '$(IsSharedTestingProject)' == 'true'"
 		Label="C# Shared Testing Project Properties"
 	>
-		<NoWarn>$(NoWarn);CA1062;CA1515;CA1707;CA1822;</NoWarn>
+		<NoWarn>$(NoWarn);CA1822;</NoWarn>
 		<NoWarn>$(NoWarn);CS1591;</NoWarn>
 		<Packable>false</Packable>
 		<IsPackable>false</IsPackable>

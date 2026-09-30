@@ -7,7 +7,7 @@ namespace Purview.BuildSdk;
 /// Verifies the auto-generated AssemblyInfo class handles property values containing
 /// MSBuild item-list separators (semicolons) without producing broken C#.
 /// </summary>
-public sealed class GeneratedAssemblyInfoTests
+sealed class GeneratedAssemblyInfoTests
 {
 	[Test]
 	public async Task GeneratedAssemblyInfo_WithSemicolonInProperties_BuildsAndPreservesValues(
