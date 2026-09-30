@@ -40,6 +40,12 @@ added.
 
 All test and shared-testing projects get:
 
+- A **test-context rule set** (`PurviewTestContextNoWarn`, overridable before the SDK import): the
+  production API-surface rules (`CA1002`, `CA1012`, `CA1034`, `CA1047`, `CA1050`, `CA1051`, `CA1062`,
+  `CA1064`, `CA1515`, `CA1707`) are exempt, because test classes/fixtures are public, test names use
+  `Method_Scenario_Expectation`, and helpers take unvalidated fixture parameters. Style rules
+  (`IDE0040`, field naming, formatting, `IDE1006` naming) are still enforced.
+  `DisablePurviewTestContextRuleSet=true` enforces the production rules too.
 - `CollectCoverage=true` with coverage exclusions for `[NSubstitute*]`, `[TUnit.*]`, `[xunit.*]`,
   `[Microsoft.Testing.*]`, `[Microsoft.NET.Test*]`, and `[Bogus*]`.
 - `ExcludeByAttribute` for `ExcludeFromCodeCoverageAttribute`.
@@ -68,6 +74,11 @@ Projects named `SharedTestingFramework`, `SharedTestingInfrastructure`, `SharedT
 - They get the test package references (`TUnit.Core` rather than the full `TUnit`) but **not** the
   test runner or coverage settings.
 - A `[Skip]` attribute (TUnit) keeps the shared assembly from being executed directly.
+- They are forced to `OutputType=Library` (with `IsTestProject`/`IsTestingPlatformApplication` cleared)
+  after package props run, because test packages such as `TUnit.Engine` otherwise turn them into
+  executable test hosts - which would make `CA1515` demand that their fixtures become internal while the
+  test assemblies still consume them. Set `PurviewSharedTestingOutputType=Exe` before the SDK import to
+  opt back into that shape.
 - Test projects automatically reference the sibling shared testing project via
   `../SharedTesting*/SharedTesting*.csproj`.
 

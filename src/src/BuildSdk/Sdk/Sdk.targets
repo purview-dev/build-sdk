@@ -8,6 +8,28 @@
 			>$(TargetFramework)</DefaultTargetFramework>
 	</PropertyGroup>
 
+	<!-- =====================================================================
+	     SHARED TESTING PROJECT OUTPUT
+	     Shared testing projects provide helpers to the test assemblies, so they are
+	     helper libraries: compiled, referenced and never executed directly (which is
+	     why the SDK also injects TUnit's [Skip] attribute). Their test packages still
+	     set IsTestProject/IsTestingPlatformApplication=true and OutputType=Exe from the
+	     package props, and those props are imported after Sdk.props. Sdk.targets is
+	     imported last, so reassert the documented shape here. A repository that really
+	     wants the package-driven test-host shape can opt in with
+	     <PurviewSharedTestingOutputType>Exe</PurviewSharedTestingOutputType>; the default
+	     'Library' is what keeps shared helpers out of CA1515's Exe-only scope.
+	     ===================================================================== -->
+	<PropertyGroup
+		Label="Shared Testing Project Output"
+		Condition="'$(IsCSharpProject)' == 'true' AND '$(IsSharedTestingProject)' == 'true'"
+	>
+		<OutputType>$(PurviewSharedTestingOutputType)</OutputType>
+		<IsTestProject Condition="'$(PurviewSharedTestingOutputType)' == 'Library'">false</IsTestProject>
+		<IsTestingPlatformApplication Condition="'$(PurviewSharedTestingOutputType)' == 'Library'"
+			>false</IsTestingPlatformApplication>
+	</PropertyGroup>
+
 	<PropertyGroup Condition="'$(IsCSharpProject)' == 'true' AND '$(IsRoslynComponent)' == 'true'">
 		<!-- Microsoft.Managed.Core.targets clears this when emission is disabled; retain the
 		     Roslyn-component default so enabling EmitCompilerGeneratedFiles needs no second setting. -->
@@ -1505,7 +1527,9 @@
 	     disabling the rules, disabling the Style category in bulk, or adding the rules to NoWarn:
 	     everything the policy reports is fixed, not suppressed (a declared modifier that matches the
 	     language default is removed, a field is renamed to '_name', and so on).
-	     Opt out with DisablePurviewStylePolicyValidation=true.
+	     Opt out with DisablePurviewStylePolicyValidation=true. Entries the SDK injects itself for a
+	     project shape (currently CA1515 for Aspire hosts and CLI apps, whose nested public options
+	     types are framework-mandated) are passed in through AllowedNoWarn and do not fail PRSGD0008.
 	     ===================================================================== -->
 	<UsingTask
 		TaskName="ValidatePurviewStylePolicy"
@@ -1515,6 +1539,7 @@
 		<ParameterGroup>
 			<ProjectDirectory ParameterType="System.String" Required="true" />
 			<NoWarn ParameterType="System.String" Required="false" />
+			<AllowedNoWarn ParameterType="System.String" Required="false" />
 		</ParameterGroup>
 		<Task>
 			<Using Namespace="System" />
@@ -1545,12 +1570,27 @@
 						"none", "silent"
 					};
 
+					// Entries the SDK itself injects for a project shape (for example CA1515 for Aspire
+					// hosts and CLI apps, where nested public options types are mandated by the
+					// framework) are exempt from the 'no policy rule in NoWarn' rule. Repository-authored
+					// entries still fail: the allowed list only contains what the SDK appended.
+					var sdkInjectedNoWarn = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+					if (!string.IsNullOrEmpty(AllowedNoWarn))
+					{
+						foreach (var raw in AllowedNoWarn.Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries))
+						{
+							var injectedId = raw.Trim();
+							if (injectedId.Length > 0)
+								sdkInjectedNoWarn.Add(injectedId);
+						}
+					}
+
 					if (!string.IsNullOrEmpty(NoWarn))
 					{
 						foreach (var raw in NoWarn.Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries))
 						{
 							var id = raw.Trim();
-							if (id.Length == 0)
+							if (id.Length == 0 || sdkInjectedNoWarn.Contains(id))
 								continue;
 
 							foreach (var rule in policyRules)
@@ -1769,7 +1809,11 @@
 		Condition="'$(IsCSharpProject)' == 'true' AND '$(DisablePurviewStylePolicyValidation)' != 'true' AND '$(DesignTimeBuild)' != 'true'"
 		Label="Ensures the modifier/visibility and field-naming policy is not silenced (PRSGD0006-PRSGD0009)."
 	>
-		<ValidatePurviewStylePolicy ProjectDirectory="$(MSBuildProjectDirectory)" NoWarn="$(NoWarn)" />
+		<ValidatePurviewStylePolicy
+			ProjectDirectory="$(MSBuildProjectDirectory)"
+			NoWarn="$(NoWarn)"
+			AllowedNoWarn="$(PurviewPolicyExemptNoWarn)"
+		/>
 	</Target>
 
 	<Target

@@ -109,7 +109,9 @@ sealed class IsCLIProjectTests
 	}
 
 	[Test]
-	public async Task ProjectCLI_DoesNotSilenceAccessibilityRules(CancellationToken cancellationToken)
+	public async Task ProjectCLI_ExemptsCa1515ForFrameworkMandatedNestedOptionsTypes(
+		CancellationToken cancellationToken
+	)
 	{
 		var (harness, _) = await CreateProjectAndEvaluateAsync("MyCLI", cancellationToken);
 
@@ -117,10 +119,13 @@ sealed class IsCLIProjectTests
 		{
 			var properties = await harness.GetPropertiesAsync(cancellationToken, "NoWarn");
 
-			// CLI applications are executables, so public types are flagged by CA1515; the fix is to
-			// make them internal, never to silence the rule through NoWarn.
+			// CLI applications are executables, but they routinely declare nested public options types
+			// (Spectre.Console command settings) that have no reasonable internal fix, so CA1515 is
+			// exempt by SDK policy. The modifier and api-surface rules stay enforced.
 			await Assert.That(properties).ContainsKey("NoWarn");
-			await Assert.That(properties["NoWarn"]).DoesNotContain("CA1515");
+			await Assert.That(properties["NoWarn"]).Contains("CA1515");
+			await Assert.That(properties["NoWarn"]).DoesNotContain("CA1062");
+			await Assert.That(properties["NoWarn"]).DoesNotContain("CA1707");
 			await Assert.That(properties["NoWarn"]).DoesNotContain("IDE0040");
 		}
 	}
