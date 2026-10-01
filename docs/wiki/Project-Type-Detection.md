@@ -30,6 +30,16 @@ wiki.
 targets. The detected `TestingType` also becomes the baseline test category, while additional categories
 remain available to the test suite.
 
+The SDK recognises the following full `TestType` set, in addition to the standard `Unit` and
+`Integration` values:
+`Acceptance`, `Accessibility`, `Approval`, `Architecture`, `Benchmark`, `BlackBox`, `Capacity`,
+`Chaos`, `Compatibility`, `Compliance`, `Component`, `Concurrency`, `Configuration`, `Contract`,
+`Deployment`, `E2E`, `EndToEnd`, `Endurance`, `Environment`, `Failover`, `Functional`, `Fuzz`,
+`Globalization`, `GrayBox`, `GreyBox`, `Integration`, `Interactive`, `Interoperability`, `Load`,
+`Localization`, `Migration`, `Mutation`, `Penetration`, `Performance`, `Property`, `Recovery`,
+`Regression`, `Resilience`, `Sanity`, `Scenario`, `Security`, `Smoke`, `Snapshot`, `Soak`, `Spike`,
+`Stress`, `System`, `Threat`, `Unit`, `Upgrade`, `Usability`, `Visual`, and `WhiteBox`.
+
 ## What each type gets
 
 ### Test projects (`IsTestProject=true`)

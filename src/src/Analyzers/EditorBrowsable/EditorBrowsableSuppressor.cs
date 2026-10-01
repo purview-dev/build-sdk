@@ -1,7 +1,7 @@
-using System.Collections.Immutable;
-using System.ComponentModel;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Diagnostics;
+using System.Collections.Immutable;
+using System.ComponentModel;
 
 namespace Purview.BuildSdk.Analyzers.EditorBrowsable;
 

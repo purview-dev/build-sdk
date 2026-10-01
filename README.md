@@ -184,6 +184,8 @@ The `templates/` folder contains ready-to-copy starter files for new repos:
 
 The package also ships bundled agent content under `.agents/**`. During build, the SDK mirrors it into the consuming repository's `.agents/` folder by default so compatible coding agents can discover repository-aware guidance automatically. The SDK also injects a `.gitignore` file into each second-level agent folder with the content `# Ignore all files\n*\n\n# Don't ignore directories, so Git can traverse them\n!*/\n\n# Keep this file\n!.gitignore`, so the copied folder is ignored by Git while keeping the folder structure discoverable.
 
+Repository metadata can also be defined before the SDK import: the package recognizes `PurviewHomepage`, `PurviewProjectUrl`, and `PurviewDocsUrl` for repo/site metadata, which is useful when a package or generated metadata needs to point at a public docs site or project page without hard-coding repo-specific values in each project file.
+
 The mirror is change-aware: file fingerprints and content hashes are recorded in
 `.purview/agent-sync.cache` at the repository root, so unchanged content is skipped and repeat builds
 touch no files. Every write is staged into a temporary file and renamed into place, and because all
@@ -481,9 +483,10 @@ Define `PURVIEW_SDK_EXCLUDE_EMBEDDED` only when your build already provides `Mic
 
 ## Namespace stripping
 
-Certain suffixes are automatically stripped from `RootNamespace` to avoid awkward namespace names like `Acme.MyProject.Core.Something`:
+Certain suffixes are automatically stripped from `RootNamespace` to avoid awkward namespace names like `Acme.MyProject.Core.Something`.
 
-Stripped suffixes: `Core`, `EF`, `Shared`, `ClientShared`, `ServiceDefaults`, and all shared testing project names.
+The current built-in stripping set is intentionally broader than the common examples and includes:
+`SourceGeneration`, `SourceGenerators`, `SourceGenerator`, `ServiceDefaults`, `Infrastructure`, `Abstractions`, `ClientShared`, `Persistence`, `CodeFixers`, `DataAccess`, `Extensions`, `Generators`, `Analyzers`, `Contracts`, `Framework`, `Utilities`, `AppHost`, `Helpers`, `Library`, `Common`, `Shared`, `Infra`, `Utils`, `Core`, `Data`, `Host`, `Util`, `Lib`, `EF`, plus the known shared and shared-testing project names (`Shared*`, `SharedTesting*`).
 
 ### Extensions namespace rule (`PDS0002`)
 
