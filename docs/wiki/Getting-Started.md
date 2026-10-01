@@ -58,6 +58,7 @@ default to `*` (latest at restore). Pin any package by replacing `*` with a spec
 
 ## Next steps
 
+- Read the policy-level guidance in [Engineering Principles](Engineering-Principles.md).
 - Understand how projects are detected and named in [Project Type Detection](Project-Type-Detection.md)
   and [Project Naming Conventions](Project-Naming-Conventions.md).
 - Browse every configurable property in the [Configuration Reference](Configuration-Reference.md).

@@ -75,13 +75,33 @@ Copy `templates/Directory.Packages.props` from this package to your repo root. A
 
 ---
 
+## Engineering principles
+
+`Purview.BuildSdk` treats naming, placement, and test structure as configuration. Follow the SDK's
+engineering conventions so it can infer namespaces, assembly identities, test categories, project
+references, and default package wiring without bespoke overrides.
+
+Start with:
+
+- [Engineering Principles](docs/wiki/Engineering-Principles.md)
+- [Project Naming Conventions](docs/wiki/Project-Naming-Conventions.md)
+- [Project Type Detection](docs/wiki/Project-Type-Detection.md)
+- [Assembly Name Generation](docs/wiki/Assembly-Name-Generation.md)
+- [Testing Wiring](docs/wiki/Testing-Wiring.md)
+
 ## Project naming guide
 
 The SDK applies several conventions automatically based on the `.csproj` filename and `NamespacePrefix`.
+The wiki pages above are the source of truth; this section is intentionally brief.
 
 ### Defaults (no extra configuration)
 
-`RootNamespace` is always derived from `$(NamespacePrefix).$(ProjectName)` and is the canonical default public name. By default (`EnableAssemblyNameGeneration=true`), `AssemblyName` and `PackageId` both follow the fully evaluated `RootNamespace`. Test projects retain their detected suffix so test assemblies stay distinct from the source assembly. Set `EnableAssemblyNameGeneration=false` (before the SDK import) to opt out and use standard .NET behaviour (the `.csproj` filename):
+`RootNamespace` is derived from `$(NamespacePrefix).$(ProjectName)` and is the canonical code identity by
+default. `AssemblyName` and `PackageId` normally follow the resolved project identity. Test projects keep
+their detected suffix so test assemblies stay distinct from the source assembly.
+
+Set `EnableAssemblyNameGeneration=false` before the SDK import to opt out and use standard .NET
+project-name behavior.
 
 | `.csproj` filename | `AssemblyName` / `PackageId` | `RootNamespace` | Detected as |
 | -- | -- | -- | -- |
@@ -92,64 +112,39 @@ The SDK applies several conventions automatically based on the `.csproj` filenam
 
 > **Note:** `InternalsVisibleTo` follows `$(AssemblyName)` — so for `Api.csproj` the SDK generates `Acme.Api.UnitTests`, `Acme.Api.IntegrationTests`, etc.
 
-Use short `.csproj` names — the SDK handles the prefixing:
+Use short `.csproj` names - the SDK handles the prefixing:
 
 ```text
 ✅  Api.csproj                        → short name, SDK resolves the rest
 ❌  Acme.Api.csproj                   → redundant prefix, avoid
 ```
 
-A build-time check (`PurviewProjectFileNameMismatch`) enforces that the `.csproj` filename matches its parent directory name, preventing inconsistent naming. Set `DisableProjectFileNamingConventionCheck=true` to opt out.
+A build-time check (`PurviewProjectFileNameMismatch`) enforces that the `.csproj` filename matches its
+parent directory name, preventing inconsistent naming. Set `DisableProjectFileNamingConventionCheck=true`
+to opt out.
 
-### Recommended structure: `src/` + `tests/`
+The detected test type becomes the baseline test category. Additional categories are still allowed when
+they improve discoverability.
 
-For larger repos, separate source and test projects into `src/` and `tests/` folders:
+The default test stack is also convention-driven. Standard test projects automatically receive:
 
-```text
-MyRepo/
-├── Directory.Build.props          ← NamespacePrefix=Acme
-├── Directory.Build.targets
-├── Directory.Packages.props
-├── global.json
-├── src/
-│   ├── Api/
-│   │   └── Api.csproj
-│   ├── Core/
-│   │   └── Core.csproj
-│   └── SourceGenerator/
-│       └── SourceGenerator.csproj
-├── tests/
-│   ├── Api.UnitTests/
-│   │   └── Api.UnitTests.csproj    → IsTestProject=true, TestingType=Unit
-│   ├── Api.IntegrationTests/
-│   │   └── Api.IntegrationTests.csproj
-│   └── SharedTestingFramework/
-│       └── SharedTestingFramework.csproj  → IsSharedTestingProject=true
-└── package.json
-```
+- `TUnit`
+- `TUnit.Mocks`
+- `Bogus`
+- Microsoft.Testing.Platform integration
 
-### Flat structure: everything together
+Specialised additions such as `TUnit.Aspire` and `Testcontainers` stay explicit and intentional.
 
-For smaller repos, source and test projects can live side-by-side:
+### Recommended structure
 
-```text
-MyRepo/
-├── Directory.Build.props
-├── Directory.Build.targets
-├── Directory.Packages.props
-├── global.json
-├── Api/
-│   └── Api.csproj
-├── Api.UnitTests/
-│   └── Api.UnitTests.csproj
-├── Core/
-│   └── Core.csproj
-├── Core.IntegrationTests/
-│   └── Core.IntegrationTests.csproj
-└── package.json
-```
+Prefer an explicit `src/` + `tests/` split for new repositories. The canonical SDK-friendly patterns are:
 
-Both layouts work identically — the SDK detects test projects by name suffix, not folder location.
+- solutions under `src/{SolutionName}.slnx`
+- source projects under `src/src/{ProjectName}/{ProjectName}.csproj`
+- test projects under `src/tests/{ProjectName}.{TestType}Tests/{ProjectName}.{TestType}Tests.csproj`
+
+The SDK also supports flatter layouts, but the explicit source/test split is easier to scale and reason
+about.
 
 ### Quick reference
 
@@ -166,6 +161,10 @@ dotnet new classlib -n Api.UnitTests   # SDK wires TUnit automatically
 mkdir Api.UnitTests && cd Api.UnitTests
 dotnet new classlib -n Api.UnitTests
 ```
+
+For the full layout, naming, identity, and test-readability conventions, see
+[Engineering Principles](docs/wiki/Engineering-Principles.md) and
+[Project Naming Conventions](docs/wiki/Project-Naming-Conventions.md).
 
 ---
 

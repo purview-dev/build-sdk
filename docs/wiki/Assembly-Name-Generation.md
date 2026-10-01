@@ -1,5 +1,8 @@
 # Assembly Name Generation
 
+This page explains the identity-generation rules referenced by
+[Engineering Principles](Engineering-Principles.md).
+
 By default (`EnableAssemblyNameGeneration=true`), the SDK treats `RootNamespace` as the canonical
 public name: `AssemblyName` and `PackageId` both default to the fully evaluated `RootNamespace` — or,
 when suffix-stripping removed a segment of the logical project name, to the full logical project name

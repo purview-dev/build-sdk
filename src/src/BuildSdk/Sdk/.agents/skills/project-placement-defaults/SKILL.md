@@ -9,7 +9,9 @@ Use this skill whenever a task asks to add, move, split, or create a project in 
 
 ## Core principle
 
-Preserve the host repository's existing layout first; only introduce new structure when no established pattern exists. In Purview-based repos, prefer layouts that let the SDK's naming and auto-reference rules work without extra overrides.
+Preserve the host repository's existing layout first; only introduce new structure when no established pattern exists. In repositories that use `Purview.BuildSdk`, prefer layouts that let the SDK's naming and auto-reference rules work without extra overrides.
+
+Treat naming and placement as configuration, not decoration.
 
 ## Placement heuristics
 
@@ -27,12 +29,13 @@ When a repo has no clear structure, use these conservative defaults because they
 - Test projects under `tests/`
 - Integration/end-to-end tests in explicit sibling projects/folders such as `tests/Api.IntegrationTests/` or `tests/Api.E2ETests/`
 
-## Purview-specific naming rules
+## Naming rules
 
 The SDK relies heavily on project names.
 
 - Keep the `.csproj` filename equal to its containing directory name unless `DisableProjectFileNamingConventionCheck=true` is explicitly used.
-- Use conventional test suffixes such as `.UnitTests`, `.IntegrationTests`, `.E2ETests`, `.FunctionalTests`, `.ContractTests`, and other supported `*Tests` suffixes.
+- Use the common conventional test suffixes by default: `.UnitTests`, `.IntegrationTests`, `.E2ETests`, `.FunctionalTests`, `.ContractTests`.
+- Use other supported `*Tests` suffixes only when the test type itself carries important operational meaning.
 - Keep shared helper projects on the SDK's exact recognized names when you want shared behavior:
 	- Shared projects: `Shared`, `SharedFramework`, `SharedInfrastructure`, `SharedInfra`, `SharedUtilities`, `SharedUtils`, `SharedLibrary`, `SharedLib`, `SharedHelpers`
 	- Shared testing projects: `SharedTestingFramework`, `SharedTestingInfrastructure`, `SharedTestingInfra`, `SharedTestingUtilities`, `SharedTestingUtils`, `SharedTestingLibrary`, `SharedTestingLib`, `SharedTestingHelpers`
@@ -47,6 +50,9 @@ Separate tests by behavior and dependency scope:
 - **End-to-end/system tests**: verify full workflow behavior across the assembled system.
 
 If specialized test categories exist (for example, analyzer diagnostics vs code-fix integration), keep category-specific tests in distinct projects/folders.
+
+The detected test type also becomes the baseline test category. Additional categories remain available and
+should be added when they improve discoverability.
 
 The SDK recognizes many test suffixes, including `Unit`, `Integration`, `E2E`, `EndToEnd`, `Acceptance`, `Functional`, `Performance`, `Load`, `Smoke`, `Stress`, `Regression`, `Security`, `Chaos`, `Scenario`, `System`, `Threat`, `BlackBox`, `WhiteBox`, `Accessibility`, `Interactive`, `Environment`, `Architecture`, and `Contract`.
 
@@ -77,7 +83,19 @@ When working in a Purview-based repo, also assume:
 
 - `TargetFramework` defaults to `net10.0` if not otherwise set, or `netstandard2.0` when the project explicitly declares `IsRoslynComponent=true`.
 - Test projects receive framework packages and coverage defaults from the SDK.
+- Standard test projects receive `TUnit`, `TUnit.Mocks`, `Bogus`, and Microsoft.Testing.Platform wiring by default.
 - Non-test projects receive SourceLink and telemetry defaults unless explicitly opted out.
+
+## Test readability defaults
+
+When organizing tests:
+
+- Prefer one subject-focused `{SubjectName}Tests` class per owned subject.
+- Use `{SubjectOrMemberUnderTest}_{Scenario}_{Expectation}` for subject-based test methods.
+- Treat constructors, properties, operators, conversions, and validation hooks as valid subjects.
+- Allow broader suite names for non-subject-based tests such as build, generator, workflow, package, or
+  full-system suites.
+- Use TUnit display names and categories to keep large suites readable.
 
 ## Move/split workflow checklist
 

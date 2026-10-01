@@ -1,5 +1,6 @@
 - [Home](Home.md)
 - [Getting Started](Getting-Started.md)
+- [Engineering Principles](Engineering-Principles.md)
 - [Project Naming Conventions](Project-Naming-Conventions.md)
 - [Project Type Detection](Project-Type-Detection.md)
 - [Configuration Reference](Configuration-Reference.md)

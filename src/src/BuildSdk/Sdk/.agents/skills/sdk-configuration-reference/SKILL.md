@@ -78,6 +78,16 @@ Primary settings:
 - `SubstituteFramework` — default `TUnitMocks`; supported values: `TUnitMocks`, `NSubstitute`, `None`
 - `TestDataFramework` — default `Bogus`; supported values: `Bogus`, `None`
 
+Default outcome for standard test projects:
+
+- `TUnit`
+- `TUnit.Mocks`
+- `Bogus`
+- Microsoft.Testing.Platform integration
+
+Specialised packages such as `TUnit.Aspire` and `Testcontainers` are not automatic defaults; they remain
+explicit choices based on the project's purpose.
+
 Related toggles and derived settings:
 
 - `CollectCoverage` — defaults to `true` for detected test projects
@@ -190,3 +200,5 @@ When changing SDK configuration:
 2. Keep README, SDK property declarations, validation, and any shipped skills aligned.
 3. If you add a new user-facing property, update both the configuration docs and the bundled skills.
 4. If the property affects import-time behavior, document that it must be set before the SDK import.
+5. Keep repository policy guidance aligned with the engineering-principles documentation, and keep low-level
+   property explanations aligned with the wiki reference pages.

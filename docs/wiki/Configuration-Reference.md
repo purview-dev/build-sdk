@@ -125,7 +125,8 @@ importing the SDK:
 | `TestDataFramework` | `Bogus` | Test data provider. Supported values: `Bogus`, `None`. |
 | `DisableAutoInternalsVisibleTo` | `false` | Set to `true` to disable automatic `InternalsVisibleTo` generation for test types and shared testing projects. |
 
-See [Testing Wiring](Testing-Wiring.md) for details.
+See [Engineering Principles](Engineering-Principles.md) for the policy-level testing guidance and
+[Testing Wiring](Testing-Wiring.md) for the implementation details.
 
 ## Compiler-visible SDK properties
 

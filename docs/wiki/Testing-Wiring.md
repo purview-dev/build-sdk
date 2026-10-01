@@ -1,5 +1,8 @@
 # Testing Wiring
 
+This page explains how the SDK implements the higher-level testing conventions in
+[Engineering Principles](Engineering-Principles.md).
+
 The SDK wires the testing stack for you based on three properties that must be set **before** the
 SDK import:
 
@@ -19,8 +22,10 @@ error.
 - The `TUnit` package is referenced (with the `Microsoft.Testing.Platform` runner configured via
   `global.json`).
 - A `[Category: <TestingType>]` assembly attribute tags every test with its detected test category
-  (for example `Unit`, `Integration`), which makes `--treenode-filter` filtering work.
+  (for example `Unit`, `Integration`), which makes `--treenode-filter` filtering work. That category is
+  the default classification, not a limit on adding more categories.
 - `TUnit.Mocks` is referenced when `SubstituteFramework=TUnitMocks` (the default).
+- `Bogus` is referenced when `TestDataFramework=Bogus` (the default).
 
 ## Xunit (opt-in)
 
