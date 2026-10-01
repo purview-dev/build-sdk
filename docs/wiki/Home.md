@@ -12,6 +12,7 @@ repo root inherits everything automatically.
 ## Start here
 
 - [Getting Started](Getting-Started.md)
+- [Engineering Principles](Engineering-Principles.md)
 - [Project Naming Conventions](Project-Naming-Conventions.md)
 - [Project Type Detection](Project-Type-Detection.md)
 - [Configuration Reference](Configuration-Reference.md)
@@ -31,6 +32,8 @@ repo root inherits everything automatically.
 - **Project type detection** — `IsCSharpProject`, `IsTestProject`, `IsSharedTestingProject`,
   `IsContainerProject`, `IsWebSdkProject`, `IsAspireHostProject`, `IsCLIProject`, … driven by the
   `.csproj` filename, the `Sdk` attribute, and on-disk markers.
+- **Engineering conventions** — repository layout, project naming, namespace identity, test readability,
+  and the default boundaries between source, test, and shared test-support projects.
 - **C# defaults** — `net10.0` TFM (overridable, `netstandard2.0` for Roslyn components),
   `LangVersion=preview` (`latest` for Roslyn components), `Nullable=enable`, `ImplicitUsings=enable`,
   deterministic builds, `ManagePackageVersionsCentrally=true`.

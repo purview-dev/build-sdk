@@ -1,5 +1,9 @@
 # Project Naming Conventions
 
+This page explains the mechanics behind the higher-level guidance in
+[Engineering Principles](Engineering-Principles.md). Read that page first when you need the policy and
+tradeoffs; use this page when you need the exact naming and layout rules the SDK implements.
+
 The SDK applies several conventions automatically based on the `.csproj` filename and
 `NamespacePrefix`.
 
@@ -100,18 +104,23 @@ dotnet new classlib -n Api.UnitTests
 
 ## Test project naming conventions
 
-Test projects are automatically detected by their suffix. Supported patterns:
+Test projects are automatically detected by their suffix. The common recommended set is:
 
 ```text
 MyProject.UnitTests       → IsTestProject=true, TestingType=Unit
 MyProject.IntegrationTests→ IsTestProject=true, TestingType=Integration
 MyProject.E2ETests        → IsTestProject=true, TestingType=E2E
+MyProject.FunctionalTests → IsTestProject=true, TestingType=Functional
+MyProject.ContractTests   → IsTestProject=true, TestingType=Contract
 ```
 
 Any suffix from the full list is recognised: `Unit`, `Integration`, `E2E`, `EndToEnd`, `Acceptance`,
 `Functional`, `Performance`, `Load`, `Smoke`, `Stress`, `Regression`, `Security`, `Chaos`, `Scenario`,
 `System`, `Threat`, `BlackBox`, `WhiteBox`, `Accessibility`, `Interactive`, `Environment`,
 `Architecture`, `Contract`.
+
+The detected test type becomes the baseline category for the project. Additional categories can still be
+added when they improve discoverability or filtering.
 
 ## Shared testing projects
 

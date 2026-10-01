@@ -1,5 +1,8 @@
 # Project Type Detection
 
+This page documents the detection mechanics behind the policy described in
+[Engineering Principles](Engineering-Principles.md).
+
 During `Sdk.props` evaluation the SDK classifies every `.csproj` by reading the project filename, the
 `Sdk` attribute, and on-disk markers. The resulting flags drive the defaults described throughout this
 wiki.
@@ -24,7 +27,8 @@ wiki.
 
 `TestingType` is the detected test category suffix from the project name (for example `Unit`,
 `Integration`, `E2E`); `TargetProjectName` is the inferred non-test project name that a test project
-targets.
+targets. The detected `TestingType` also becomes the baseline test category, while additional categories
+remain available to the test suite.
 
 ## What each type gets
 
