@@ -41,8 +41,12 @@ are evaluated later and win.
 Certain suffixes are automatically stripped from `RootNamespace` to avoid awkward namespace names like
 `Acme.MyProject.Core.Something`.
 
-Stripped suffixes: `Core`, `EF`, `Shared`, `ClientShared`, `ServiceDefaults`, and all shared and
-shared-testing project names.
+The built-in stripping set is broader than the common examples and includes:
+`SourceGeneration`, `SourceGenerators`, `SourceGenerator`, `ServiceDefaults`, `Infrastructure`,
+`Abstractions`, `ClientShared`, `Persistence`, `CodeFixers`, `DataAccess`, `Extensions`,
+`Generators`, `Analyzers`, `Contracts`, `Framework`, `Utilities`, `AppHost`, `Helpers`, `Library`,
+`Common`, `Shared`, `Infra`, `Utils`, `Core`, `Data`, `Host`, `Util`, `Lib`, `EF`, plus the known
+shared and shared-testing project names (`Shared*`, `SharedTesting*`).
 
 See [Project Naming Conventions](Project-Naming-Conventions.md) and
 [InternalsVisibleTo](InternalsVisibleTo.md) for related naming behaviour.

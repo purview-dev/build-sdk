@@ -16,6 +16,11 @@
 	<!-- Dog fooding the Sdk... -->
 	<Import Project="$(MSBuildThisFileDirectory)src/BuildSdk/Sdk/Sdk.props" />
 
+	<ItemGroup>
+		<NamespaceRemoveSuffix Remove="CodeFixers" />
+		<NamespaceRemoveSuffix Remove="Analyzers" />
+	</ItemGroup>
+
 	<PropertyGroup Label="Purview site URL metadata">
 		<PurviewHomepage>https://purview.dev/</PurviewHomepage>
 		<PurviewProjectUrl>$(PurviewHomepage)projects/build-sdk/</PurviewProjectUrl>

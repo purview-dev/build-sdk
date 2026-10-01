@@ -34,6 +34,21 @@ See [Version Detection](Version-Detection.md) for the full resolution rules.
 | `DisableGenerateAssemblyInfoClass` | `false` | Set to `true` to disable the generated `AssemblyInfo` helper source. |
 | `AutoIncludeUsings` | `true` | Controls SDK-added global usings for `NamespacePrefix` and `RootNamespace`. |
 
+## Repository metadata
+
+The SDK also supports repo/site metadata properties for generated package metadata and docs links. These
+values are consumed before the import and are useful when a repository wants a single shared project URL
+or docs base URL instead of repeating it per project:
+
+| Property | Default | Description |
+| -- | -- | -- |
+| `PurviewHomepage` | *(repo-specific)* | Base site URL for the repository or product docs. In this repo it is set to `https://purview.dev/`. |
+| `PurviewProjectUrl` | *(repo-specific)* | Public project page URL; usually derived from `PurviewHomepage` plus a project path. |
+| `PurviewDocsUrl` | *(repo-specific)* | Public docs URL; often derived from `PurviewHomepage` plus a docs path. |
+
+These values are not mandatory, but they provide a consistent place to keep package metadata and docs
+links aligned with the repo's site structure.
+
 ## Packable project defaults
 
 For projects where `IsPackable=true`, the SDK provides these defaults **only when the consuming

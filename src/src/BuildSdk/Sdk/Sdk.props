@@ -19,45 +19,113 @@
 	</ItemGroup>
 
 	<!-- =====================================================================
-	     NAMESPACE SUFFIXES STRIPPED FROM RootNamespace
-	     ===================================================================== -->
+     NAMESPACE SUFFIXES STRIPPED FROM RootNamespace
+     Ordered longest-first: overlapping entries (Shared/ClientShared,
+     Infra/Infrastructure, Data/DataAccess, Lib/Library) must match the
+     longest candidate, or a single-pass strip mangles them.
+     ===================================================================== -->
 	<ItemGroup Label="Defining Namespace Suffixes to Remove from RootNamespace">
 		<NamespaceRemoveSuffix Include="@(SharedProjectName)" />
 		<NamespaceRemoveSuffix Include="@(SharedTestingProjectName)" />
-		<NamespaceRemoveSuffix Include="Core" />
-		<NamespaceRemoveSuffix Include="EF" />
-		<NamespaceRemoveSuffix Include="Shared" />
-		<NamespaceRemoveSuffix Include="ClientShared" />
+
+		<!-- 16+ -->
+		<NamespaceRemoveSuffix Include="SourceGeneration" />
+		<NamespaceRemoveSuffix Include="SourceGenerators" />
+		<NamespaceRemoveSuffix Include="SourceGenerator" />
 		<NamespaceRemoveSuffix Include="ServiceDefaults" />
+		<NamespaceRemoveSuffix Include="Infrastructure" />
+
+		<!-- 10-12 -->
+		<NamespaceRemoveSuffix Include="Abstractions" />
+		<NamespaceRemoveSuffix Include="ClientShared" />
+		<NamespaceRemoveSuffix Include="Persistence" />
+		<NamespaceRemoveSuffix Include="CodeFixers" />
+		<NamespaceRemoveSuffix Include="DataAccess" />
+		<NamespaceRemoveSuffix Include="Extensions" />
+		<NamespaceRemoveSuffix Include="Generators" />
+
+		<!-- 9 -->
+		<NamespaceRemoveSuffix Include="Analyzers" />
+		<NamespaceRemoveSuffix Include="Contracts" />
+		<NamespaceRemoveSuffix Include="Framework" />
+		<NamespaceRemoveSuffix Include="Utilities" />
+
+		<!-- 6-7 -->
+		<NamespaceRemoveSuffix Include="AppHost" />
+		<NamespaceRemoveSuffix Include="Helpers" />
+		<NamespaceRemoveSuffix Include="Library" />
+		<NamespaceRemoveSuffix Include="Common" />
+		<NamespaceRemoveSuffix Include="Shared" />
+
+		<!-- 2-5 -->
+		<NamespaceRemoveSuffix Include="Infra" />
+		<NamespaceRemoveSuffix Include="Utils" />
+		<NamespaceRemoveSuffix Include="Core" />
+		<NamespaceRemoveSuffix Include="Data" />
+		<NamespaceRemoveSuffix Include="Host" />
+		<NamespaceRemoveSuffix Include="Util" />
+		<NamespaceRemoveSuffix Include="Lib" />
+		<NamespaceRemoveSuffix Include="EF" />
 	</ItemGroup>
 
 	<!-- =====================================================================
-	     TESTING TYPES
-	     Controls InternalsVisibleTo generation and TestingType detection.
-	     ===================================================================== -->
+     TESTING TYPES
+     Controls InternalsVisibleTo generation and TestingType detection.
+     Detection must use longest-match, not declaration order.
+     ===================================================================== -->
 	<ItemGroup Label="Defining Testing Types">
-		<TestType Include="Accessibility" />
 		<TestType Include="Acceptance" />
+		<TestType Include="Accessibility" />
+		<TestType Include="Approval" />
 		<TestType Include="Architecture" />
+		<TestType Include="Benchmark" />
 		<TestType Include="BlackBox" />
+		<TestType Include="Capacity" />
 		<TestType Include="Chaos" />
+		<TestType Include="Compatibility" />
+		<TestType Include="Compliance" />
+		<TestType Include="Component" />
+		<TestType Include="Concurrency" />
+		<TestType Include="Configuration" />
 		<TestType Include="Contract" />
+		<TestType Include="Deployment" />
 		<TestType Include="E2E" />
 		<TestType Include="EndToEnd" />
+		<TestType Include="Endurance" />
 		<TestType Include="Environment" />
+		<TestType Include="Failover" />
 		<TestType Include="Functional" />
-		<TestType Include="Interactive" />
+		<TestType Include="Fuzz" />
+		<TestType Include="Globalization" />
+		<TestType Include="GrayBox" />
+		<TestType Include="GreyBox" />
 		<TestType Include="Integration" />
+		<TestType Include="Interactive" />
+		<TestType Include="Interoperability" />
 		<TestType Include="Load" />
+		<TestType Include="Localization" />
+		<TestType Include="Migration" />
+		<TestType Include="Mutation" />
+		<TestType Include="Penetration" />
 		<TestType Include="Performance" />
+		<TestType Include="Property" />
+		<TestType Include="Recovery" />
 		<TestType Include="Regression" />
-		<TestType Include="Security" />
+		<TestType Include="Resilience" />
+		<TestType Include="Sanity" />
 		<TestType Include="Scenario" />
+		<TestType Include="Security" />
 		<TestType Include="Smoke" />
+		<TestType Include="Snapshot" />
+		<TestType Include="Soak" />
+		<TestType Include="Spike" />
 		<TestType Include="Stress" />
 		<TestType Include="System" />
 		<TestType Include="Threat" />
 		<TestType Include="Unit" />
+		<TestType Include="Upgrade" />
+		<TestType Include="Usability" />
+		<TestType Include="Visual" />
 		<TestType Include="WhiteBox" />
 	</ItemGroup>
 
