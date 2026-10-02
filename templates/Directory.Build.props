@@ -26,4 +26,15 @@
 	</PropertyGroup>
 
 	<Import Sdk="Purview.BuildSdk" Project="Sdk.props" />
+
+	<!--
+		Keep a suffix the SDK strips by default (must come AFTER the import above,
+		so the @(NamespaceRemoveSuffix) items exist to be removed). For example:
+
+		<ItemGroup>
+			<NamespaceRemoveSuffix Remove="SourceGenerators" />
+			<NamespaceRemoveSuffix Remove="CodeFixers" />
+			<NamespaceRemoveSuffix Remove="CodeFixes" />
+		</ItemGroup>
+	-->
 </Project>
