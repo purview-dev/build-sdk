@@ -46,6 +46,7 @@
 
 		<!-- 9 -->
 		<NamespaceRemoveSuffix Include="Analyzers" />
+		<NamespaceRemoveSuffix Include="CodeFixes" />
 		<NamespaceRemoveSuffix Include="Contracts" />
 		<NamespaceRemoveSuffix Include="Framework" />
 		<NamespaceRemoveSuffix Include="Utilities" />

@@ -33,6 +33,7 @@ See [Version Detection](Version-Detection.md) for the full resolution rules.
 | `DisableProjectFileNamingConventionCheck` | `false` | Set to `true` to disable the validation that requires `MyProject\MyProject.csproj` naming alignment. |
 | `DisableGenerateAssemblyInfoClass` | `false` | Set to `true` to disable the generated `AssemblyInfo` helper source. |
 | `AutoIncludeUsings` | `true` | Controls SDK-added global usings for `NamespacePrefix` and `RootNamespace`. |
+| `NamespaceRemoveSuffix` | *(built-in list)* | Item type listing the suffixes stripped from `RootNamespace`. Remove an entry **after** the `Sdk.props` import to keep that suffix in the namespace, e.g. `<NamespaceRemoveSuffix Remove="SourceGenerators" />`. See [Namespace stripping](Assembly-Name-Generation.md#namespace-stripping). |
 
 ## Repository metadata
 

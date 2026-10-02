@@ -486,7 +486,30 @@ Define `PURVIEW_SDK_EXCLUDE_EMBEDDED` only when your build already provides `Mic
 Certain suffixes are automatically stripped from `RootNamespace` to avoid awkward namespace names like `Acme.MyProject.Core.Something`.
 
 The current built-in stripping set is intentionally broader than the common examples and includes:
-`SourceGeneration`, `SourceGenerators`, `SourceGenerator`, `ServiceDefaults`, `Infrastructure`, `Abstractions`, `ClientShared`, `Persistence`, `CodeFixers`, `DataAccess`, `Extensions`, `Generators`, `Analyzers`, `Contracts`, `Framework`, `Utilities`, `AppHost`, `Helpers`, `Library`, `Common`, `Shared`, `Infra`, `Utils`, `Core`, `Data`, `Host`, `Util`, `Lib`, `EF`, plus the known shared and shared-testing project names (`Shared*`, `SharedTesting*`).
+`SourceGeneration`, `SourceGenerators`, `SourceGenerator`, `ServiceDefaults`, `Infrastructure`, `Abstractions`, `ClientShared`, `Persistence`, `CodeFixers`, `CodeFixes`, `DataAccess`, `Extensions`, `Generators`, `Analyzers`, `Contracts`, `Framework`, `Utilities`, `AppHost`, `Helpers`, `Library`, `Common`, `Shared`, `Infra`, `Utils`, `Core`, `Data`, `Host`, `Util`, `Lib`, `EF`, plus the known shared and shared-testing project names (`Shared*`, `SharedTesting*`).
+
+### Keeping suffixes (opt a stripped suffix back in)
+
+The strip list is authored as the `NamespaceRemoveSuffix` item type. To keep a suffix the SDK would
+otherwise strip, remove the matching entry — this **must come after the `Sdk.props` import**, because
+the items are declared there and only exist to be removed once the import has evaluated:
+
+```xml
+<Import Sdk="Purview.BuildSdk" Project="Sdk.props" />
+
+<ItemGroup>
+  <!-- Keep the full SourceGenerators, CodeFixers and CodeFixes namespaces. -->
+  <NamespaceRemoveSuffix Remove="SourceGenerators" />
+  <NamespaceRemoveSuffix Remove="CodeFixers" />
+  <NamespaceRemoveSuffix Remove="CodeFixes" />
+</ItemGroup>
+```
+
+This is useful for analyser/source-generator repos that deliberately name projects after the role — for
+example `Purview.ZodSharp.SourceGenerators`, `Purview.ZodSharp.CodeFixers`, and `Purview.ZodSharp.CodeFixes` —
+and want those roles to survive in the namespace rather than collapse into the parent `Purview.ZodSharp`
+namespace. Only suffixes
+present in the built-in list need removing; a suffix the SDK does not ship is already kept as-is.
 
 ### Extensions namespace rule (`PDS0002`)
 
