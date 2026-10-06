@@ -179,7 +179,10 @@ sealed class AgentPackFolderTests
 		await Assert
 			.That(gitIgnoreContent)
 			.IsEqualTo(
-				"# Ignore all files\n*\n\n# Don't ignore directories, so Git can traverse them\n!*/\n\n# Keep this file\n!.gitignore"
+				// The last entry ignores this file itself. Re-including it ('!.gitignore') left a
+				// mirrored, never-committed file permanently untracked in every consuming repository,
+				// and overrode the generated '.agents/.gitignore' because the nearest file wins.
+				"# Ignore all files\n*\n\n# Don't ignore directories, so Git can traverse them\n!*/\n\n# This file is mirrored from a NuGet package, so ignore it too\n/.gitignore"
 			);
 	}
 
@@ -255,6 +258,94 @@ sealed class AgentPackFolderTests
 			.That(entries)
 			.Contains(".agents/prompts/example/.gitignore")
 			.Because($"{stdOut}\n{stdErr}\n--- package entries ---\n{string.Join("\n", entries)}");
+	}
+
+	/// <summary>
+	/// A blanket '.gitignore' is packed only for a folder this SDK wholly owns - the two tests above
+	/// use nested folders ('skills/observability', 'prompts/example'), which is that case. It must
+	/// **not** be packed for a file sitting directly in '.agents/prompts' or '.agents/agents', because
+	/// in a consuming repository those folders hold the mirrored files beside the repository's own
+	/// authored prompts and agents: a blanket rule there would hide the author's work. Those files are
+	/// ignored per file by the consumer-side sync instead - see
+	/// <c>RepositoryFileSyncTests.AgentFolderSync_IgnoresMirroredFilesPerFile_AndLeavesAuthoredFilesTracked</c>.
+	/// </summary>
+	[Test]
+	public async Task PurviewAutoSdkPack_DoesNotPackABlanketGitIgnoreForASharedAgentFolder(
+		CancellationToken cancellationToken
+	)
+	{
+		// Arrange
+		using var h = await ProjectHarness.CreateAsync(
+			"PackableProject",
+			extraProps: "<IsPackable>true</IsPackable><DisableSourceLink>true</DisableSourceLink><EnableSourceControlManagerQueries>false</EnableSourceControlManagerQueries>",
+			cancellationToken: cancellationToken
+		);
+
+		await File.WriteAllTextAsync(Path.Combine(h.SolutionDirectory, ".git"), string.Empty, cancellationToken);
+		await File.WriteAllTextAsync(
+			Path.Combine(h.SolutionDirectory, "package.json"),
+			/*lang=json,strict*/
+			"""{"name": "packable-project", "version": "1.0.0"}""",
+			cancellationToken
+		);
+		await File.WriteAllTextAsync(
+			Path.Combine(h.SolutionDirectory, "Directory.Packages.props"),
+			"""
+			<Project>
+				<PropertyGroup>
+					<CentralPackageFloatingVersionsEnabled>true</CentralPackageFloatingVersionsEnabled>
+				</PropertyGroup>
+				<ItemGroup>
+					<PackageVersion Include="Microsoft.SourceLink.GitHub" Version="*" />
+					<PackageVersion Include="Purview.Telemetry.SourceGenerator" Version="*" />
+					<PackageVersion Include="Microsoft.Extensions.Telemetry.Abstractions" Version="*" />
+				</ItemGroup>
+			</Project>
+			""",
+			cancellationToken
+		);
+
+		// Files directly inside the first-level folders, exactly as the SDK's own Sdk/.agents is laid out.
+		var promptsDirectory = Path.Combine(h.ProjectDirectory, "Sdk", ".agents", "prompts");
+		Directory.CreateDirectory(promptsDirectory);
+		await File.WriteAllTextAsync(Path.Combine(promptsDirectory, "diagnose.md"), "# Diagnose\n", cancellationToken);
+
+		var agentsDirectory = Path.Combine(h.ProjectDirectory, "Sdk", ".agents", "agents");
+		Directory.CreateDirectory(agentsDirectory);
+		await File.WriteAllTextAsync(Path.Combine(agentsDirectory, "setup.md"), "# Setup\n", cancellationToken);
+
+		var feedDirectory = Path.Combine(h.SolutionDirectory, "feed");
+		Directory.CreateDirectory(feedDirectory);
+		var packageVersion = $"0.0.0-integration-test-{Guid.NewGuid():N}";
+
+		// Act
+		var (exitCode, stdOut, stdErr) = await RunProcessAsync(
+			"dotnet",
+			$"pack \"{h.ProjectFilePath}\" -c Release -o \"{feedDirectory}\" -p:PackageVersion={packageVersion} -p:Version={packageVersion}",
+			h.SolutionDirectory,
+			cancellationToken
+		);
+
+		// Assert
+		await Assert.That(exitCode).IsEqualTo(0).Because(TestHelpers.GenerateError(stdOut, stdErr));
+
+		var packagePath = Directory
+			.GetFiles(feedDirectory, $"Test.PackableProject.{packageVersion}.nupkg", SearchOption.TopDirectoryOnly)
+			.SingleOrDefault();
+
+		await Assert.That(packagePath).IsNotNull().Because("The packed project package was not created.");
+
+		using var zip = await ZipFile.OpenReadAsync(packagePath!, cancellationToken);
+		var entries = zip.Entries.Select(entry => entry.FullName).ToList();
+		var because = $"{stdOut}\n{stdErr}\n--- package entries ---\n{string.Join("\n", entries)}";
+
+		// The content itself still ships.
+		await Assert.That(entries).Contains(".agents/prompts/diagnose.md").Because(because);
+		await Assert.That(entries).Contains(".agents/agents/setup.md").Because(because);
+
+		// ...but without a blanket ignore over a folder the consumer also authors into.
+		await Assert.That(entries).DoesNotContain(".agents/prompts/.gitignore").Because(because);
+		await Assert.That(entries).DoesNotContain(".agents/agents/.gitignore").Because(because);
 	}
 
 	[Test]

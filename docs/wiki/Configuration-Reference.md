@@ -24,7 +24,8 @@ See [Version Detection](Version-Detection.md) for the full resolution rules.
 | `PurviewTestContextNoWarn` | `CA1002;CA1012;CA1034;CA1047;CA1050;CA1051;CA1062;CA1064;CA1515;CA1707` | Production API-surface rules exempted in test and shared-testing projects (they keep the strict style contract). Override before the SDK import to narrow or extend the list. |
 | `DisablePurviewTestContextRuleSet` | `false` | Set to `true` to make test and shared-testing projects enforce the production API-surface rules as well. |
 | `PurviewSharedTestingOutputType` | `Library` | Output type forced on `IsSharedTestingProject` projects; `Library` also clears `IsTestProject`/`IsTestingPlatformApplication`. Set to `Exe` before the SDK import to keep the test packages' executable/test-host shape. |
-| `TargetFramework` | `net10.0` | Override the default TFM per-project or globally. Defaults to `netstandard2.0` for projects declaring `IsRoslynComponent=true`. |
+| `TargetFramework` | `net10.0` | Override the default TFM per-project or globally. Defaults to `netstandard2.0` for projects declaring `IsRoslynComponent=true`. To multi-target from a central, overridable definition rather than a hard-coded list, see [Target framework sets](#target-framework-sets). |
+| `DisableUnconditionalProjectDeclarationCheck` | `false` | Set to `true` to suppress `PurviewConditionedProjectDeclaration`. The SDK reads `TargetFramework`, `TargetFrameworks`, `IsRoslynComponent`, `IsRoslynComponentOnly`, `IsPackable` and `PurviewTargetFrameworkSet` from the project XML before the project body is evaluated, so it cannot evaluate a `Condition` on them and will not see the declaration — the SDK default applies instead. Declare those properties unconditionally, or set them in a file imported before this SDK. |
 | `IsRoslynComponent` | `false` | When explicitly `true`, applies source-generator defaults: a single `netstandard2.0` target, `LangVersion=latest`, `Nullable=enable`, `TreatWarningsAsErrors=true`, `Deterministic=true`, extended analyzer rules, SourceLink with `EmbedUntrackedSources=true`, compiler-generated output under the intermediate directory, no dependency file, symbol packaging (`IncludeSymbols=false` by default), telemetry exclusion, and package build output. Packable Roslyn components automatically pack the built analyzer assembly and its PDB into `analyzers/dotnet/cs/` (`PurviewPackAnalyzerPdb=true`; set `false` only when symbols are delivered another way — NuGet's `.snupkg` cannot host `analyzers/dotnet/cs` symbols). Pack-time validation (`ValidateRoslynComponentCompilerSettings`) fails the pack if the compiler defaults are missing unless `DisableRoslynCompilerDefaultsValidation=true`. Roslyn development dependencies (`Microsoft.CodeAnalysis.*`, `Microsoft.CodeAnalysis.Analyzers`) default to `PrivateAssets="all"`. |
 | `PackProjectReferencedSourceGenerators` | `true` | Automatically packs analyzer `ProjectReference` outputs and their runtime dependencies under `analyzers/dotnet/cs/`. Set to `false` to opt out; set `Pack="false"` on an individual reference to exclude only that generator. |
 | `SourceLinkPackageName` | `Microsoft.SourceLink.GitHub` | SourceLink provider. Set to `Microsoft.SourceLink.AzureDevOps.Git` for ADO repos. |
@@ -33,7 +34,64 @@ See [Version Detection](Version-Detection.md) for the full resolution rules.
 | `DisableProjectFileNamingConventionCheck` | `false` | Set to `true` to disable the validation that requires `MyProject\MyProject.csproj` naming alignment. |
 | `DisableGenerateAssemblyInfoClass` | `false` | Set to `true` to disable the generated `AssemblyInfo` helper source. |
 | `AutoIncludeUsings` | `true` | Controls SDK-added global usings for `NamespacePrefix` and `RootNamespace`. |
-| `NamespaceRemoveSuffix` | *(built-in list)* | Item type listing the suffixes stripped from `RootNamespace`. Remove an entry **after** the `Sdk.props` import to keep that suffix in the namespace, e.g. `<NamespaceRemoveSuffix Remove="SourceGenerators" />`. See [Namespace stripping](Assembly-Name-Generation.md#namespace-stripping). |
+| `NamespaceRemoveSuffix` | *(built-in list)* | Item type listing the suffixes stripped from `RootNamespace`. Remove an entry **after** the `Sdk.props` import to keep that suffix in the namespace, e.g. `<NamespaceRemoveSuffix Remove="Abstractions" />`. **Roslyn component names are not in the list** — `SourceGenerator`, `SourceGenerators`, `SourceGeneration`, `Generators`, `Analyzers`, `CodeFixers` and `CodeFixes` are part of a component's identity, and a generator, its analyzers and its code fixes are separate assemblies that each need their own namespace. Add one with `<NamespaceRemoveSuffix Include="Analyzers" />` if a repository really wants it collapsed. See [Namespace stripping](Assembly-Name-Generation.md#namespace-stripping). |
+
+## Target framework sets
+
+A multi-targeting repository otherwise hard-codes its TFM list in every project, so a lifecycle change —
+a release leaving support, a new one arriving — is an edit in every repository that has to be found and
+kept consistent. Name a set instead and the decision moves into the SDK, so bumping `Purview.BuildSdk`
+moves every consumer at once:
+
+```xml
+<PropertyGroup>
+  <PurviewTargetFrameworkSet>Supported</PurviewTargetFrameworkSet>
+</PropertyGroup>
+```
+
+| Set | Resolves to | Use for |
+| -- | -- | -- |
+| `Current` | `net10.0` | The default. A single target, stated explicitly. |
+| `Latest` | `net11.0` | Newest release only. |
+| `Supported` | `net10.0;net11.0` | A package that should work on anything still in support. |
+| `Broad` | `net8.0;net9.0;net10.0` | Every shipped release — widest reach without committing to the newest major while it is pre-GA. |
+| `All` | `net8.0;net9.0;net10.0;net11.0` | `Broad` plus the newest major. |
+
+`net8.0` and `net9.0` are deliberately outside `Supported`: both are at or near end of support, so a new
+package should not imply a commitment to them. Choose `Broad` to keep them.
+
+`Broad` and `All` differ by one real product decision — whether the package commits to the newest
+release — so they are separate names rather than one set that silently widens every consumer of it.
+
+A set is **always** in play: `Current` applies when nothing is selected, which resolves to the same
+single TFM the SDK used to hard-code. The out-of-box result is therefore unchanged — but the value is
+named and overridable in one place, so moving a repository (or every repository) between runtimes is a
+property change rather than an edit in each project.
+
+Overrides are layered, narrowest first:
+
+1. an explicit `TargetFramework`/`TargetFrameworks` in the project always wins;
+2. a repository can redefine any set with `PurviewTargetFrameworks<Set>` — `PurviewTargetFrameworksSupported`,
+   `PurviewTargetFrameworksBroad`, and so on — set before the SDK import. This is also how a set is pinned
+   while a consumer is not ready to follow the SDK's definition;
+3. otherwise the table above applies.
+
+| Property | Default | Description |
+| -- | -- | -- |
+| `PurviewTargetFrameworkSet` | `Current` | `Current`, `Latest`, `Supported`, `Broad` or `All`. An unrecognised name fails the build with `PurviewInvalidTargetFrameworkSet` rather than silently falling back to the single-TFM default. A single-entry set resolves to `TargetFramework`, so it does not pay for an outer multi-targeting build. |
+| `PurviewTargetFrameworksCurrent` | `net10.0` | Redefines the `Current` set. |
+| `PurviewTargetFrameworksLatest` | `net11.0` | Redefines the `Latest` set. |
+| `PurviewTargetFrameworksSupported` | `net10.0;net11.0` | Redefines the `Supported` set. |
+| `PurviewTargetFrameworksBroad` | `net8.0;net9.0;net10.0` | Redefines the `Broad` set. |
+| `PurviewTargetFrameworksAll` | `net8.0;net9.0;net10.0;net11.0` | Redefines the `All` set. |
+
+Roslyn components are not covered: a component targets `netstandard2.0` so every compiler host can load
+it. Selecting a set on one is ignored and reported as `PurviewTargetFrameworkSetIgnored`.
+
+Set the property in `Directory.Build.props` for a repository-wide choice, or in a `.csproj` for a single
+project. Because the SDK is imported before the project body is evaluated, a `.csproj` selection is read
+from the project XML directly — so declare it **unconditionally**. A `Condition` on it cannot be evaluated
+that early and is reported as `PurviewConditionedProjectDeclaration`.
 
 ## Repository metadata
 

@@ -40,6 +40,8 @@
 		<DisableRoslynCompilerDefaultsValidation Condition="'$(DisableRoslynCompilerDefaultsValidation)' == ''"
 			>false</DisableRoslynCompilerDefaultsValidation>
 		<DisableSourceLink Condition="'$(DisableSourceLink)' == ''">false</DisableSourceLink>
+		<DisableUnconditionalProjectDeclarationCheck Condition="'$(DisableUnconditionalProjectDeclarationCheck)' == ''"
+			>false</DisableUnconditionalProjectDeclarationCheck>
 		<DockerDefaultTargetOS Condition="'$(DockerDefaultTargetOS)' == ''"></DockerDefaultTargetOS>
 		<DockerfileContext Condition="'$(DockerfileContext)' == ''"></DockerfileContext>
 		<EditorConfigFilePath Condition="'$(EditorConfigFilePath)' == ''"></EditorConfigFilePath>
@@ -146,6 +148,10 @@
 			>Microsoft.SourceLink.GitHub</SourceLinkPackageName>
 		<SymbolPackageFormat Condition="'$(SymbolPackageFormat)' == ''">snupkg</SymbolPackageFormat>
 		<TargetFramework Condition="'$(TargetFramework)' == ''"></TargetFramework>
+		<!-- Curated TFM set: Latest, Current, Supported or Broad. Left empty here so Sdk.props can tell
+		     "not chosen" from a real choice; it defaults to 'Current' (the single-TFM default) for every
+		     non-Roslyn C# project. A Roslyn component keeps netstandard2.0 and is not covered. -->
+		<PurviewTargetFrameworkSet Condition="'$(PurviewTargetFrameworkSet)' == ''"></PurviewTargetFrameworkSet>
 		<TargetProjectName Condition="'$(TargetProjectName)' == ''"></TargetProjectName>
 		<TestingPlatformDotnetTestSupport Condition="'$(TestingPlatformDotnetTestSupport)' == ''"
 			>false</TestingPlatformDotnetTestSupport>

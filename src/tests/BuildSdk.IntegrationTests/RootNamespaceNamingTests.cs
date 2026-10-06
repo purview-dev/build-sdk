@@ -1,4 +1,5 @@
-using Purview.BuildSdk.Harness;
+﻿using Purview.BuildSdk.Harness;
+using Purview.BuildSdk.Infra;
 
 namespace Purview.BuildSdk;
 
@@ -9,6 +10,93 @@ namespace Purview.BuildSdk;
 /// </summary>
 sealed class RootNamespaceNamingTests
 {
+	// Suffix stripping is a convention for a RootNamespace this SDK derived, not licence to rewrite one
+	// the author wrote down. FixRootNamespaceTarget runs after the project body and cannot tell the two
+	// apart on its own, so without a guard an explicit 'Acme.CodeFixers' became 'Acme' - and because the
+	// stripped value is what reaches the compiler as build_property.RootNamespace, every file in that
+	// namespace then failed IDE0130 against a namespace nobody asked for.
+	//
+	// The generated MSBuildEditorConfig is asserted rather than the MSBuild property, because that file
+	// is what the analyzer actually reads and it is written after the target has run.
+	/// <summary>
+	/// A Roslyn component's suffix is part of its identity, not noise: a generator, its analyzers and its
+	/// code fixes are separate assemblies that each need their own namespace. Stripping these collapsed
+	/// them onto the product namespace and produced IDE0130 across every Roslyn-component repository
+	/// consuming this SDK, because each one declares the suffix in its sources.
+	/// </summary>
+	[Test]
+	[Arguments("Acme.SourceGenerator")]
+	[Arguments("Acme.SourceGenerators")]
+	[Arguments("Acme.SourceGeneration")]
+	[Arguments("Acme.Generators")]
+	[Arguments("Acme.Analyzers")]
+	[Arguments("Acme.CodeFixers")]
+	[Arguments("Acme.CodeFixes")]
+	public async Task RoslynComponentSuffixes_AreNotStripped(string projectName, CancellationToken cancellationToken)
+	{
+		using var h = await ProjectHarness.CreateAsync(
+			projectName,
+			namespacePrefix: "Acme",
+			extraProps: """
+			<DisableSourceLink>true</DisableSourceLink>
+			<ExcludePurviewTelemetry>true</ExcludePurviewTelemetry>
+			""",
+			extraItems: """
+			<PackageReference Remove="Purview.Telemetry.SourceGenerator" />
+			<PackageReference Remove="Microsoft.Extensions.Telemetry.Abstractions" />
+			""",
+			cancellationToken: cancellationToken
+		);
+
+		var (exitCode, stdOut, stdErr) = await h.RunMSBuildAsync("-restore -t:Build", cancellationToken);
+		await Assert.That(exitCode).IsEqualTo(0).Because(TestHelpers.GenerateError(stdOut, stdErr));
+
+		var editorConfig = Directory
+			.EnumerateFiles(
+				Path.Combine(h.ProjectDirectory, "obj"),
+				"*.GeneratedMSBuildEditorConfig.editorconfig",
+				SearchOption.AllDirectories
+			)
+			.First();
+
+		var content = await File.ReadAllTextAsync(editorConfig, cancellationToken);
+		await Assert.That(content).Contains($"build_property.RootNamespace = {projectName}");
+	}
+
+	[Test]
+	public async Task ExplicitRootNamespace_IsNotSuffixStripped(CancellationToken cancellationToken)
+	{
+		using var h = await ProjectHarness.CreateAsync(
+			"Acme.CodeFixers",
+			namespacePrefix: "Acme",
+			extraProps: """
+			<RootNamespace>Acme.CodeFixers</RootNamespace>
+			<DisableSourceLink>true</DisableSourceLink>
+			<ExcludePurviewTelemetry>true</ExcludePurviewTelemetry>
+			""",
+			// The harness declares no central versions for the packages the SDK injects.
+			extraItems: """
+			<PackageReference Remove="Purview.Telemetry.SourceGenerator" />
+			<PackageReference Remove="Microsoft.Extensions.Telemetry.Abstractions" />
+			""",
+			cancellationToken: cancellationToken
+		);
+
+		var (exitCode, stdOut, stdErr) = await h.RunMSBuildAsync("-restore -t:Build", cancellationToken);
+		await Assert.That(exitCode).IsEqualTo(0).Because(TestHelpers.GenerateError(stdOut, stdErr));
+
+		var editorConfig = Directory
+			.EnumerateFiles(
+				Path.Combine(h.ProjectDirectory, "obj"),
+				"*.GeneratedMSBuildEditorConfig.editorconfig",
+				SearchOption.AllDirectories
+			)
+			.First();
+
+		var content = await File.ReadAllTextAsync(editorConfig, cancellationToken);
+		await Assert.That(content).Contains("build_property.RootNamespace = Acme.CodeFixers");
+	}
+
 	[Test]
 	public async Task PackableLibrary_AssemblyNameAndPackageId_DefaultToRootNamespace(
 		CancellationToken cancellationToken
