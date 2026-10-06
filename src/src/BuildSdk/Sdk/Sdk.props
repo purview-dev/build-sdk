@@ -23,15 +23,23 @@
      Ordered longest-first: overlapping entries (Shared/ClientShared,
      Infra/Infrastructure, Data/DataAccess, Lib/Library) must match the
      longest candidate, or a single-pass strip mangles them.
+
+     Roslyn component names are deliberately absent. A component's suffix is
+     part of its identity rather than noise: a generator, its analyzers and its
+     code fixes are separate assemblies that each need their own namespace, and
+     collapsing them onto the product namespace both loses that distinction and
+     collides with the namespace the sources actually declare. Stripping
+     SourceGenerator/SourceGenerators/SourceGeneration/Generators/Analyzers/
+     CodeFixers/CodeFixes produced IDE0130 across every Roslyn-component
+     repository that consumes this SDK, because each one keeps the suffix.
+     Add one back per project with <NamespaceRemoveSuffix Include="..." /> if a
+     repository really wants it collapsed.
      ===================================================================== -->
 	<ItemGroup Label="Defining Namespace Suffixes to Remove from RootNamespace">
 		<NamespaceRemoveSuffix Include="@(SharedProjectName)" />
 		<NamespaceRemoveSuffix Include="@(SharedTestingProjectName)" />
 
 		<!-- 16+ -->
-		<NamespaceRemoveSuffix Include="SourceGeneration" />
-		<NamespaceRemoveSuffix Include="SourceGenerators" />
-		<NamespaceRemoveSuffix Include="SourceGenerator" />
 		<NamespaceRemoveSuffix Include="ServiceDefaults" />
 		<NamespaceRemoveSuffix Include="Infrastructure" />
 
@@ -39,14 +47,10 @@
 		<NamespaceRemoveSuffix Include="Abstractions" />
 		<NamespaceRemoveSuffix Include="ClientShared" />
 		<NamespaceRemoveSuffix Include="Persistence" />
-		<NamespaceRemoveSuffix Include="CodeFixers" />
 		<NamespaceRemoveSuffix Include="DataAccess" />
 		<NamespaceRemoveSuffix Include="Extensions" />
-		<NamespaceRemoveSuffix Include="Generators" />
 
 		<!-- 9 -->
-		<NamespaceRemoveSuffix Include="Analyzers" />
-		<NamespaceRemoveSuffix Include="CodeFixes" />
 		<NamespaceRemoveSuffix Include="Contracts" />
 		<NamespaceRemoveSuffix Include="Framework" />
 		<NamespaceRemoveSuffix Include="Utilities" />
@@ -160,24 +164,70 @@
 		<IsWorkerSdkProject>false</IsWorkerSdkProject>
 		<IsAspireHostProject>false</IsAspireHostProject>
 		<IsCLIProject>false</IsCLIProject>
+		<!--
+			This SDK is imported before the project body is evaluated, so MSBuild cannot yet be asked what the
+			project declares - the raw project text has to be inspected instead. Two rules apply to every scan
+			below, and getting either wrong silently misclassifies the project:
+
+			  1. XML comments are stripped first. Without that, a TargetFramework left behind inside an XML
+			     comment counts as a real declaration.
+			  2. Only *unconditional* declarations are matched. A `Condition` attribute cannot be evaluated
+			     at this point, and guessing either way is worse than not matching: treating a conditioned
+			     `<TargetFramework Condition="...">` as a declaration makes this SDK skip its
+			     `netstandard2.0` Roslyn default, the generic `net10.0` default fill in, and - when the
+			     condition does not fire - an analyzer ship on a TFM the IDE cannot load. A conditioned
+			     declaration is reported by `PurviewValidateUnconditionalProjectDeclarations` in Sdk.targets
+			     instead of being silently misread.
+
+			The file text is passed between the nested calls as a function *result*, never as a quoted string
+			literal, because project text contains commas, parentheses and quotes that would otherwise break
+			MSBuild's property-function argument parsing.
+		-->
 		<IsRoslynComponent
-			Condition="'$(IsRoslynComponent)' == '' AND $([System.Text.RegularExpressions.Regex]::IsMatch($([System.IO.File]::ReadAllText(`$(MSBuildProjectFullPath)`)), `(?is)&lt;IsRoslynComponent\s*&gt;\s*true\s*&lt;/IsRoslynComponent\s*&gt;`))"
+			Condition="'$(IsRoslynComponent)' == '' AND $([System.Text.RegularExpressions.Regex]::IsMatch($([System.Text.RegularExpressions.Regex]::Replace($([System.IO.File]::ReadAllText(`$(MSBuildProjectFullPath)`)), `(?s)&lt;!--.*?--&gt;`, ``)), `(?is)&lt;IsRoslynComponent\s*&gt;\s*true\s*&lt;/IsRoslynComponent\s*&gt;`))"
 			>true</IsRoslynComponent>
 		<IsRoslynComponent Condition="'$(IsRoslynComponent)' == ''">false</IsRoslynComponent>
 		<IsRoslynComponentOnly
-			Condition="'$(IsRoslynComponentOnly)' == '' AND $([System.Text.RegularExpressions.Regex]::IsMatch($([System.IO.File]::ReadAllText(`$(MSBuildProjectFullPath)`)), `(?is)&lt;IsRoslynComponentOnly\s*&gt;\s*false\s*&lt;/IsRoslynComponentOnly\s*&gt;`))"
+			Condition="'$(IsRoslynComponentOnly)' == '' AND $([System.Text.RegularExpressions.Regex]::IsMatch($([System.Text.RegularExpressions.Regex]::Replace($([System.IO.File]::ReadAllText(`$(MSBuildProjectFullPath)`)), `(?s)&lt;!--.*?--&gt;`, ``)), `(?is)&lt;IsRoslynComponentOnly\s*&gt;\s*false\s*&lt;/IsRoslynComponentOnly\s*&gt;`))"
 			>false</IsRoslynComponentOnly>
 		<IsRoslynComponentOnly Condition="'$(IsRoslynComponentOnly)' == '' AND '$(IsRoslynComponent)' == 'true'"
 			>true</IsRoslynComponentOnly>
 		<IsRoslynComponentOnly Condition="'$(IsRoslynComponentOnly)' == ''">false</IsRoslynComponentOnly>
 		<IsPackable
-			Condition="$([System.Text.RegularExpressions.Regex]::IsMatch($([System.IO.File]::ReadAllText(`$(MSBuildProjectFullPath)`)), `(?is)&lt;IsPackable\s*&gt;\s*true\s*&lt;/IsPackable\s*&gt;`))"
+			Condition="$([System.Text.RegularExpressions.Regex]::IsMatch($([System.Text.RegularExpressions.Regex]::Replace($([System.IO.File]::ReadAllText(`$(MSBuildProjectFullPath)`)), `(?s)&lt;!--.*?--&gt;`, ``)), `(?is)&lt;IsPackable\s*&gt;\s*true\s*&lt;/IsPackable\s*&gt;`))"
 			>true</IsPackable>
 		<_PurviewProjectDeclaresTargetFramework
-			Condition="$([System.Text.RegularExpressions.Regex]::IsMatch($([System.IO.File]::ReadAllText(`$(MSBuildProjectFullPath)`)), `(?is)&lt;TargetFrameworks?\s*&gt;`))"
+			Condition="$([System.Text.RegularExpressions.Regex]::IsMatch($([System.Text.RegularExpressions.Regex]::Replace($([System.IO.File]::ReadAllText(`$(MSBuildProjectFullPath)`)), `(?s)&lt;!--.*?--&gt;`, ``)), `(?is)&lt;TargetFrameworks?\s*&gt;`))"
 			>true</_PurviewProjectDeclaresTargetFramework>
-		<!-- SDK project type detection by parsing the Sdk attribute -->
-		<SdkProjectName>$([System.Text.RegularExpressions.Regex]::Match($([System.IO.File]::ReadAllText(`$(MSBuildProjectFullPath)`)), `(?s-i)(?:^|\s|&gt;)(?s-i)(?:^|\s|&gt;)&lt;\s*(?:Project|Import)\s(?:[^&gt;]*?)\s?Sdk\s*="(?&lt;sdkproj&gt;.*?)"`).Groups['sdkproj'].Value)</SdkProjectName>
+		<!-- An explicitly declared RootNamespace must survive suffix stripping. FixRootNamespaceTarget
+		     runs after the project body, where it can no longer tell an author's value apart from the
+		     one this SDK derived, so the declaration is recorded here. -->
+		<_PurviewProjectDeclaresRootNamespace
+			Condition="$([System.Text.RegularExpressions.Regex]::IsMatch($([System.Text.RegularExpressions.Regex]::Replace($([System.IO.File]::ReadAllText(`$(MSBuildProjectFullPath)`)), `(?s)&lt;!--.*?--&gt;`, ``)), `(?is)&lt;RootNamespace\s*&gt;\s*\S`))"
+			>true</_PurviewProjectDeclaresRootNamespace>
+		<!-- A curated TFM set has to be resolved into TargetFramework(s) before the project body is
+		     evaluated, so the selection is read here too. Setting it in a file imported ahead of this
+		     SDK (Directory.Build.props) is the repository-wide route and needs no scan. -->
+		<_PurviewProjectTargetFrameworkSet>$([System.Text.RegularExpressions.Regex]::Match($([System.Text.RegularExpressions.Regex]::Replace($([System.IO.File]::ReadAllText(`$(MSBuildProjectFullPath)`)), `(?s)&lt;!--.*?--&gt;`, ``)), `(?is)&lt;PurviewTargetFrameworkSet\s*&gt;\s*(?&lt;set&gt;[^&lt;]*?)\s*&lt;/PurviewTargetFrameworkSet\s*&gt;`).Groups['set'].Value)</_PurviewProjectTargetFrameworkSet>
+		<!-- Recorded separately so a Roslyn component that asked for a set itself (a mistake) can be told
+		     apart from one inheriting a repository-wide selection, which is normal and stays silent. -->
+		<_PurviewProjectDeclaresTargetFrameworkSet Condition="'$(_PurviewProjectTargetFrameworkSet)' != ''"
+			>true</_PurviewProjectDeclaresTargetFrameworkSet>
+		<PurviewTargetFrameworkSet Condition="'$(PurviewTargetFrameworkSet)' == ''"
+			>$(_PurviewProjectTargetFrameworkSet)</PurviewTargetFrameworkSet>
+		<!--
+			SDK project type detection by parsing the Sdk attribute.
+
+			Unlike the detections above, this one deliberately does NOT strip comments. An Sdk attribute
+			inside a comment is treated as a classification marker on purpose, because a test (or any
+			project that must `Import` this SDK explicitly rather than carry an `Sdk=` attribute) has no
+			other way to declare its type without actually loading that SDK. See
+			`ProjectClassificationTests.AspireHostProject_DetectedByFileContentMarker`.
+
+			The leading `(?:^|\s|>)` appeared twice, which required two whitespace/`>` characters before
+			the element; it is matched once now.
+		-->
+		<SdkProjectName>$([System.Text.RegularExpressions.Regex]::Match($([System.IO.File]::ReadAllText(`$(MSBuildProjectFullPath)`)), `(?s-i)(?:^|\s|&gt;)&lt;\s*(?:Project|Import)\s(?:[^&gt;]*?)\s?Sdk\s*="(?&lt;sdkproj&gt;.*?)"`).Groups['sdkproj'].Value)</SdkProjectName>
 		<IsSdkProject Condition="'$(SdkProjectName)' != ''">true</IsSdkProject>
 		<IsWebSdkProject Condition="'$(SdkProjectName)' == 'Microsoft.NET.Sdk.Web'">true</IsWebSdkProject>
 		<IsWorkerSdkProject Condition="'$(SdkProjectName)' == 'Microsoft.NET.Sdk.Worker'">true</IsWorkerSdkProject>
@@ -485,9 +535,89 @@
 		<IncludeBuildOutput Condition="'$(IsRoslynComponentOnly)' == 'true'">false</IncludeBuildOutput>
 	</PropertyGroup>
 
+	<!-- =====================================================================
+	     CURATED TARGET FRAMEWORK SETS
+
+	     A repository that multi-targets otherwise hard-codes its TFM list in every project, so a
+	     lifecycle change - a release going out of support, a new one arriving - is an edit in every
+	     repository that has to be found and kept consistent. Selecting a named set instead moves that
+	     decision here, so bumping this SDK moves every consumer at once.
+
+	         <PurviewTargetFrameworkSet>Supported</PurviewTargetFrameworkSet>
+
+	     This is now the default path for resolving a project's targets: 'Current' applies when nothing
+	     is selected, which resolves to the same single TFM the SDK used to hard-code. So the out-of-box
+	     result is unchanged, but the value is named and overridable in one place instead of being
+	     buried in this file.
+
+	     Overrides are layered, narrowest first:
+
+	       1. an explicit TargetFramework/TargetFrameworks in the project always wins (it is evaluated
+	          after this file);
+	       2. a repository can redefine any set by setting PurviewTargetFrameworks<Set> before this SDK
+	          is imported - for example PurviewTargetFrameworksSupported - which is also how a set is
+	          pinned while a consumer is not ready to move;
+	       3. otherwise the definitions below apply.
+
+	     Roslyn components are deliberately not covered: a component targets netstandard2.0 so it loads
+	     in every compiler host, which is handled by the Roslyn property group above.
+	     ===================================================================== -->
+	<PropertyGroup Label="Curated Target Framework Set Definitions">
+		<!-- Latest shipped release only. -->
+		<PurviewTargetFrameworksLatest Condition="'$(PurviewTargetFrameworksLatest)' == ''"
+			>net11.0</PurviewTargetFrameworksLatest>
+		<!-- The release this SDK treats as the default single target. -->
+		<PurviewTargetFrameworksCurrent Condition="'$(PurviewTargetFrameworksCurrent)' == ''"
+			>net10.0</PurviewTargetFrameworksCurrent>
+		<!-- Everything still in support. net8.0 and net9.0 are deliberately excluded: both are at or
+		     near end of support, so a new package should not imply a commitment to them. -->
+		<PurviewTargetFrameworksSupported Condition="'$(PurviewTargetFrameworksSupported)' == ''"
+			>net10.0;net11.0</PurviewTargetFrameworksSupported>
+		<!-- Every shipped release: widest reach for a library that must still build for consumers on an
+		     older runtime, without committing to the newest major while it is pre-GA. -->
+		<PurviewTargetFrameworksBroad Condition="'$(PurviewTargetFrameworksBroad)' == ''"
+			>net8.0;net9.0;net10.0</PurviewTargetFrameworksBroad>
+		<!-- Broad plus the newest major. The distinction from Broad is a real product decision - whether
+		     a package commits to the newest release - so it gets its own name rather than being folded
+		     into Broad and silently widening every consumer of it. -->
+		<PurviewTargetFrameworksAll Condition="'$(PurviewTargetFrameworksAll)' == ''"
+			>net8.0;net9.0;net10.0;net11.0</PurviewTargetFrameworksAll>
+	</PropertyGroup>
+
+	<PropertyGroup
+		Label="Curated Target Framework Set Resolution"
+		Condition="'$(IsCSharpProject)' == 'true' AND '$(IsRoslynComponent)' != 'true' AND '$(TargetFramework)' == '' AND '$(TargetFrameworks)' == ''"
+	>
+		<!-- 'Current' when nothing is selected, so the set mechanism - not a literal buried further down
+		     this file - is what decides a project's targets. It resolves to the same single TFM the SDK
+		     used to hard-code, so the default result is unchanged. -->
+		<PurviewTargetFrameworkSet Condition="'$(PurviewTargetFrameworkSet)' == ''">Current</PurviewTargetFrameworkSet>
+
+		<_PurviewResolvedTargetFrameworkSet Condition="'$(PurviewTargetFrameworkSet)' == 'Latest'"
+			>$(PurviewTargetFrameworksLatest)</_PurviewResolvedTargetFrameworkSet>
+		<_PurviewResolvedTargetFrameworkSet Condition="'$(PurviewTargetFrameworkSet)' == 'Current'"
+			>$(PurviewTargetFrameworksCurrent)</_PurviewResolvedTargetFrameworkSet>
+		<_PurviewResolvedTargetFrameworkSet Condition="'$(PurviewTargetFrameworkSet)' == 'Supported'"
+			>$(PurviewTargetFrameworksSupported)</_PurviewResolvedTargetFrameworkSet>
+		<_PurviewResolvedTargetFrameworkSet Condition="'$(PurviewTargetFrameworkSet)' == 'Broad'"
+			>$(PurviewTargetFrameworksBroad)</_PurviewResolvedTargetFrameworkSet>
+		<_PurviewResolvedTargetFrameworkSet Condition="'$(PurviewTargetFrameworkSet)' == 'All'"
+			>$(PurviewTargetFrameworksAll)</_PurviewResolvedTargetFrameworkSet>
+
+		<!-- A single entry becomes TargetFramework, so a one-TFM set does not pay for an outer build. -->
+		<TargetFramework
+			Condition="'$(_PurviewResolvedTargetFrameworkSet)' != '' AND !$(_PurviewResolvedTargetFrameworkSet.Contains(';'))"
+			>$(_PurviewResolvedTargetFrameworkSet)</TargetFramework>
+		<TargetFrameworks
+			Condition="'$(_PurviewResolvedTargetFrameworkSet)' != '' AND $(_PurviewResolvedTargetFrameworkSet.Contains(';'))"
+			>$(_PurviewResolvedTargetFrameworkSet)</TargetFrameworks>
+	</PropertyGroup>
+
 	<PropertyGroup Label="C# Project Property Groups" Condition="'$(IsCSharpProject)' == 'true'">
+		<!-- Last-resort floor. The set resolution above normally settles this; it is reached only when a
+		     repository redefines a set to an empty value, and keeps that from producing no target at all. -->
 		<TargetFramework Condition="'$(TargetFramework)' == '' AND '$(TargetFrameworks)' == ''"
-			>net10.0</TargetFramework>
+			>$(PurviewTargetFrameworksCurrent)</TargetFramework>
 		<Deterministic Condition="'$(Deterministic)' == ''">true</Deterministic>
 		<!-- Auto-detect CI environment from common env vars. Local builds (even packable ones) must
 		     not be treated as CI builds, otherwise SourceLink's CI-mode dirty-repository checks can

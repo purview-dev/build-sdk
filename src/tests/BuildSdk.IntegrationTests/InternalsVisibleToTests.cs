@@ -1,4 +1,5 @@
 using Purview.BuildSdk.Harness;
+using Purview.BuildSdk.Infra;
 
 namespace Purview.BuildSdk;
 
@@ -91,6 +92,92 @@ sealed class InternalsVisibleToTests
 
 		// Should always have InternalsVisibleToAttribute.
 		await Assert.That(assemblyAttrs).Contains("System.Runtime.CompilerServices.InternalsVisibleToAttribute");
+	}
+
+	// The tests above only assert the attribute *type* appears, which is why malformed grants went
+	// unnoticed: a shipped Purview assembly carried 168 InternalsVisibleTo attributes, 53 of them with
+	// an empty assembly name. These two assert the generated values instead. The target adds
+	// AssemblyAttribute items during the build, so -getItem cannot see them - the generated
+	// AssemblyInfo.cs is the observable output.
+	[Test]
+	public async Task InternalsVisibleTo_NeverGrantsToAnEmptyAssemblyName(CancellationToken cancellationToken)
+	{
+		using var h = await CreateBuildableLibraryAsync(cancellationToken);
+
+		var malformed = (await ReadInternalsVisibleToGrantsAsync(h, cancellationToken))
+			.Where(static grant => grant.StartsWith('.'))
+			.ToArray();
+
+		// TargetProjectName has no default, so an unguarded '$(TargetProjectName).%(TestType)Tests'
+		// produced '.UnitTests' and friends - never a valid assembly identity.
+		await Assert.That(string.Join(", ", malformed)).IsEmpty();
+	}
+
+	[Test]
+	public async Task InternalsVisibleTo_DoesNotRepeatTheSameGrant(CancellationToken cancellationToken)
+	{
+		using var h = await CreateBuildableLibraryAsync(cancellationToken);
+
+		var duplicates = (await ReadInternalsVisibleToGrantsAsync(h, cancellationToken))
+			.GroupBy(static grant => grant, StringComparer.Ordinal)
+			.Where(static group => group.Count() > 1)
+			.Select(static group => $"{group.Key} x{group.Count()}")
+			.ToArray();
+
+		// AssemblyName, TargetProjectName and MSBuildProjectName are usually the same string, so each
+		// test type was granted up to three times over.
+		await Assert.That(string.Join(", ", duplicates)).IsEmpty();
+	}
+
+	// The harness declares no central package versions for the packages the SDK injects, so a plain
+	// harness project cannot restore. The other build-based tests in this suite remove them the same way.
+	static Task<ProjectHarness> CreateBuildableLibraryAsync(CancellationToken cancellationToken) =>
+		ProjectHarness.CreateAsync(
+			"MyLibrary",
+			extraProps: """
+			<DisableSourceLink>true</DisableSourceLink>
+			<ExcludePurviewTelemetry>true</ExcludePurviewTelemetry>
+			""",
+			extraItems: """
+			<PackageReference Remove="Purview.Telemetry.SourceGenerator" />
+			<PackageReference Remove="Microsoft.Extensions.Telemetry.Abstractions" />
+			""",
+			cancellationToken: cancellationToken
+		);
+
+	static async Task<IReadOnlyList<string>> ReadInternalsVisibleToGrantsAsync(
+		ProjectHarness harness,
+		CancellationToken cancellationToken
+	)
+	{
+		// The grants are written by a target, so the project has to be compiled rather than merely
+		// evaluated.
+		var (exitCode, stdOut, stdErr) = await harness.RunMSBuildAsync("-restore -t:Build", cancellationToken);
+		await Assert.That(exitCode).IsEqualTo(0).Because(TestHelpers.GenerateError(stdOut, stdErr));
+
+		var objDirectory = Path.Combine(harness.ProjectDirectory, "obj");
+		var generated = Directory
+			.EnumerateFiles(objDirectory, "*.AssemblyInfo.cs", SearchOption.AllDirectories)
+			.OrderBy(static path => path, StringComparer.Ordinal)
+			.FirstOrDefault();
+
+		await Assert.That(generated).IsNotNull().Because("the SDK must generate an AssemblyInfo file");
+
+		const string marker = "InternalsVisibleTo(\"";
+		List<string> grants = [];
+		foreach (var line in await File.ReadAllLinesAsync(generated!, cancellationToken))
+		{
+			var start = line.IndexOf(marker, StringComparison.Ordinal);
+			if (start < 0)
+				continue;
+
+			start += marker.Length;
+			var end = line.IndexOf('"', start);
+			if (end > start || end == start)
+				grants.Add(line[start..end]);
+		}
+
+		return grants;
 	}
 
 	//[Test]

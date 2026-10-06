@@ -69,6 +69,56 @@ sealed class RepositoryFileSyncTests
 			.Contains("*");
 	}
 
+	/// <summary>
+	/// The mirrored files have to be ignored per file rather than by a blanket rule. The packaged
+	/// blanket '.gitignore' only covers a folder the SDK wholly owns (a skill is its own folder), so
+	/// files mirrored directly into '.agents/agents' and '.agents/prompts' stayed tracked and every SDK
+	/// upgrade that changed one of them showed up as a local modification. A blanket rule in those two
+	/// folders is not an option: a consuming repository keeps its own authored prompts and agents
+	/// beside the mirrored ones, and ignoring those would hide the author's work.
+	/// </summary>
+	[Test]
+	public async Task AgentFolderSync_IgnoresMirroredFilesPerFile_AndLeavesAuthoredFilesTracked(
+		CancellationToken cancellationToken
+	)
+	{
+		using var h = await CreateHarnessAsync(extraProps: null, cancellationToken: cancellationToken);
+		await CreateAgentSourceFilesAsync(h, cancellationToken);
+
+		var (success, output, errors) = await h.BuildAsync(restore: true, verbose: true, cancellationToken);
+		await Assert.That(success).IsTrue().Because(TestHelpers.GenerateError(output, errors));
+
+		var gitIgnorePath = Path.Combine(h.SolutionDirectory, AgentsFolder, ".gitignore");
+		await Assert.That(File.Exists(gitIgnorePath)).IsTrue().Because(TestHelpers.GenerateError(output, errors));
+
+		var lines = await File.ReadAllLinesAsync(gitIgnorePath, cancellationToken);
+		// The self-ignoring entry is asserted separately below.
+		var entries = lines.Where(static line => line.StartsWith('/') && line != "/.gitignore").ToArray();
+
+		// Every mirrored file, at whatever depth, listed by path - never a bare '*'.
+		await Assert
+			.That(entries)
+			.IsEquivalentTo(["/agents/guide.md", "/prompts/nested/deep/prompt.md", "/skills/demo/SKILL.md"]);
+		// Generated, so it ignores itself: committing it, or leaving it untracked without the entry,
+		// would show up as a repository modification - the thing this exists to prevent.
+		await Assert.That(lines).Contains("/.gitignore");
+		await Assert.That(lines).DoesNotContain("*");
+
+		// A file the repository authored beside a mirrored one must not be covered.
+		await Assert.That(entries.Any(static entry => entry.Contains("authored", StringComparison.Ordinal))).IsFalse();
+
+		// A no-op build must not rewrite it, so the working tree stays clean.
+		var written = File.GetLastWriteTimeUtc(gitIgnorePath);
+		var (secondSuccess, secondOutput, secondErrors) = await h.BuildAsync(
+			restore: false,
+			verbose: true,
+			cancellationToken
+		);
+
+		await Assert.That(secondSuccess).IsTrue().Because(TestHelpers.GenerateError(secondOutput, secondErrors));
+		await Assert.That(File.GetLastWriteTimeUtc(gitIgnorePath)).IsEqualTo(written);
+	}
+
 	[Test]
 	public async Task AgentFolderSync_SecondBuild_SkipsUnchangedContent(CancellationToken cancellationToken)
 	{

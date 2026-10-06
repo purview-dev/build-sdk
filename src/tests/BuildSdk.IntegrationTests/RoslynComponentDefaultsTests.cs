@@ -32,6 +32,111 @@ sealed class RoslynComponentDefaultsTests
 		await Assert.That(properties["TargetFramework"]).IsEqualTo("netstandard2.0");
 	}
 
+	// Sdk.props imports before the project body is evaluated, so the SDK cannot ask MSBuild whether the
+	// project declares a TargetFramework - it regex-scans the raw project text instead. These tests pin the
+	// two ways that scan can be wrong: XML comments must not count as a declaration, and a declaration
+	// carrying a Condition attribute must.
+	[Test]
+	public async Task CommentedOutTargetFramework_DoesNotCountAsADeclaration(CancellationToken cancellationToken)
+	{
+		using var harness = await ProjectHarness
+			.For("SourceGeneration")
+			.WithProjectFileContent(
+				"""
+				<Project Sdk="Microsoft.NET.Sdk">
+					<PropertyGroup>
+						<IsRoslynComponent>true</IsRoslynComponent>
+						<!-- <TargetFramework>net8.0</TargetFramework> -->
+					</PropertyGroup>
+				</Project>
+				"""
+			)
+			.BuildAsync(cancellationToken);
+
+		// A commented-out declaration leaves the project declaring nothing, so the Roslyn component
+		// default must still apply. Resolving to a .NET TFM here would ship an analyzer the IDE cannot load.
+		var properties = await harness.GetPropertiesAsync(cancellationToken, "TargetFramework");
+		await Assert.That(properties["TargetFramework"]).IsEqualTo("netstandard2.0");
+	}
+
+	// A Condition cannot be evaluated before the project body, so a conditioned declaration must not be
+	// counted: if it never fires, the Roslyn component has to fall back to netstandard2.0 rather than the
+	// generic .NET default. The author is warned instead of being silently misread.
+	[Test]
+	public async Task ConditionedTargetFramework_KeepsTheRoslynDefaultAndWarns(CancellationToken cancellationToken)
+	{
+		using var harness = await ProjectHarness
+			.For("SourceGeneration")
+			.WithProjectFileContent(
+				"""
+				<Project Sdk="Microsoft.NET.Sdk">
+					<PropertyGroup>
+						<IsRoslynComponent>true</IsRoslynComponent>
+						<TargetFramework Condition="'$(ShipLegacy)' == 'true'">netstandard2.1</TargetFramework>
+					</PropertyGroup>
+				</Project>
+				"""
+			)
+			.BuildAsync(cancellationToken);
+
+		var properties = await harness.GetPropertiesAsync(cancellationToken, "TargetFramework");
+		await Assert.That(properties["TargetFramework"]).IsEqualTo("netstandard2.0");
+
+		var (_, stdOut, _) = await harness.RunMSBuildAsync("-t:Build", cancellationToken);
+		await Assert.That(stdOut).Contains("PurviewConditionedProjectDeclaration");
+	}
+
+	/// <summary>
+	/// Declaring a property unconditionally and then augmenting it under a condition is correct and
+	/// common - an unconditional TargetFrameworks list plus a Windows-only net48 addition, for example.
+	/// The SDK sees the unconditional declaration, so there is nothing to warn about, and warning anyway
+	/// would train people to ignore the diagnostic.
+	/// </summary>
+	[Test]
+	public async Task ConditionedDeclarationAlongsideAnUnconditionalOne_DoesNotWarn(CancellationToken cancellationToken)
+	{
+		using var harness = await ProjectHarness
+			.For("Library")
+			.WithProjectFileContent(
+				"""
+				<Project Sdk="Microsoft.NET.Sdk">
+					<PropertyGroup>
+						<TargetFramework></TargetFramework>
+						<TargetFrameworks>net9.0;net10.0</TargetFrameworks>
+						<TargetFrameworks Condition="'$(IncludeLegacy)' == 'true'">net8.0;$(TargetFrameworks)</TargetFrameworks>
+					</PropertyGroup>
+				</Project>
+				"""
+			)
+			.BuildAsync(cancellationToken);
+
+		var (_, stdOut, stdErr) = await harness.RunMSBuildAsync("-t:Build", cancellationToken);
+		await Assert.That(stdOut + stdErr).DoesNotContain("PurviewConditionedProjectDeclaration");
+	}
+
+	[Test]
+	public async Task CommentedOutIsRoslynComponent_DoesNotClassifyTheProject(CancellationToken cancellationToken)
+	{
+		using var harness = await ProjectHarness
+			.For("Library")
+			.WithProjectFileContent(
+				"""
+				<Project Sdk="Microsoft.NET.Sdk">
+					<PropertyGroup>
+						<!-- <IsRoslynComponent>true</IsRoslynComponent> -->
+					</PropertyGroup>
+				</Project>
+				"""
+			)
+			.BuildAsync(cancellationToken);
+
+		// Misclassifying a plain library as a Roslyn component forces netstandard2.0 and
+		// TreatWarningsAsErrors onto it.
+		var properties = await harness.GetPropertiesAsync(cancellationToken, "IsRoslynComponent", "TargetFramework");
+		await Assert.That(properties["IsRoslynComponent"]).IsEqualTo("false");
+		await Assert.That(properties["TargetFramework"]).IsEqualTo("net10.0");
+	}
+
 	[Test]
 	public async Task PackableProject_AutomaticallyPacksAnalyzerProjectReference(CancellationToken cancellationToken)
 	{
