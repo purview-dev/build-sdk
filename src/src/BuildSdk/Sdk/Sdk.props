@@ -584,9 +584,36 @@
 			>net8.0;net9.0;net10.0;net11.0</PurviewTargetFrameworksAll>
 	</PropertyGroup>
 
+	<!--
+		The resolution below must not be gated on '$(TargetFramework)' == ''.
+
+		TargetFrameworks is an invariant of a project: it has to evaluate to the same list no matter
+		what TargetFramework is, because an inner build receives TargetFramework as a *global*
+		property. Visual Studio's project system relies on that. CPS evaluates the project once with
+		no TargetFramework to discover the TFM dimensions, then again per dimension with
+		TargetFramework set; gating on an empty TargetFramework makes the second evaluation drop
+		TargetFrameworks entirely, the two evaluations disagree about whether the project
+		cross-targets, and the configured project CPS builds the language-service context from has no
+		TFM at all. Microsoft.Common.CurrentVersion.targets is never reached in that state, TargetPath
+		is never defined, and the project loads with
+
+		    InvalidProjectDataException: Property 'TargetPath' is required to be an absolute path,
+		    but the value is ''
+
+		which unloads IntelliSense for the project. `dotnet build` and `msbuild` hide the defect
+		because they only ever evaluate the outer build, read the list and dispatch the inner builds
+		themselves, so the inconsistent second evaluation never happens.
+
+		A project declaring its own TargetFramework/TargetFrameworks is detected from the project text
+		instead (_PurviewProjectDeclaresTargetFramework), which is evaluation-stable - it depends only
+		on the file on disk. That also makes the documented layering exact: a project declaring
+		<TargetFramework>net48</TargetFramework> in its body previously still had a repository-wide
+		set's TargetFrameworks list applied underneath it, because the body had not been evaluated yet
+		at this point.
+	-->
 	<PropertyGroup
 		Label="Curated Target Framework Set Resolution"
-		Condition="'$(IsCSharpProject)' == 'true' AND '$(IsRoslynComponent)' != 'true' AND '$(TargetFramework)' == '' AND '$(TargetFrameworks)' == ''"
+		Condition="'$(IsCSharpProject)' == 'true' AND '$(IsRoslynComponent)' != 'true' AND '$(_PurviewProjectDeclaresTargetFramework)' != 'true' AND '$(TargetFrameworks)' == ''"
 	>
 		<!-- 'Current' when nothing is selected, so the set mechanism - not a literal buried further down
 		     this file - is what decides a project's targets. It resolves to the same single TFM the SDK
@@ -604,9 +631,11 @@
 		<_PurviewResolvedTargetFrameworkSet Condition="'$(PurviewTargetFrameworkSet)' == 'All'"
 			>$(PurviewTargetFrameworksAll)</_PurviewResolvedTargetFrameworkSet>
 
-		<!-- A single entry becomes TargetFramework, so a one-TFM set does not pay for an outer build. -->
+		<!-- A single entry becomes TargetFramework, so a one-TFM set does not pay for an outer build.
+		     Guarded on an empty TargetFramework so an inner build's global property is never fought:
+		     unlike TargetFrameworks above, this one is per-evaluation by nature. -->
 		<TargetFramework
-			Condition="'$(_PurviewResolvedTargetFrameworkSet)' != '' AND !$(_PurviewResolvedTargetFrameworkSet.Contains(';'))"
+			Condition="'$(TargetFramework)' == '' AND '$(_PurviewResolvedTargetFrameworkSet)' != '' AND !$(_PurviewResolvedTargetFrameworkSet.Contains(';'))"
 			>$(_PurviewResolvedTargetFrameworkSet)</TargetFramework>
 		<TargetFrameworks
 			Condition="'$(_PurviewResolvedTargetFrameworkSet)' != '' AND $(_PurviewResolvedTargetFrameworkSet.Contains(';'))"
