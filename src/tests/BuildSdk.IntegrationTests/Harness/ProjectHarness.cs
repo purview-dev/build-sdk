@@ -514,10 +514,27 @@ partial class ProjectHarness : IDisposable
 		return (code == 0, stdout, stderr);
 	}
 
+	/// <summary>
+	/// Runs <c>git</c> in the solution directory. Most tests here deliberately stay free of git, but the
+	/// SDK's mirrored-file tracking check asks git what is in the index, so exercising it needs a real
+	/// repository. <c>-c</c> flags supply an identity so the call does not depend on the host's git config.
+	/// </summary>
+	public Task<(int Code, string StdOut, string StdErr)> RunGitAsync(
+		string arguments,
+		CancellationToken cancellationToken = default
+	) =>
+		RunAsync(
+			"git",
+			"-c user.name=Purview.BuildSdk.Tests -c user.email=tests@purview.dev " + arguments,
+			cancellationToken,
+			SolutionDirectory
+		);
+
 	async Task<(int Code, string StdOut, string StdErr)> RunAsync(
 		string fileName,
 		string arguments,
-		CancellationToken cancellationToken
+		CancellationToken cancellationToken,
+		string? workingDirectory = null
 	)
 	{
 		using Process process = new()
@@ -526,7 +543,7 @@ partial class ProjectHarness : IDisposable
 			{
 				FileName = fileName,
 				Arguments = arguments,
-				WorkingDirectory = ProjectDirectory,
+				WorkingDirectory = workingDirectory ?? ProjectDirectory,
 				RedirectStandardOutput = true,
 				RedirectStandardError = true,
 				UseShellExecute = false,
@@ -607,9 +624,23 @@ partial class ProjectHarness : IDisposable
 				try
 				{
 					if (_ownsWorkDir && Directory.Exists(SolutionDirectory))
+					{
+						// A test that runs 'git init' leaves read-only objects under '.git', which a
+						// recursive delete refuses with UnauthorizedAccessException. Cleanup is
+						// best-effort, but failing it would fail the test it belongs to.
+						foreach (
+							var file in Directory.EnumerateFiles(SolutionDirectory, "*", SearchOption.AllDirectories)
+						)
+						{
+							var attributes = File.GetAttributes(file);
+							if ((attributes & FileAttributes.ReadOnly) == FileAttributes.ReadOnly)
+								File.SetAttributes(file, attributes & ~FileAttributes.ReadOnly);
+						}
+
 						Directory.Delete(SolutionDirectory, recursive: true);
+					}
 				}
-				catch (IOException)
+				catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
 				{
 					// Best-effort cleanup; don't fail tests on leftover temp files.
 				}

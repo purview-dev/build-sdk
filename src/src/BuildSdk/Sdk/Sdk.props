@@ -213,7 +213,10 @@
 		     apart from one inheriting a repository-wide selection, which is normal and stays silent. -->
 		<_PurviewProjectDeclaresTargetFrameworkSet Condition="'$(_PurviewProjectTargetFrameworkSet)' != ''"
 			>true</_PurviewProjectDeclaresTargetFrameworkSet>
-		<PurviewTargetFrameworkSet Condition="'$(PurviewTargetFrameworkSet)' == ''"
+		<!-- The project's own selection wins over one inherited from the repository: the layering is
+		     narrowest-first, and a project naming a set it does not get is the kind of silent miss this
+		     scan exists to prevent. Guarded on non-empty so a project that names none keeps inheriting. -->
+		<PurviewTargetFrameworkSet Condition="'$(_PurviewProjectTargetFrameworkSet)' != ''"
 			>$(_PurviewProjectTargetFrameworkSet)</PurviewTargetFrameworkSet>
 		<!--
 			SDK project type detection by parsing the Sdk attribute.
@@ -552,12 +555,16 @@
 
 	     Overrides are layered, narrowest first:
 
-	       1. an explicit TargetFramework/TargetFrameworks in the project always wins (it is evaluated
-	          after this file);
-	       2. a repository can redefine any set by setting PurviewTargetFrameworks<Set> before this SDK
+	       1. an explicit TargetFramework/TargetFrameworks in the project always wins. It is evaluated
+	          after this file, so it is read out of the project XML instead - which also stands the
+	          single-TFM floor further down this file down, so the project's list is not shadowed by a
+	          TargetFramework MSBuild would honour ahead of it;
+	       2. a PurviewTargetFrameworkSet in the project wins over one a repository selected, likewise
+	          read out of the project XML;
+	       3. a repository can redefine any set by setting PurviewTargetFrameworks<Set> before this SDK
 	          is imported - for example PurviewTargetFrameworksSupported - which is also how a set is
 	          pinned while a consumer is not ready to move;
-	       3. otherwise the definitions below apply.
+	       4. otherwise the definitions below apply.
 
 	     Roslyn components are deliberately not covered: a component targets netstandard2.0 so it loads
 	     in every compiler host, which is handled by the Roslyn property group above.
@@ -644,8 +651,17 @@
 
 	<PropertyGroup Label="C# Project Property Groups" Condition="'$(IsCSharpProject)' == 'true'">
 		<!-- Last-resort floor. The set resolution above normally settles this; it is reached only when a
-		     repository redefines a set to an empty value, and keeps that from producing no target at all. -->
-		<TargetFramework Condition="'$(TargetFramework)' == '' AND '$(TargetFrameworks)' == ''"
+		     repository redefines a set to an empty value, and keeps that from producing no target at all.
+
+		     It must stand down for the same declaration the set resolution stands down for. A project
+		     declaring TargetFrameworks in its body is evaluated after this file, so both TFM properties
+		     still read empty here and the floor used to fire - leaving TargetFramework set to the Current
+		     set alongside the project's own list. MSBuild honours the singular property, so the project
+		     quietly built one TFM and every multi-targeting consumer failed to reference it with
+		     "Project 'X' targets 'net10.0'. It cannot be referenced by a project that targets
+		     '.NETCoreApp,Version=v9.0'". -->
+		<TargetFramework
+			Condition="'$(TargetFramework)' == '' AND '$(TargetFrameworks)' == '' AND '$(_PurviewProjectDeclaresTargetFramework)' != 'true'"
 			>$(PurviewTargetFrameworksCurrent)</TargetFramework>
 		<Deterministic Condition="'$(Deterministic)' == ''">true</Deterministic>
 		<!-- Auto-detect CI environment from common env vars. Local builds (even packable ones) must

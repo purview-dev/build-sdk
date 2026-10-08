@@ -72,10 +72,15 @@ Overrides are layered, narrowest first:
 
 1. an explicit `TargetFramework`/`TargetFrameworks` in the project always wins. Like the set selection
    itself, this is read from the project XML, so it must be declared **unconditionally** to be seen;
-2. a repository can redefine any set with `PurviewTargetFrameworks<Set>` — `PurviewTargetFrameworksSupported`,
+2. a `PurviewTargetFrameworkSet` in the project wins over one the repository selected;
+3. a repository can redefine any set with `PurviewTargetFrameworks<Set>` — `PurviewTargetFrameworksSupported`,
    `PurviewTargetFrameworksBroad`, and so on — set before the SDK import. This is also how a set is pinned
    while a consumer is not ready to follow the SDK's definition;
-3. otherwise the table above applies.
+4. otherwise the table above applies.
+
+A project declaring `TargetFrameworks` keeps `TargetFramework` empty, as a multi-targeting project must:
+MSBuild honours the singular property ahead of the list, so a default left in place there would quietly
+collapse the project to a single target and break every multi-targeting consumer of it.
 
 | Property | Default | Description |
 | -- | -- | -- |

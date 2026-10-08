@@ -103,8 +103,165 @@ sealed class TargetFrameworkSetTests
 			)
 			.BuildAsync(cancellationToken);
 
-		var properties = await h.GetPropertiesAsync(cancellationToken, "TargetFrameworks");
+		var properties = await h.GetPropertiesAsync(cancellationToken, "TargetFramework", "TargetFrameworks");
 		await Assert.That(properties["TargetFrameworks"]).IsEqualTo("net10.0");
+		// The list is only honoured while TargetFramework stays empty; see
+		// ExplicitTargetFrameworks_DoesNotAlsoGetTheSingleTargetFrameworkFloor.
+		await Assert.That(properties["TargetFramework"]).IsEmpty();
+	}
+
+	/// <summary>
+	/// A project declaring <c>TargetFrameworks</c> in its body opts out of the curated set resolution,
+	/// which left the single-TFM floor further down Sdk.props to fire: at that point the body has not been
+	/// evaluated, so both TFM properties still read empty. The project then ended up with
+	/// <c>TargetFramework</c> set to the Current set *and* its own <c>TargetFrameworks</c> list, and
+	/// MSBuild honours the singular one — so the project silently built a single TFM and any multi-targeting
+	/// consumer failed with "Project 'X' targets 'net10.0'. It cannot be referenced by a project that
+	/// targets '.NETCoreApp,Version=v9.0'". The floor must therefore stand down for the same declaration
+	/// the set resolution stands down for.
+	/// </summary>
+	[Test]
+	public async Task ExplicitTargetFrameworks_DoesNotAlsoGetTheSingleTargetFrameworkFloor(
+		CancellationToken cancellationToken
+	)
+	{
+		using var h = await ProjectHarness
+			.For("Library")
+			.WithProjectFileContent(
+				"""
+				<Project Sdk="Microsoft.NET.Sdk">
+					<PropertyGroup>
+						<TargetFrameworks>net8.0;net9.0;net10.0</TargetFrameworks>
+					</PropertyGroup>
+				</Project>
+				"""
+			)
+			.BuildAsync(cancellationToken);
+
+		var properties = await h.GetPropertiesAsync(cancellationToken, "TargetFramework", "TargetFrameworks");
+
+		await Assert.That(properties["TargetFrameworks"]).IsEqualTo("net8.0;net9.0;net10.0");
+		await Assert.That(properties["TargetFramework"]).IsEmpty();
+	}
+
+	/// <summary>
+	/// The shape that surfaced the defect: a repository selects a set repository-wide and a project spells
+	/// the same list out through the set's property. Redundant, but legal, and it must still multi-target.
+	/// </summary>
+	[Test]
+	public async Task ExplicitTargetFrameworksFromASetProperty_StillMultiTargets(CancellationToken cancellationToken)
+	{
+		using var h = await ProjectHarness
+			.For("Library")
+			.WithPreImportProperty("PurviewTargetFrameworkSet", "All")
+			.WithProjectFileContent(
+				"""
+				<Project Sdk="Microsoft.NET.Sdk">
+					<PropertyGroup>
+						<TargetFrameworks>$(PurviewTargetFrameworksAll)</TargetFrameworks>
+					</PropertyGroup>
+				</Project>
+				"""
+			)
+			.BuildAsync(cancellationToken);
+
+		var properties = await h.GetPropertiesAsync(cancellationToken, "TargetFramework", "TargetFrameworks");
+
+		await Assert.That(properties["TargetFrameworks"]).IsEqualTo("net8.0;net9.0;net10.0;net11.0");
+		await Assert.That(properties["TargetFramework"]).IsEmpty();
+	}
+
+	/// <summary>
+	/// The declaration the floor stands down for is read from the project text, so it is seen in an inner
+	/// build too. There, <c>TargetFramework</c> arrives as a global property and must survive untouched
+	/// while <c>TargetFrameworks</c> reports the same list as the outer evaluation.
+	/// </summary>
+	[Test]
+	public async Task ExplicitTargetFrameworks_ResolvesIdenticallyUnderAnInnerBuildTargetFramework(
+		CancellationToken cancellationToken
+	)
+	{
+		using var h = await ProjectHarness
+			.For("Library")
+			.WithProjectFileContent(
+				"""
+				<Project Sdk="Microsoft.NET.Sdk">
+					<PropertyGroup>
+						<TargetFrameworks>net8.0;net9.0;net10.0</TargetFrameworks>
+					</PropertyGroup>
+				</Project>
+				"""
+			)
+			.BuildAsync(cancellationToken);
+
+		var globals = new Dictionary<string, string>(StringComparer.Ordinal) { ["TargetFramework"] = "net9.0" };
+
+		var properties = await h.GetPropertiesAsync(
+			globals,
+			cancellationToken,
+			"TargetFramework",
+			"TargetFrameworks",
+			"TargetPath"
+		);
+
+		await Assert.That(properties["TargetFramework"]).IsEqualTo("net9.0");
+		await Assert.That(properties["TargetFrameworks"]).IsEqualTo("net8.0;net9.0;net10.0");
+		await Assert.That(properties["TargetPath"]).IsNotEmpty();
+	}
+
+	/// <summary>
+	/// A project declaring a single <c>TargetFramework</c> still has to end up with exactly that one, and
+	/// no <c>TargetFrameworks</c> list from the floor or from a repository-wide set.
+	/// </summary>
+	[Test]
+	public async Task ExplicitSingleTargetFramework_IsNotWidenedOrOverridden(CancellationToken cancellationToken)
+	{
+		using var h = await ProjectHarness
+			.For("Library")
+			.WithPreImportProperty("PurviewTargetFrameworkSet", "All")
+			.WithProjectFileContent(
+				"""
+				<Project Sdk="Microsoft.NET.Sdk">
+					<PropertyGroup>
+						<TargetFramework>net8.0</TargetFramework>
+					</PropertyGroup>
+				</Project>
+				"""
+			)
+			.BuildAsync(cancellationToken);
+
+		var properties = await h.GetPropertiesAsync(cancellationToken, "TargetFramework", "TargetFrameworks");
+
+		await Assert.That(properties["TargetFramework"]).IsEqualTo("net8.0");
+		await Assert.That(properties["TargetFrameworks"]).IsEmpty();
+	}
+
+	/// <summary>
+	/// A project narrowing a repository-wide selection by naming a different set in its own body. The set
+	/// is read from the project text precisely so this works despite the body being evaluated after the
+	/// SDK import, and the narrower declaration is documented to win.
+	/// </summary>
+	[Test]
+	public async Task AProjectSet_WinsOverARepositoryWideSet(CancellationToken cancellationToken)
+	{
+		using var h = await ProjectHarness
+			.For("Library")
+			.WithPreImportProperty("PurviewTargetFrameworkSet", "All")
+			.WithProjectFileContent(
+				"""
+				<Project Sdk="Microsoft.NET.Sdk">
+					<PropertyGroup>
+						<PurviewTargetFrameworkSet>Supported</PurviewTargetFrameworkSet>
+					</PropertyGroup>
+				</Project>
+				"""
+			)
+			.BuildAsync(cancellationToken);
+
+		var properties = await h.GetPropertiesAsync(cancellationToken, "TargetFramework", "TargetFrameworks");
+
+		await Assert.That(properties["TargetFrameworks"]).IsEqualTo("net10.0;net11.0");
+		await Assert.That(properties["TargetFramework"]).IsEmpty();
 	}
 
 	[Test]

@@ -119,6 +119,101 @@ sealed class RepositoryFileSyncTests
 		await Assert.That(File.GetLastWriteTimeUtc(gitIgnorePath)).IsEqualTo(written);
 	}
 
+	/// <summary>
+	/// Git applies ignore rules only to untracked paths, so a mirrored file that is tracked - usually
+	/// committed before the SDK started ignoring it per file - is rewritten by every upgrade that changes
+	/// it and shows up as a local modification, however correct the generated '.gitignore' is. The
+	/// repository has to untrack it once and the SDK cannot do that for it, so it has to say so: left
+	/// unsaid, the symptom reads as the SDK dirtying the working tree.
+	/// </summary>
+	[Test]
+	public async Task AgentFolderSync_TrackedMirroredFile_WarnsWithTheUntrackCommand(
+		CancellationToken cancellationToken
+	)
+	{
+		// Arrange
+		using var h = await CreateHarnessAsync(extraProps: null, cancellationToken: cancellationToken);
+		await CreateAgentSourceFilesAsync(h, cancellationToken);
+		await TrackMirroredGuideAsync(h, cancellationToken);
+
+		// Act
+		// A changed source makes the next build mirror again, which is when the check runs.
+		await WriteAsync(SourcePath(h, "agents", "guide.md"), "# Guide v2\n", cancellationToken);
+		var (success, output, errors) = await h.BuildAsync(restore: false, verbose: true, cancellationToken);
+
+		// Assert
+		await Assert.That(success).IsTrue().Because(TestHelpers.GenerateError(output, errors));
+
+		var log = output + errors;
+		await Assert.That(log).Contains("PurviewTrackedMirroredFile");
+		await Assert.That(log).Contains(".agents/agents/guide.md");
+		// The warning has to carry the remedy: the fix is a git command the SDK cannot run itself.
+		await Assert.That(log).Contains("git rm --cached");
+		// An authored file beside a mirrored one is tracked on purpose and must never be named.
+		await Assert.That(log).DoesNotContain("authored.md");
+	}
+
+	[Test]
+	public async Task AgentFolderSync_UntrackedMirroredFiles_DoNotWarn(CancellationToken cancellationToken)
+	{
+		// Arrange
+		using var h = await CreateHarnessAsync(extraProps: null, cancellationToken: cancellationToken);
+		await CreateAgentSourceFilesAsync(h, cancellationToken);
+		await InitialiseRepositoryAsync(h, cancellationToken);
+
+		// Act
+		var (success, output, errors) = await h.BuildAsync(restore: true, verbose: true, cancellationToken);
+
+		// Assert
+		// The normal arrangement: the generated .gitignore does its job, so there is nothing to report.
+		await Assert.That(success).IsTrue().Because(TestHelpers.GenerateError(output, errors));
+		await Assert.That(output + errors).DoesNotContain("PurviewTrackedMirroredFile");
+	}
+
+	[Test]
+	public async Task AgentFolderSync_TrackedMirroredFile_CheckIsOptOut(CancellationToken cancellationToken)
+	{
+		// Arrange
+		using var h = await CreateHarnessAsync(
+			extraProps: "<DisableMirroredFileTrackingCheck>true</DisableMirroredFileTrackingCheck>",
+			cancellationToken: cancellationToken
+		);
+		await CreateAgentSourceFilesAsync(h, cancellationToken);
+		await TrackMirroredGuideAsync(h, cancellationToken);
+
+		// Act
+		await WriteAsync(SourcePath(h, "agents", "guide.md"), "# Guide v2\n", cancellationToken);
+		var (success, output, errors) = await h.BuildAsync(restore: false, verbose: true, cancellationToken);
+
+		// Assert
+		await Assert.That(success).IsTrue().Because(TestHelpers.GenerateError(output, errors));
+		await Assert.That(output + errors).DoesNotContain("PurviewTrackedMirroredFile");
+	}
+
+	/// <summary>
+	/// A no-op build must stay quiet and must not pay for a git invocation: the check only runs when
+	/// something was actually mirrored, which is both when the churn appears and when the advice applies.
+	/// </summary>
+	[Test]
+	public async Task AgentFolderSync_TrackedMirroredFile_IsNotReportedWhenNothingWasMirrored(
+		CancellationToken cancellationToken
+	)
+	{
+		// Arrange
+		using var h = await CreateHarnessAsync(extraProps: null, cancellationToken: cancellationToken);
+		await CreateAgentSourceFilesAsync(h, cancellationToken);
+		await TrackMirroredGuideAsync(h, cancellationToken);
+
+		// Act
+		// No source change, so the manifest reports everything already in sync.
+		var (success, output, errors) = await h.BuildAsync(restore: false, verbose: true, cancellationToken);
+
+		// Assert
+		await Assert.That(success).IsTrue().Because(TestHelpers.GenerateError(output, errors));
+		await Assert.That(output).Contains("0 copied");
+		await Assert.That(output + errors).DoesNotContain("PurviewTrackedMirroredFile");
+	}
+
 	[Test]
 	public async Task AgentFolderSync_SecondBuild_SkipsUnchangedContent(CancellationToken cancellationToken)
 	{
@@ -503,6 +598,42 @@ sealed class RepositoryFileSyncTests
 		);
 
 		return harness;
+	}
+
+	static async Task InitialiseRepositoryAsync(ProjectHarness harness, CancellationToken cancellationToken)
+	{
+		// Once the folder is a git repository, version detection resolves the repository root here and
+		// requires a package.json alongside it; the other tests in this file never reach that path
+		// because they stay free of git.
+		await WriteAsync(
+			Path.Combine(harness.SolutionDirectory, "package.json"),
+			"""{ "version": "1.0.0" }""",
+			cancellationToken
+		);
+
+		var (code, _, stdErr) = await harness.RunGitAsync("init --initial-branch=main", cancellationToken);
+		await Assert.That(code).IsZero().Because(stdErr);
+	}
+
+	/// <summary>
+	/// Mirrors once, then puts the mirrored 'agents/guide.md' in the index - the state a repository is left
+	/// in when the file was committed before the SDK began ignoring mirrored files per file. '-f' is
+	/// required because the generated '.gitignore' already covers it. An authored file is added beside it
+	/// so the check is shown to name only what the manifest owns.
+	/// </summary>
+	static async Task TrackMirroredGuideAsync(ProjectHarness harness, CancellationToken cancellationToken)
+	{
+		var (success, output, errors) = await harness.BuildAsync(restore: true, verbose: true, cancellationToken);
+		await Assert.That(success).IsTrue().Because(TestHelpers.GenerateError(output, errors));
+
+		await InitialiseRepositoryAsync(harness, cancellationToken);
+		await WriteAsync(DestinationPath(harness, "agents", "authored.md"), "# Authored\n", cancellationToken);
+
+		var (code, _, stdErr) = await harness.RunGitAsync(
+			"add -f -- .agents/agents/guide.md .agents/agents/authored.md",
+			cancellationToken
+		);
+		await Assert.That(code).IsZero().Because(stdErr);
 	}
 
 	static Task CreateAgentSourceFilesAsync(ProjectHarness harness, CancellationToken cancellationToken) =>
