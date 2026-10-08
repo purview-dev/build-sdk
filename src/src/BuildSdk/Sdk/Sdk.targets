@@ -565,6 +565,7 @@
 			<Retries ParameterType="System.Int32" Required="false" />
 			<RetryDelayMilliseconds ParameterType="System.Int32" Required="false" />
 			<TreatFailureAsError ParameterType="System.Boolean" Required="false" />
+			<DisableMirroredFileTrackingCheck ParameterType="System.Boolean" Required="false" />
 			<UpToDate ParameterType="System.Boolean" Output="true" />
 			<CopiedCount ParameterType="System.Int32" Output="true" />
 			<SkippedCount ParameterType="System.Int32" Output="true" />
@@ -573,6 +574,7 @@
 		<Task>
 			<Using Namespace="System" />
 			<Using Namespace="System.Collections.Generic" />
+			<Using Namespace="System.Diagnostics" />
 			<Using Namespace="System.Globalization" />
 			<Using Namespace="System.IO" />
 			<Using Namespace="System.Text" />
@@ -678,6 +680,175 @@
 						}
 					}
 
+					// Projects build in parallel, in separate processes, and each one rewrites the whole
+					// manifest from its own group plus whatever it read of the others. Unsynchronised, two
+					// of them interleave and the last writer drops the group the other had just added - the
+					// generated .gitignore then lists only a subset, and the mirrored files it missed show
+					// up as untracked noise in the consuming repository. Serialising the read-modify-write
+					// is what makes the merge at the end of it sound.
+					//
+					// A named mutex is cross-process on every platform .NET targets. It is scoped to the
+					// manifest path so two repositories building at once never wait on each other, and the
+					// wait is bounded so a crashed build can never deadlock one that follows.
+					void WithManifestLock(string manifestFile, Action action)
+					{
+						var key = NormalizeSlashes(Path.GetFullPath(manifestFile)).ToLowerInvariant();
+						var name = "Purview.BuildSdk.AgentSync."
+							+ ComputeHash(Encoding.UTF8.GetBytes(key)).ToString("x16", CultureInfo.InvariantCulture);
+
+						Mutex mutex = null;
+						var held = false;
+						try
+						{
+							mutex = new Mutex(false, name);
+							try
+							{
+								held = mutex.WaitOne(TimeSpan.FromSeconds(30));
+							}
+							catch (AbandonedMutexException)
+							{
+								// A build that died holding it. The manifest is rebuilt from the file on
+								// disk either way, so the lock is simply ours now.
+								held = true;
+							}
+						}
+						catch (Exception e) when (e is IOException || e is UnauthorizedAccessException || e is NotSupportedException)
+						{
+							// The lock guards against interleaving; it is never a prerequisite. If it
+							// cannot be taken the merge still runs, just without the guarantee.
+							Log.LogMessage(
+								MessageImportance.Low,
+								"Could not synchronise access to the agent sync manifest '{0}': {1}",
+								manifestFile,
+								e.Message
+							);
+						}
+
+						// Outside the acquisition handler so it runs exactly once however that went.
+						try
+						{
+							action();
+						}
+						finally
+						{
+							if (mutex != null)
+							{
+								if (held)
+									mutex.ReleaseMutex();
+
+								mutex.Dispose();
+							}
+						}
+					}
+
+					// The entries the manifest records as mirrored, as '/'-rooted paths relative to the
+					// destination root - the same form the generated .gitignore uses.
+					List<string> MirroredRelativePaths(List<string> manifestLines)
+					{
+						var paths = new List<string>();
+						foreach (var manifestLine in manifestLines)
+						{
+							// Manifest lines are 'file|group|relpath|...'.
+							var parts = manifestLine.Split('|');
+							if (parts.Length < 3 || parts[0] != "file")
+								continue;
+
+							var relative = NormalizeSlashes(parts[2]).TrimStart('/');
+							if (relative.Length != 0)
+								paths.Add(relative);
+						}
+
+						return paths;
+					}
+
+					// A mirrored file that Git tracks is never ignored, however correct the generated
+					// .gitignore is - Git applies ignore rules only to untracked paths. The file is then
+					// rewritten by every upgrade that changes it and shows up as a local modification, which
+					// reads as the SDK dirtying the working tree. The repository has to untrack it once; the
+					// SDK cannot, so it says so here rather than leaving it to be discovered as churn.
+					//
+					// Only reached when something was actually mirrored this build, so a no-op build spawns
+					// no process. 'git ls-files' is asked for the destination root as a whole rather than for
+					// each path, which keeps it to one invocation and clear of command-line length limits.
+					void WarnOnTrackedMirroredFiles(string root, List<string> manifestLines)
+					{
+						if (DisableMirroredFileTrackingCheck || string.IsNullOrEmpty(root) || !Directory.Exists(root))
+							return;
+
+						var mirrored = new HashSet<string>(MirroredRelativePaths(manifestLines), StringComparer.Ordinal);
+						if (mirrored.Count == 0)
+							return;
+
+						string output;
+						try
+						{
+							var startInfo = new ProcessStartInfo("git", "ls-files --cached -z -- .")
+							{
+								WorkingDirectory = root,
+								UseShellExecute = false,
+								RedirectStandardOutput = true,
+								RedirectStandardError = true,
+								CreateNoWindow = true,
+							};
+
+							using (var process = Process.Start(startInfo))
+							{
+								if (process == null)
+									return;
+
+								output = process.StandardOutput.ReadToEnd();
+								process.StandardError.ReadToEnd();
+								if (!process.WaitForExit(10000) || process.ExitCode != 0)
+									return;
+							}
+						}
+						catch (Exception e)
+						{
+							// Git missing, not a repository, or not permitted to run: the check is advisory,
+							// so it stays silent rather than failing a build that is otherwise fine.
+							Log.LogMessage(
+								MessageImportance.Low,
+								"Could not check whether mirrored files under '{0}' are tracked by Git: {1}",
+								root,
+								e.Message
+							);
+							return;
+						}
+
+						var tracked = new List<string>();
+						foreach (var entry in output.Split('\0'))
+						{
+							var candidate = NormalizeSlashes(entry).TrimStart('/');
+							if (candidate.Length != 0 && mirrored.Contains(candidate))
+								tracked.Add(candidate);
+						}
+
+						if (tracked.Count == 0)
+							return;
+
+						tracked.Sort(StringComparer.Ordinal);
+
+						var folderName = new DirectoryInfo(root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)).Name;
+						var quoted = new StringBuilder();
+						foreach (var path in tracked)
+							quoted.Append(" '").Append(folderName).Append('/').Append(path).Append('\'');
+
+						Log.LogWarning(
+							subcategory: null,
+							warningCode: "PurviewTrackedMirroredFile",
+							helpKeyword: null,
+							file: Path.Combine(root, ".gitignore"),
+							lineNumber: 0,
+							columnNumber: 0,
+							endLineNumber: 0,
+							endColumnNumber: 0,
+							message: "{0} file(s) under '{1}' are mirrored from a NuGet package but tracked by Git, so '{1}/.gitignore' cannot ignore them and every upgrade that changes one shows up as a local modification. Untrack them once - they stay on disk and are rewritten by each build - with 'git rm --cached --{2}'. Suppress with DisableMirroredFileTrackingCheck=true.",
+							tracked.Count,
+							folderName,
+							quoted.ToString()
+						);
+					}
+
 					// Stage the write next to the destination so the final rename stays
 					// on one volume and is atomic on Windows, Linux and macOS.
 					// Writes '<destination root>/.gitignore' listing every file the manifest records as
@@ -690,16 +861,8 @@
 							return;
 
 						var paths = new List<string>();
-						foreach (var manifestLine in manifestLines)
-						{
-							var parts = manifestLine.Split('|');
-							if (parts.Length < 3 || parts[0] != "file")
-								continue;
-
-							var relative = NormalizeSlashes(parts[2]).TrimStart('/');
-							if (relative.Length != 0)
-								paths.Add("/" + relative);
-						}
+						foreach (var relative in MirroredRelativePaths(manifestLines))
+							paths.Add("/" + relative);
 
 						paths.Sort(StringComparer.Ordinal);
 
@@ -1058,6 +1221,11 @@
 
 						if (!string.IsNullOrEmpty(manifestFile) && failed == 0)
 						{
+							// Held across the re-read, the write and the generated .gitignore, because all
+							// three derive from the merged set and a concurrent writer between any two of
+							// them is what loses a group.
+							WithManifestLock(manifestFile, () =>
+							{
 							var lines = new List<string> { "schema|1" };
 							var counts = new Dictionary<string, int>(StringComparer.Ordinal);
 							foreach (var pair in desired)
@@ -1162,6 +1330,12 @@
 							// keeps an SDK upgrade from dirtying the working tree while leaving authored files
 							// tracked as normal.
 							WriteAgentSyncGitIgnore(destinationRoot, lines, attemptLimit, retryDelay);
+
+							// Only when this build actually mirrored something: that is both the moment the
+							// churn would appear and the moment the advice is actionable.
+							if (copied > 0)
+								WarnOnTrackedMirroredFiles(destinationRoot, lines);
+							});
 						}
 						upToDate = upToDate || copied == 0;
 						Log.LogMessage(
@@ -1480,6 +1654,7 @@
 			Retries="$(PurviewAgentFolderCopyRetries)"
 			RetryDelayMilliseconds="$(PurviewAgentFolderCopyRetryDelayMilliseconds)"
 			TreatFailureAsError="$(PurviewAgentFolderCopyFailureAsError)"
+			DisableMirroredFileTrackingCheck="$(DisableMirroredFileTrackingCheck)"
 			Condition="'@(_PurviewAgentFolderSyncSource)' != '' AND '$(_PurviewAgentFolderDestinationRoot)' != ''"
 		>
 			<Output TaskParameter="UpToDate" PropertyName="_PurviewAgentFolderUpToDate" />
@@ -1519,6 +1694,7 @@
 			Retries="$(PurviewAgentFolderCopyRetries)"
 			RetryDelayMilliseconds="$(PurviewAgentFolderCopyRetryDelayMilliseconds)"
 			TreatFailureAsError="$(PurviewAgentFolderCopyFailureAsError)"
+			DisableMirroredFileTrackingCheck="$(DisableMirroredFileTrackingCheck)"
 			Condition="'@(_PurviewPackagedAgentFolderSyncSource)' != ''"
 		/>
 	</Target>

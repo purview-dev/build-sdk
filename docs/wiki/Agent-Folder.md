@@ -51,14 +51,39 @@ importing the SDK:
 
 For packable projects, the SDK packs the `Sdk/.agents/**` folder into the package at `.agents/**` and
 injects a `.gitignore` file into each second-level folder under `Sdk/.agents` with the content
-`# Ignore all files\n*\n\n# Don't ignore directories, so Git can traverse them\n!*/\n\n# Keep this file\n!.gitignore`.
+`# Ignore all files\n*\n\n# Don't ignore directories, so Git can traverse them\n!*/\n\n# This file is mirrored from a NuGet package, so ignore it too\n/.gitignore`.
 This ensures the copied folder structure remains discoverable in consuming repositories while the
-content itself is ignored by Git.
+content itself is ignored by Git. The last entry ignores the generated file itself rather than
+re-including it — a mirrored file is never committed, so re-including it would leave it permanently
+untracked, and because the nearest `.gitignore` wins it would also override the generated
+`.agents/.gitignore` described below.
+
+## Keeping the working tree clean
+
+Mirroring rewrites a file whenever the package that owns it changes, which would show up as a local
+modification in every consuming repository. To prevent that, the SDK writes a generated
+`.agents/.gitignore` listing every mirrored file by path. It is per file, not a blanket rule, because
+`.agents/agents/` and `.agents/prompts/` hold mirrored files beside a repository's own authored ones —
+ignoring those wholesale would hide the author's work. Files you author in the folder are not listed and
+stay tracked as normal.
+
+Git only applies ignore rules to untracked paths, so a mirrored file that is already **tracked** — most
+often committed before the SDK began ignoring mirrored files per file — is never ignored, and every
+upgrade that changes it dirties the working tree. The SDK cannot untrack it for you, so it reports
+`PurviewTrackedMirroredFile` the next time it mirrors that file, naming the paths and the command:
+
+```
+git rm --cached -- '.agents/agents/sdk-consumer-setup.md' '.agents/skills/demo/.gitignore'
+```
+
+The files stay on disk — every build rewrites them anyway. The check only runs on a build that actually
+mirrored something, so an up-to-date build does not pay for it.
 
 | Property | Default | Description |
 | -- | -- | -- |
 | `PurviewAutoSdkPack` | `true` | When `true`, automatically packs the `Sdk/` folder contents into the NuGet package with the correct root-level paths. Disable this for MSBuild SDK projects. |
 | `EnableAgentFolderInPackage` | `true` | Copies the bundled `.agents/**` folder from the SDK NuGet package into the consuming repository's `.agents/` folder (or `$(AgentPackDestinationFolder)/`) before build. |
 | `AgentPackDestinationFolder` | `.agents` | Repo-relative destination folder that receives the copied agent folder contents when `EnableAgentFolderInPackage` is `true`. |
+| `DisableMirroredFileTrackingCheck` | `false` | Set to `true` to stop the SDK reporting `PurviewTrackedMirroredFile` for mirrored files that Git tracks. |
 
 See [Packaging](Packaging.md) for the full `Sdk/` folder packaging rules.
