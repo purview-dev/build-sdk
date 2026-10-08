@@ -207,4 +207,105 @@ sealed class TargetFrameworkSetTests
 		await Assert.That(exitCode).IsNotEqualTo(0).Because(TestHelpers.GenerateError(stdOut, stdErr));
 		await Assert.That(stdOut + stdErr).Contains("PurviewInvalidTargetFrameworkSet");
 	}
+
+	/// <summary>
+	/// TargetFrameworks has to evaluate to the same list whatever TargetFramework is, because an inner
+	/// build receives TargetFramework as a global property. Visual Studio's project system evaluates a
+	/// project once with no TargetFramework to discover its TFM dimensions and again per dimension with
+	/// TargetFramework set; when the second evaluation loses TargetFrameworks, the configured project
+	/// CPS builds the language-service context from has no TFM, TargetPath is never defined, and the
+	/// project loads with "Property 'TargetPath' is required to be an absolute path, but the value is ''".
+	/// Neither dotnet nor msbuild reproduces it - both only evaluate the outer build.
+	/// </summary>
+	[Test]
+	[Arguments("Supported", "net10.0;net11.0", "net10.0")]
+	[Arguments("All", "net8.0;net9.0;net10.0;net11.0", "net8.0")]
+	public async Task MultiTargetSet_ResolvesIdenticallyUnderAnInnerBuildTargetFramework(
+		string set,
+		string expected,
+		string innerTargetFramework,
+		CancellationToken cancellationToken
+	)
+	{
+		using var h = await ProjectHarness
+			.For("Library")
+			.WithProjectFileContent(
+				$"""
+				<Project Sdk="Microsoft.NET.Sdk">
+					<PropertyGroup>
+						<PurviewTargetFrameworkSet>{set}</PurviewTargetFrameworkSet>
+					</PropertyGroup>
+				</Project>
+				"""
+			)
+			.BuildAsync(cancellationToken);
+
+		var globals = new Dictionary<string, string>(StringComparer.Ordinal)
+		{
+			["TargetFramework"] = innerTargetFramework,
+		};
+
+		var properties = await h.GetPropertiesAsync(globals, cancellationToken, "TargetFrameworks", "TargetPath");
+
+		await Assert.That(properties["TargetFrameworks"]).IsEqualTo(expected);
+		// The reason the inconsistency is fatal rather than cosmetic: without a TFM the project never
+		// reaches Microsoft.Common.CurrentVersion.targets, so it has no output path to report.
+		await Assert.That(properties["TargetPath"]).IsNotEmpty();
+	}
+
+	/// <summary>
+	/// The same invariant for the outer evaluation, which is the one CPS reads the TFM dimensions from.
+	/// Paired with the test above, this pins both halves: the list must be identical in each.
+	/// </summary>
+	[Test]
+	public async Task MultiTargetSet_OuterEvaluationHasNoTargetFrameworkAndNoTargetPath(
+		CancellationToken cancellationToken
+	)
+	{
+		using var h = await ProjectHarness
+			.For("Library")
+			.WithProjectFileContent(
+				"""
+				<Project Sdk="Microsoft.NET.Sdk">
+					<PropertyGroup>
+						<PurviewTargetFrameworkSet>All</PurviewTargetFrameworkSet>
+					</PropertyGroup>
+				</Project>
+				"""
+			)
+			.BuildAsync(cancellationToken);
+
+		var properties = await h.GetPropertiesAsync(cancellationToken, "TargetFramework", "TargetFrameworks");
+
+		await Assert.That(properties["TargetFrameworks"]).IsEqualTo("net8.0;net9.0;net10.0;net11.0");
+		await Assert.That(properties["TargetFramework"]).IsEmpty();
+	}
+
+	/// <summary>
+	/// A project declaring its own TargetFramework must not also receive a repository-wide set's list
+	/// underneath it. The declaration is detected from the project text rather than from an evaluated
+	/// TargetFramework, so this holds even though the project body is evaluated after the SDK import.
+	/// </summary>
+	[Test]
+	public async Task ExplicitTargetFramework_WinsOverASelectedSet(CancellationToken cancellationToken)
+	{
+		using var h = await ProjectHarness
+			.For("Library")
+			.WithPreImportProperty("PurviewTargetFrameworkSet", "All")
+			.WithProjectFileContent(
+				"""
+				<Project Sdk="Microsoft.NET.Sdk">
+					<PropertyGroup>
+						<TargetFramework>net10.0</TargetFramework>
+					</PropertyGroup>
+				</Project>
+				"""
+			)
+			.BuildAsync(cancellationToken);
+
+		var properties = await h.GetPropertiesAsync(cancellationToken, "TargetFramework", "TargetFrameworks");
+
+		await Assert.That(properties["TargetFramework"]).IsEqualTo("net10.0");
+		await Assert.That(properties["TargetFrameworks"]).IsEmpty();
+	}
 }

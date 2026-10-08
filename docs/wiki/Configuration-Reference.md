@@ -70,7 +70,8 @@ property change rather than an edit in each project.
 
 Overrides are layered, narrowest first:
 
-1. an explicit `TargetFramework`/`TargetFrameworks` in the project always wins;
+1. an explicit `TargetFramework`/`TargetFrameworks` in the project always wins. Like the set selection
+   itself, this is read from the project XML, so it must be declared **unconditionally** to be seen;
 2. a repository can redefine any set with `PurviewTargetFrameworks<Set>` — `PurviewTargetFrameworksSupported`,
    `PurviewTargetFrameworksBroad`, and so on — set before the SDK import. This is also how a set is pinned
    while a consumer is not ready to follow the SDK's definition;

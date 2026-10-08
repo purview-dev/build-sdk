@@ -211,16 +211,37 @@ partial class ProjectHarness : IDisposable
 	/// Evaluates one or more MSBuild properties via <c>dotnet msbuild -getProperty</c>
 	/// without triggering a build or package restore.
 	/// </summary>
-	public async Task<IReadOnlyDictionary<string, string>> GetPropertiesAsync(
+	public Task<IReadOnlyDictionary<string, string>> GetPropertiesAsync(
 		CancellationToken cancellationToken,
 		params string[] propertyNames
+	) => GetPropertiesCoreAsync(globalProperties: null, propertyNames, cancellationToken);
+
+	/// <summary>
+	/// Evaluates MSBuild properties with explicit global properties. This is the only way to
+	/// reproduce an inner build — or Visual Studio's per-TFM configured evaluation — where
+	/// <c>TargetFramework</c> arrives as a global property rather than from the project, which is
+	/// precisely where an evaluation-unstable <c>TargetFrameworks</c> shows up.
+	/// </summary>
+	public Task<IReadOnlyDictionary<string, string>> GetPropertiesAsync(
+		IReadOnlyDictionary<string, string> globalProperties,
+		CancellationToken cancellationToken,
+		params string[] propertyNames
+	) => GetPropertiesCoreAsync(globalProperties, propertyNames, cancellationToken);
+
+	async Task<IReadOnlyDictionary<string, string>> GetPropertiesCoreAsync(
+		IReadOnlyDictionary<string, string>? globalProperties,
+		string[] propertyNames,
+		CancellationToken cancellationToken
 	)
 	{
 		if (propertyNames.Length == 0)
 			return ImmutableDictionary<string, string>.Empty;
 
 		var propList = string.Join(",", propertyNames);
-		var args = $"msbuild \"{ProjectFilePath}\" -nologo -noconlog -getProperty:{propList}";
+		var globals = globalProperties is null
+			? string.Empty
+			: string.Concat(globalProperties.Select(kvp => $" -p:{kvp.Key}=\"{kvp.Value}\""));
+		var args = $"msbuild \"{ProjectFilePath}\" -nologo -noconlog{globals} -getProperty:{propList}";
 
 		var (exitCode, stdOut, stdErr) = await RunAsync("dotnet", args, cancellationToken);
 
