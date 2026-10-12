@@ -42,11 +42,18 @@ Certain suffixes are automatically stripped from `RootNamespace` to avoid awkwar
 `Acme.MyProject.Core.Something`.
 
 The built-in stripping set is broader than the common examples and includes:
-`SourceGeneration`, `SourceGenerators`, `SourceGenerator`, `ServiceDefaults`, `Infrastructure`,
-`Abstractions`, `ClientShared`, `Persistence`, `CodeFixers`, `CodeFixes`, `DataAccess`, `Extensions`,
-`Generators`, `Analyzers`, `Contracts`, `Framework`, `Utilities`, `AppHost`, `Helpers`, `Library`,
-`Common`, `Shared`, `Infra`, `Utils`, `Core`, `Data`, `Host`, `Util`, `Lib`, `EF`, plus the known
-shared and shared-testing project names (`Shared*`, `SharedTesting*`).
+`ServiceDefaults`, `Infrastructure`, `Abstractions`, `ClientShared`, `Persistence`, `DataAccess`,
+`Extensions`, `Contracts`, `Framework`, `Utilities`, `AppHost`, `Helpers`, `Library`, `Common`,
+`Shared`, `Infra`, `Utils`, `Core`, `Data`, `Host`, `Util`, `Lib`, `EF`, plus the known shared and
+shared-testing project names (`Shared*`, `SharedTesting*`).
+
+**Roslyn component names are deliberately absent.** `SourceGenerator`, `SourceGenerators`,
+`SourceGeneration`, `Generators`, `Analyzers`, `CodeFixers` and `CodeFixes` are part of a component's
+identity rather than noise: a generator, its analyzers and its code fixes are separate assemblies that
+each need their own namespace. Stripping them collapses that distinction and collides with the namespace
+the sources actually declare, which produced `IDE0130` across every Roslyn-component repository
+consuming this SDK. Add one back per project with `<NamespaceRemoveSuffix Include="Analyzers" />` if a
+repository really does want it collapsed.
 
 ### Keeping suffixes
 
@@ -58,18 +65,21 @@ the items are declared there and only exist to be removed once the import has ev
 <Import Sdk="Purview.BuildSdk" Project="Sdk.props" />
 
 <ItemGroup>
-  <!-- Keep the full SourceGenerators, CodeFixers and CodeFixes namespaces. -->
-  <NamespaceRemoveSuffix Remove="SourceGenerators" />
-  <NamespaceRemoveSuffix Remove="CodeFixers" />
-  <NamespaceRemoveSuffix Remove="CodeFixes" />
+  <!-- Keep the full Abstractions and Contracts namespaces. -->
+  <NamespaceRemoveSuffix Remove="Abstractions" />
+  <NamespaceRemoveSuffix Remove="Contracts" />
 </ItemGroup>
 ```
 
-This is useful for analyser/source-generator repos that deliberately name projects after the role — for
-example `Purview.ZodSharp.SourceGenerators`, `Purview.ZodSharp.CodeFixers`, and `Purview.ZodSharp.CodeFixes` —
-and want those roles to survive in the namespace rather than collapse into the parent `Purview.ZodSharp`
-namespace. Only suffixes
-present in the built-in list need removing; a suffix the SDK does not ship is already kept as-is.
+This is useful where the layer suffix is genuinely part of the public shape — a published
+`Acme.Payments.Abstractions` package whose consumers expect to `using Acme.Payments.Abstractions;`,
+rather than finding its interfaces in `Acme.Payments`.
+
+**Only suffixes present in the built-in list need removing**; a suffix the SDK does not ship is already
+kept as-is. That is why an analyser or source-generator repository that names projects after the role —
+`Purview.ZodSharp.SourceGenerators`, `Purview.ZodSharp.CodeFixers`, `Purview.ZodSharp.CodeFixes` — needs
+no `Remove` at all. Those roles survive in the namespace by default, and a `Remove` for them is a
+harmless no-op rather than the thing keeping them.
 
 See [Project Naming Conventions](Project-Naming-Conventions.md) and
 [InternalsVisibleTo](InternalsVisibleTo.md) for related naming behaviour.

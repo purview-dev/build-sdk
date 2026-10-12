@@ -12,7 +12,7 @@ wiki.
 | Flag | Condition |
 | -- | -- |
 | `IsCSharpProject` | Project file extension is `.csproj`. |
-| `IsTestProject` | Project name ends with `Test`/`Tests` and carries a recognised `TestingType` suffix. |
+| `IsTestProject` | Project name matches `^.*\.([\w|_]\w*)Tests?$` — a target name, a dot, then any word before `Test`/`Tests`. The captured word becomes `TestingType`. |
 | `IsSharedTestingProject` | Project name is one of `SharedTestingFramework`, `SharedTestingInfrastructure`, `SharedTestingInfra`, `SharedTestingUtilities`, `SharedTestingUtils`, `SharedTestingLibrary`, `SharedTestingLib`, `SharedTestingHelpers`. |
 | `IsSharedProject` | Project name is one of `Shared`, `SharedFramework`, `SharedInfrastructure`, `SharedInfra`, `SharedUtilities`, `SharedUtils`, `SharedLibrary`, `SharedLib`, `SharedHelpers`. |
 | `IsContainerProject` | A `Dockerfile`, `dockerfile`, or `Dockerfile.dev` exists in the project directory. |
@@ -30,7 +30,17 @@ wiki.
 targets. The detected `TestingType` also becomes the baseline test category, while additional categories
 remain available to the test suite.
 
-The SDK recognises the following full `TestType` set, in addition to the standard `Unit` and
+Detection is a **pattern, not a lookup against the set below**. A project named `MyProject.GoldenTests`
+is detected, and gets `TestingType=Golden` and `Category=Golden`, even though `Golden` appears nowhere in
+the SDK. The pattern requires the dot, so a project named plainly `UnitTests` is **not** detected as a
+test project at all — it gets no runner, no coverage and no category.
+
+The `TestType` item group below governs [InternalsVisibleTo](InternalsVisibleTo.md) generation instead: a
+non-test project grants access to `{AssemblyName}.{TestType}Tests` for each name on it. A suffix outside
+the set still builds, still runs and still gets its category — it just cannot reach the target project's
+`internal` members.
+
+The SDK ships the following full `TestType` set, in addition to the standard `Unit` and
 `Integration` values:
 `Acceptance`, `Accessibility`, `Approval`, `Architecture`, `Benchmark`, `BlackBox`, `Capacity`,
 `Chaos`, `Compatibility`, `Compliance`, `Component`, `Concurrency`, `Configuration`, `Contract`,

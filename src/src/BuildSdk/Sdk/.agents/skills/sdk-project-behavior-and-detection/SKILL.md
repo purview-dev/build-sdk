@@ -13,31 +13,13 @@ The SDK infers behavior from project names, project contents, and SDK declaratio
 
 ### Test detection
 
-A project is treated as a test project when its name ends with `*Test` or `*Tests` and the suffix before `Test(s)` matches a supported testing type such as:
+A project is treated as a test project when its name matches `^.*\.([\w|_]\w*)Tests?$` — a target name, a dot, then any word before `Test` or `Tests`. The captured word becomes `TestingType`.
 
-- `Unit`
-- `Integration`
-- `E2E`
-- `EndToEnd`
-- `Acceptance`
-- `Functional`
-- `Performance`
-- `Load`
-- `Smoke`
-- `Stress`
-- `Regression`
-- `Security`
-- `Chaos`
-- `Scenario`
-- `System`
-- `Threat`
-- `BlackBox`
-- `WhiteBox`
-- `Accessibility`
-- `Interactive`
-- `Environment`
-- `Architecture`
-- `Contract`
+This is a pattern, **not** a lookup against a fixed list. `MyProject.GoldenTests` is detected just as readily as `MyProject.UnitTests`, and gets `TestingType=Golden` and `Category=Golden`, even though `Golden` is not a name the SDK ships.
+
+The dot is required. A project named plainly `UnitTests`, with no target in front of it, does **not** match: it is not detected as a test project at all, and silently gets no runner, no coverage, no `InternalsVisibleTo` and no category. Always name a test project `<Target>.<Type>Tests`.
+
+The SDK does ship an explicit `TestType` item group of 53 names (`Unit`, `Integration`, `E2E`, `EndToEnd`, `Acceptance`, `Functional`, `Performance`, `Load`, `Smoke`, `Stress`, `Regression`, `Security`, `Chaos`, `Scenario`, `System`, `Threat`, `BlackBox`, `WhiteBox`, `GrayBox`, `GreyBox`, `Accessibility`, `Usability`, `Visual`, `Interactive`, `Localization`, `Globalization`, `Environment`, `Configuration`, `Deployment`, `Architecture`, `Contract`, `Component`, `Sanity`, `Property`, `Fuzz`, `Mutation`, `Snapshot`, `Approval`, `Benchmark`, `Capacity`, `Concurrency`, `Endurance`, `Soak`, `Spike`, `Failover`, `Recovery`, `Resilience`, `Compatibility`, `Interoperability`, `Migration`, `Upgrade`, `Penetration`, `Compliance`), but it governs **`InternalsVisibleTo` generation**, not detection: a non-test project grants access to `{AssemblyName}.{TestType}Tests` for each name on it. A suffix outside the group still builds, still runs and still gets its category — it just cannot reach the target project's `internal` members.
 
 Derived properties:
 
@@ -170,8 +152,9 @@ For the default configuration, standard test projects receive:
 - `Bogus`
 - Microsoft.Testing.Platform integration
 
-Specialized testing dependencies such as `TUnit.Aspire` and `Testcontainers` are still explicit additions by
-project purpose.
+Specialized testing dependencies such as `TUnit.Aspire` and `Purview.Containers` are still explicit
+additions by project purpose. `Purview.Containers` is the container-backed integration-test dependency;
+reference `Testcontainers` directly only where no typed module exists yet.
 
 ### For special project types
 

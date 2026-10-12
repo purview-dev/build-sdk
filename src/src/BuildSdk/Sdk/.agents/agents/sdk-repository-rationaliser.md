@@ -21,8 +21,9 @@ Help a repository move toward `Purview.BuildSdk` conventions without unnecessary
 5. Prefer the smallest sequence of changes that improves predictability without forcing broad renames.
 6. When recommending test changes, preserve readable behavior-oriented suites while tightening subject-based
    suites toward `{SubjectName}Tests` and `{SubjectOrMemberUnderTest}_{Scenario}_{Expectation}`.
-7. Confirm whether specialized dependencies such as `TUnit.Aspire` or `Testcontainers` are genuinely needed
-   rather than treating them as universal defaults.
+7. Confirm whether specialized dependencies such as `TUnit.Aspire` or `Purview.Containers` are genuinely
+   needed rather than treating them as universal defaults. Where a repository references `Testcontainers`
+   directly, check whether a `Purview.Containers` typed module now covers it.
 
 ## Constraints
 
