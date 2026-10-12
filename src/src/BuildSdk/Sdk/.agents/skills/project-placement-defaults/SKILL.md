@@ -54,7 +54,7 @@ If specialized test categories exist (for example, analyzer diagnostics vs code-
 The detected test type also becomes the baseline test category. Additional categories remain available and
 should be added when they improve discoverability.
 
-The SDK recognizes many test suffixes, including `Unit`, `Integration`, `E2E`, `EndToEnd`, `Acceptance`, `Functional`, `Performance`, `Load`, `Smoke`, `Stress`, `Regression`, `Security`, `Chaos`, `Scenario`, `System`, `Threat`, `BlackBox`, `WhiteBox`, `Accessibility`, `Interactive`, `Environment`, `Architecture`, and `Contract`.
+Test detection is a pattern (`^.*\.([\w|_]\w*)Tests?$`), not a lookup against a fixed list of suffixes, so any word before `Test`/`Tests` is detected and becomes the category — `Unit`, `Integration`, `E2E` and `Contract` are simply the common ones. The dot is required: a project named plainly `UnitTests`, with no target in front of it, is not detected as a test project at all. Prefer a suffix the SDK ships (it is the set that drives `InternalsVisibleTo` generation) and name the project `<Target>.<Type>Tests`.
 
 ## Naming and namespace defaults
 

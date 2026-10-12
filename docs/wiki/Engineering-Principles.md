@@ -179,32 +179,31 @@ Recommended common test project types:
 
 - `UnitTests`
 - `IntegrationTests`
-- `E2ETests`
+- `E2ETests` (or `EndToEndTests` — both are recognised, and give `Category=E2E` and `Category=EndToEnd`
+  respectively, so pick one per repository rather than mixing them)
 - `FunctionalTests`
 - `ContractTests`
 
-The SDK also recognises broader suffixes when a repository genuinely needs them, including:
+A broader set is available when a repository genuinely needs it, grouped by what the suffix tells a
+reader:
 
-- `AcceptanceTests`
-- `PerformanceTests`
-- `LoadTests`
-- `SmokeTests`
-- `StressTests`
-- `RegressionTests`
-- `SecurityTests`
-- `ScenarioTests`
-- `SystemTests`
-- `ArchitectureTests`
-- `AccessibilityTests`
-- `InteractiveTests`
-- `EnvironmentTests`
-- `WhiteBoxTests`
-- `BlackBoxTests`
-- `ChaosTests`
-- `ThreatTests`
+| Theme | Suffixes |
+| -- | -- |
+| Scope and style | `AcceptanceTests`, `ComponentTests`, `ScenarioTests`, `SystemTests`, `SanityTests`, `BlackBoxTests`, `WhiteBoxTests`, `GrayBoxTests`, `GreyBoxTests` |
+| Performance and endurance | `PerformanceTests`, `LoadTests`, `StressTests`, `SoakTests`, `SpikeTests`, `CapacityTests`, `EnduranceTests`, `BenchmarkTests`, `ConcurrencyTests` |
+| Resilience and operations | `ChaosTests`, `ResilienceTests`, `FailoverTests`, `RecoveryTests`, `DeploymentTests`, `EnvironmentTests`, `ConfigurationTests`, `SmokeTests` |
+| Correctness techniques | `PropertyTests`, `FuzzTests`, `MutationTests`, `SnapshotTests`, `ApprovalTests`, `RegressionTests`, `ArchitectureTests` |
+| Compatibility and change | `CompatibilityTests`, `InteroperabilityTests`, `MigrationTests`, `UpgradeTests` |
+| Security and compliance | `SecurityTests`, `PenetrationTests`, `ThreatTests`, `ComplianceTests` |
+| Experience and reach | `AccessibilityTests`, `UsabilityTests`, `VisualTests`, `InteractiveTests`, `LocalizationTests`, `GlobalizationTests` |
 
-Prefer the smaller common set by default. Reach for the broader set only when the test type itself carries
-important operational meaning.
+Prefer the smaller common set by default. Reach for a broader suffix only when the test type itself
+carries important operational meaning — the suffix becomes the category a pipeline filters on, so it
+should name something a pipeline would plausibly want to select or exclude.
+
+Detection is a pattern rather than a lookup, so a suffix outside this set is still detected and still
+categorised; what the set governs is `InternalsVisibleTo` generation. See
+[Project Type Detection](Project-Type-Detection.md#detection-flags).
 
 ## Default and specialised test wiring
 
@@ -220,7 +219,10 @@ Shared testing projects receive test-support wiring rather than a runnable test 
 Specialised dependencies stay explicit and intentional:
 
 - `TUnit.Aspire` for Aspire lifecycle or AppHost-backed integration tests
-- `Testcontainers` for container-backed integration tests
+- `Purview.Containers` for container-backed integration tests — one API over Microsoft WSL Containers
+  (no Docker installation on Windows) or Docker, with typed modules for SQL Server, PostgreSQL, Redis,
+  MySQL, RabbitMQ, Azurite and NATS. It is experimental and prerelease, so pin the version you adopt.
+  Reference `Testcontainers` directly only where a module does not exist yet
 
 Do not manually duplicate the default stack in every test project unless the repository has explicitly opted
 out of the SDK defaults.

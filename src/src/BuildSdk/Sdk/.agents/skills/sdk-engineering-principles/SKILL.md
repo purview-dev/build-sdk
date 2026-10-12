@@ -71,7 +71,10 @@ Standard test projects receive these by default:
 Specialized additions remain explicit:
 
 - `TUnit.Aspire` for Aspire lifecycle/AppHost-backed integration tests
-- `Testcontainers` for container-backed integration tests
+- `Purview.Containers` for container-backed integration tests — one API over Microsoft WSL Containers (no
+  Docker installation on Windows) or Docker, with typed modules for SQL Server, PostgreSQL, Redis, MySQL,
+  RabbitMQ, Azurite and NATS. Experimental and prerelease, so pin the version. Reference `Testcontainers`
+  directly only where a module does not exist yet
 
 ## Test readability rules
 

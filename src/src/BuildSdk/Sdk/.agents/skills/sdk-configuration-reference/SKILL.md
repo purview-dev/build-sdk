@@ -85,8 +85,9 @@ Default outcome for standard test projects:
 - `Bogus`
 - Microsoft.Testing.Platform integration
 
-Specialised packages such as `TUnit.Aspire` and `Testcontainers` are not automatic defaults; they remain
-explicit choices based on the project's purpose.
+Specialised packages such as `TUnit.Aspire` and `Purview.Containers` are not automatic defaults; they
+remain explicit choices based on the project's purpose. `Purview.Containers` is the container-backed
+integration-test dependency; reference `Testcontainers` directly only where no typed module exists yet.
 
 Related toggles and derived settings:
 

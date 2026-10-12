@@ -114,13 +114,23 @@ MyProject.FunctionalTests → IsTestProject=true, TestingType=Functional
 MyProject.ContractTests   → IsTestProject=true, TestingType=Contract
 ```
 
-Any suffix from the full list is recognised: `Unit`, `Integration`, `E2E`, `EndToEnd`, `Acceptance`,
-`Functional`, `Performance`, `Load`, `Smoke`, `Stress`, `Regression`, `Security`, `Chaos`, `Scenario`,
-`System`, `Threat`, `BlackBox`, `WhiteBox`, `Accessibility`, `Interactive`, `Environment`,
-`Architecture`, `Contract`.
-
 The detected test type becomes the baseline category for the project. Additional categories can still be
 added when they improve discoverability or filtering.
+
+Detection itself is a **pattern, not a lookup**: the project name is matched against
+`^.*\.([\w|_]\w*)Tests?$` and the captured word becomes `TestingType`. So `MyProject.GoldenTests` is
+detected exactly as readily as `MyProject.UnitTests`, and gets `TestingType=Golden` and
+`Category=Golden`.
+
+> **The name needs a target in front of it.** The pattern requires the dot, so a project named plainly
+> `UnitTests` matches nothing: it is not detected as a test project at all, and gets no runner, no
+> coverage and no category. Name it `<Target>.UnitTests`.
+
+What the SDK *does* ship as an explicit list is the `TestType` item group, and it governs
+[InternalsVisibleTo](InternalsVisibleTo.md) generation rather than detection — a non-test project grants
+access to `{AssemblyName}.{TestType}Tests` for each name on it. A suffix outside that list still builds,
+still runs and still gets its category; it just cannot reach the target project's `internal` members.
+The full set is listed in [Project Type Detection](Project-Type-Detection.md#detection-flags).
 
 ## Shared testing projects
 
