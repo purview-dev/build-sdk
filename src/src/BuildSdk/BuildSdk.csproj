@@ -13,6 +13,7 @@
 		<IncludeBuildOutput>false</IncludeBuildOutput>
 		<GenerateDocumentationFile>false</GenerateDocumentationFile>
 		<DisableGenerateAssemblyInfoClass>true</DisableGenerateAssemblyInfoClass>
+		<DisableGenerateAssemblyIdentifierClass>true</DisableGenerateAssemblyIdentifierClass>
 		<IsPackable>true</IsPackable>
 
 		<!-- No telemetry packages for this meta-project -->
