@@ -80,15 +80,11 @@ sealed class AgentPackFolderTests
 
 		using var doc = JsonDocument.Parse(stdOut[jsonStart..]);
 		var noneItems = doc.RootElement.GetProperty("Items").GetProperty("None").EnumerateArray();
+		// Sub-agent definitions and prompts still live physically under Sdk/.agents and flow through
+		// the None/PackagePath mapping. Skills do not: they are authored at the repository root so
+		// the skills CLI can find them in a git clone, and are packed by IncludePurviewSkillsInPackage.
 		var expectedPath = Path.GetFullPath(
-			Path.Combine(
-				Path.GetDirectoryName(sdkProjectPath)!,
-				"Sdk",
-				".agents",
-				"skills",
-				"sdk-configuration-reference",
-				"SKILL.md"
-			)
+			Path.Combine(Path.GetDirectoryName(sdkProjectPath)!, "Sdk", ".agents", "agents", "sdk-consumer-setup.md")
 		);
 
 		var agentEntry = noneItems.FirstOrDefault(item =>
@@ -98,7 +94,117 @@ sealed class AgentPackFolderTests
 		await Assert.That(agentEntry.ValueKind).IsEqualTo(JsonValueKind.Object);
 		await Assert
 			.That(agentEntry.GetProperty("PackagePath").GetString())
-			.IsEqualTo(".agents/skills/sdk-configuration-reference/SKILL.md");
+			.IsEqualTo(".agents/agents/sdk-consumer-setup.md");
+	}
+
+	[Test]
+	public async Task PurviewPackRepositorySkills_PacksRootSkillsFolderIntoAgentsSkills(
+		CancellationToken cancellationToken
+	)
+	{
+		using var h = await ProjectHarness.CreateAsync(
+			"SkillPackable",
+			extraProps: """
+			<IsPackable>true</IsPackable>
+			<DisableSourceLink>true</DisableSourceLink>
+			<ExcludePurviewTelemetry>true</ExcludePurviewTelemetry>
+			<ExcludeMSTelemetryExtension>true</ExcludeMSTelemetryExtension>
+			<PurviewPackRepositorySkills>true</PurviewPackRepositorySkills>
+			""",
+			cancellationToken: cancellationToken
+		);
+
+		// AGENTS.md is the repository-root marker PurviewSkillsSourceFolder resolves against.
+		await File.WriteAllTextAsync(Path.Combine(h.SolutionDirectory, "AGENTS.md"), "# Agents", cancellationToken);
+
+		var skillDirectory = Path.Combine(h.SolutionDirectory, "skills", "purview-sample");
+		Directory.CreateDirectory(Path.Combine(skillDirectory, "references"));
+		await File.WriteAllTextAsync(
+			Path.Combine(skillDirectory, "SKILL.md"),
+			"---\nname: purview-sample\ndescription: Use when exercising skill packaging.\n---\n",
+			cancellationToken
+		);
+		await File.WriteAllTextAsync(
+			Path.Combine(skillDirectory, "references", "detail.md"),
+			"# Detail",
+			cancellationToken
+		);
+
+		var feedDirectory = Path.Combine(h.SolutionDirectory, "feed");
+		var packageVersion = $"0.0.0-integration-test-{Guid.NewGuid():N}";
+		var (exitCode, stdOut, stdErr) = await RunProcessAsync(
+			"dotnet",
+			$"pack \"{h.ProjectFilePath}\" -c Release -o \"{feedDirectory}\" -p:PackageVersion={packageVersion} -p:Version={packageVersion}",
+			h.SolutionDirectory,
+			cancellationToken
+		);
+
+		await Assert.That(exitCode).IsEqualTo(0).Because(TestHelpers.GenerateError(stdOut, stdErr));
+
+		var packagePath = Directory.GetFiles(feedDirectory, "Test.SkillPackable.*.nupkg").Single();
+		using var package = await ZipFile.OpenReadAsync(packagePath, cancellationToken);
+		var entries = package.Entries.Select(entry => entry.FullName).ToList();
+
+		// The package delivers the skills through the same .agents/skills path the mirror reads, so
+		// an existing consumer receives them with no change in behaviour.
+		await Assert.That(entries).Contains(".agents/skills/purview-sample/SKILL.md");
+		await Assert.That(entries).Contains(".agents/skills/purview-sample/references/detail.md");
+		// And each packed skill folder carries the generated ignore that keeps a package upgrade
+		// from showing up as a local modification in the consuming repository.
+		await Assert.That(entries).Contains(".agents/skills/purview-sample/.gitignore");
+	}
+
+	[Test]
+	public async Task PurviewSkillsToPack_PacksOnlyTheNamedSkills(CancellationToken cancellationToken)
+	{
+		using var h = await ProjectHarness.CreateAsync(
+			"SkillSubset",
+			extraProps: """
+			<IsPackable>true</IsPackable>
+			<DisableSourceLink>true</DisableSourceLink>
+			<ExcludePurviewTelemetry>true</ExcludePurviewTelemetry>
+			<ExcludeMSTelemetryExtension>true</ExcludeMSTelemetryExtension>
+			<PurviewPackRepositorySkills>true</PurviewPackRepositorySkills>
+			<PurviewSkillsToPack>purview-shipped</PurviewSkillsToPack>
+			""",
+			cancellationToken: cancellationToken
+		);
+
+		await File.WriteAllTextAsync(Path.Combine(h.SolutionDirectory, "AGENTS.md"), "# Agents", cancellationToken);
+
+		foreach (var skillName in (string[])["purview-shipped", "purview-repo-local"])
+		{
+			var skillDirectory = Path.Combine(h.SolutionDirectory, "skills", skillName);
+			Directory.CreateDirectory(skillDirectory);
+			await File.WriteAllTextAsync(
+				Path.Combine(skillDirectory, "SKILL.md"),
+				$"---\nname: {skillName}\ndescription: Use when exercising skill subsetting.\n---\n",
+				cancellationToken
+			);
+		}
+
+		var feedDirectory = Path.Combine(h.SolutionDirectory, "feed");
+		var packageVersion = $"0.0.0-integration-test-{Guid.NewGuid():N}";
+		var (exitCode, stdOut, stdErr) = await RunProcessAsync(
+			"dotnet",
+			$"pack \"{h.ProjectFilePath}\" -c Release -o \"{feedDirectory}\" -p:PackageVersion={packageVersion} -p:Version={packageVersion}",
+			h.SolutionDirectory,
+			cancellationToken
+		);
+
+		await Assert.That(exitCode).IsEqualTo(0).Because(TestHelpers.GenerateError(stdOut, stdErr));
+
+		var packagePath = Directory.GetFiles(feedDirectory, "Test.SkillSubset.*.nupkg").Single();
+		using var package = await ZipFile.OpenReadAsync(packagePath, cancellationToken);
+		var entries = package.Entries.Select(entry => entry.FullName).ToList();
+
+		await Assert.That(entries).Contains(".agents/skills/purview-shipped/SKILL.md");
+		await Assert.That(entries).Contains(".agents/skills/purview-shipped/.gitignore");
+		// A skill authored in the repository but not named is installable from git and absent from
+		// the package - which is how one repository ships different skills in different packages.
+		await Assert
+			.That(entries.Any(entry => entry.Contains("purview-repo-local", StringComparison.Ordinal)))
+			.IsFalse();
 	}
 
 	[Test]

@@ -364,6 +364,24 @@
 		<CompilerVisibleProperty Include="PurviewAgentFolderCopyFailureAsError">
 			<Description>When true, an .agents sync that still fails after every retry is reported as an error instead of a warning. Defaults to true.</Description>
 		</CompilerVisibleProperty>
+		<CompilerVisibleProperty Include="PurviewSkillsSourceFolder">
+			<Description>Repository folder holding authored agent skills. Defaults to the repository-root skills/ folder.</Description>
+		</CompilerVisibleProperty>
+		<CompilerVisibleProperty Include="PurviewPackRepositorySkills">
+			<Description>When true, packs PurviewSkillsSourceFolder into the package's .agents/skills/ folder. Defaults to false; set it on the one project that owns the repository's skills.</Description>
+		</CompilerVisibleProperty>
+		<CompilerVisibleProperty Include="PurviewSkillsToPack">
+			<Description>Semicolon-separated skill folder names this project packs. Empty packs every skill in PurviewSkillsSourceFolder.</Description>
+		</CompilerVisibleProperty>
+		<CompilerVisibleProperty Include="PurviewSkillsAgents">
+			<Description>Comma-separated agents that InstallPurviewSkills installs to. Defaults to '*' (every agent the skills CLI detects).</Description>
+		</CompilerVisibleProperty>
+		<CompilerVisibleProperty Include="PurviewSkillsCommand">
+			<Description>Overrides how the skills CLI is invoked. Empty detects 'skills' then 'npx' on PATH.</Description>
+		</CompilerVisibleProperty>
+		<CompilerVisibleProperty Include="PurviewSkillsSource">
+			<Description>Installs from an explicit git source (owner/repo, optionally '#ref') instead of from referenced packages.</Description>
+		</CompilerVisibleProperty>
 		<CompilerVisibleProperty Include="PurviewRepoBootstrapMode">
 			<Description>Controls repo-level file bootstrapping (IfMissing, Always, WarnOnDrift or Never). Defaults to IfMissing.</Description>
 		</CompilerVisibleProperty>
@@ -938,7 +956,41 @@
 	     ===================================================================== -->
 	<PropertyGroup Label="Automatic Sdk Folder Packaging">
 		<PurviewAutoSdkPack Condition="'$(PurviewAutoSdkPack)' == ''">true</PurviewAutoSdkPack>
-		<TargetsForTfmSpecificContentInPackage>$(TargetsForTfmSpecificContentInPackage);IncludeLinkedSdkFiles;IncludeSdkDotAgentsGitIgnoreFiles;IncludeRepoReadmeInPackage</TargetsForTfmSpecificContentInPackage>
+		<TargetsForTfmSpecificContentInPackage>$(TargetsForTfmSpecificContentInPackage);IncludeLinkedSdkFiles;IncludeSdkDotAgentsGitIgnoreFiles;IncludeRepoReadmeInPackage;IncludePurviewSkillsInPackage</TargetsForTfmSpecificContentInPackage>
+	</PropertyGroup>
+
+	<!-- =====================================================================
+	     REPOSITORY SKILLS FOLDER
+	     A skill has two audiences, and they reach it by different routes:
+
+	       * a consuming .NET repository, which receives it mirrored into
+	         .agents/ from the NuGet package, and
+	       * the skills CLI (`npx skills`), which clones the *git* repository
+	         and only discovers skills at a root 'skills/<name>/SKILL.md'.
+
+	     Those cannot both be served from Sdk/.agents/skills: the mirrored
+	     .agents/ folder is gitignored in every consuming repository, so it is
+	     absent from a git clone and invisible to the CLI. The authored source
+	     of truth is therefore the repository-root 'skills/' folder, and this
+	     SDK packs it into the package's '.agents/skills/' so the existing
+	     mirror is unchanged. One copy on disk, both audiences served.
+
+	     PurviewSkillsSourceFolder is resolved at evaluation time (rather than
+	     in a target) because the packaging ItemGroup needs it, and it uses the
+	     same AGENTS.md repo-root marker the agent-folder targets use.
+	     ===================================================================== -->
+	<PropertyGroup Label="Repository Skills Folder">
+		<PurviewSkillsRepoRoot Condition="'$(PurviewSkillsRepoRoot)' == '' AND '$(RepoRoot)' != ''"
+			>$(RepoRoot)</PurviewSkillsRepoRoot>
+		<PurviewSkillsRepoRoot Condition="'$(PurviewSkillsRepoRoot)' == ''"
+			>$([MSBuild]::GetDirectoryNameOfFileAbove('$(MSBuildProjectDirectory)', 'AGENTS.md'))</PurviewSkillsRepoRoot>
+		<PurviewSkillsSourceFolder Condition="'$(PurviewSkillsSourceFolder)' == '' AND '$(PurviewSkillsRepoRoot)' != ''"
+			>$([MSBuild]::NormalizeDirectory('$(PurviewSkillsRepoRoot)', 'skills'))</PurviewSkillsSourceFolder>
+		<!-- Opt-in, not automatic. A repository usually has several packable projects and the
+		     skills belong to one of them; defaulting this to true would ship the same skills in
+		     every package the repository produces. Set it on the project that owns them. -->
+		<PurviewPackRepositorySkills Condition="'$(PurviewPackRepositorySkills)' == ''"
+			>false</PurviewPackRepositorySkills>
 	</PropertyGroup>
 
 	<PropertyGroup Label="Analyzer Closure and Project-Reference Assets">

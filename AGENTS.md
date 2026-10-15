@@ -18,7 +18,11 @@ This repo builds and tests `Purview.BuildSdk`, a reusable MSBuild SDK package pl
 
 For full product behaviour and configuration, read [`README.md`](./README.md). Keep edits minimal, targeted, and convention-driven.
 
-Repo-specific agent content lives under `src/src/BuildSdk/Sdk/.agents/` and is packed into the NuGet package as `.agents/**` by the standard `PurviewAutoSdkPack` `Sdk/` packaging logic. Add new skills under that path so they automatically flow into consuming repositories without hardcoding individual skill names.
+Repo-specific sub-agent definitions and prompts live under `src/src/BuildSdk/Sdk/.agents/` and are packed into the NuGet package as `.agents/**` by the standard `PurviewAutoSdkPack` `Sdk/` packaging logic.
+
+**Skills are different: they are authored at the repository root in `skills/<name>/SKILL.md`.** They have two audiences reached by two routes — a consuming .NET repository, which receives them mirrored into `.agents/` from the NuGet package, and the skills CLI (`npx skills`), which clones the *git* repository. The CLI only discovers skills at a root `skills/` folder, and the mirrored `.agents/` folder is gitignored in every consuming repository, so it is absent from a clone. One authored copy at the root serves both: `IncludePurviewSkillsInPackage` packs it into the package's `.agents/skills/`, so the existing mirror is unchanged.
+
+Add a new skill under `skills/`, not under `Sdk/.agents/skills/`. `PurviewPackRepositorySkills` (set on `BuildSdk.csproj`) is what opts a project into packing them; it defaults to `false` so a repository with several packable projects does not ship the same skills in every package.
 
 ## AgentPack folder and downstream impact
 
@@ -42,9 +46,52 @@ During packaging, the SDK injects a `.gitignore` file into each second-level fol
 
 Git only ignores untracked paths, so a mirrored file that is already tracked is rewritten by every upgrade that changes it and shows up as a local modification. The SDK cannot untrack it, so it reports `PurviewTrackedMirroredFile` (naming the paths and the `git rm --cached` command) on a build that mirrored that file; `DisableMirroredFileTrackingCheck=true` opts out. The check shells out to `git ls-files` only when something was mirrored, so an up-to-date build spawns no process.
 
-Any edit, addition, or deletion in `src/src/BuildSdk/Sdk/.agents/` therefore changes the contents delivered to every repository that consumes this SDK.
+Any edit, addition, or deletion in `src/src/BuildSdk/Sdk/.agents/` or in the repository-root `skills/` folder therefore changes the contents delivered to every repository that consumes this SDK.
 
 Tests for this feature live in `src/tests/BuildSdk.IntegrationTests/AgentPackFolderTests.cs` (packaging) and `src/tests/BuildSdk.IntegrationTests/RepositoryFileSyncTests.cs` (repository mirroring, change detection, retry and failure behaviour).
+
+## Explicit skill installation
+
+The mirror above delivers skills into `.agents/`, which no agent reads natively. Installing them into the agent-specific directories is a separate, **explicit** step — it must never be a side effect of a restore, a build, a design-time build or a test run.
+
+Two targets, neither with `BeforeTargets`/`AfterTargets`:
+
+```bash
+dotnet msbuild <project> -t:ListPurviewSkills      # diagnostics only, installs nothing
+dotnet msbuild <project> -t:InstallPurviewSkills   # delegates to the skills CLI
+```
+
+`ResolvePurviewSkillSources` (inline task in `Sdk/Sdk.targets`) does the resolution. There is deliberately **no custom `skills.json` manifest**: a package that ships skills already carries both halves of the mapping, and the resolver reads them.
+
+- `.agents/skills/<name>/` in the restored package says which skills it ships — the same folder the mirror already reads.
+- The nuspec's `<repository url="..." commit="..." />` element, written by SourceLink for every package built by this SDK, says which git repository and which exact commit produced them.
+
+That makes version compatibility exact by construction: the resolved ref is the commit the *restored package version* was built from, so an older package reference gets that version's skills rather than whatever is on the default branch. A package whose nuspec has no GitHub repository URL, or no commit, cannot be pinned — it is reported as `PRSKL0002` rather than installed from a guessed branch. `PRSKL0001` is raised when `project.assets.json` is missing, because resolution reads the restore graph and deliberately does not trigger a restore of its own.
+
+Installation itself is delegated to the skills CLI (`npx skills`) rather than reimplemented, because the CLI owns the agent-specific destinations and their discovery conventions — which differ per agent and change independently of this SDK — and owns `skills-lock.json`, so a repository can restore the same set later with `npx skills experimental_install`. `PurviewSkillsAgents` (default `*`) narrows the target agents.
+
+### Detecting the CLI
+
+The CLI is Node tooling, so it is not guaranteed on a machine that can build .NET. `DetectPurviewSkillsCli` (inline task) probes `PATH` for `skills` first, then `npx`, honouring `PATHEXT` on Windows where both are `.cmd` shims. `PATH` is read directly rather than by spawning a version check: it is deterministic, costs no process, and cannot hang on a cold `npx` download.
+
+- `skills` on `PATH` is used as-is — no download, works offline.
+- Otherwise `npx -y skills@1`, pinned to a major so a future breaking CLI release cannot change what the target does.
+- Neither found is `PRSKL0004`, naming the fix (install Node, or `npm install -g skills`) instead of surfacing a raw `'npx' is not recognized`.
+- `PurviewSkillsCommand` overrides the launcher entirely and skips detection.
+
+`ListPurviewSkills` reports CLI availability but **never** errors on its absence — resolving and reporting needs no Node tooling at all.
+
+### Installing from an explicit source
+
+`PurviewSkillsSource` installs straight from a git source, bypassing package resolution, for a repository that wants a Purview skill it has no `PackageReference` for:
+
+```bash
+dotnet msbuild <project> -t:InstallPurviewSkills -p:PurviewSkillsSource=purview-dev/engineering-playbook
+```
+
+The caller owns the ref in that case — append `#<ref>` to pin it. This path needs no restore, so `PRSKL0001` does not apply.
+
+Tests live in `src/tests/BuildSdk.IntegrationTests/PurviewSkillResolutionTests.cs`, including the guarantee that an ordinary restore-and-build writes no lockfile and creates no agent directory.
 
 ## Repository map
 

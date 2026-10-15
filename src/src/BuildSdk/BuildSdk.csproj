@@ -30,6 +30,14 @@
 		<NoDefaultExcludes>true</NoDefaultExcludes>
 		<!-- No C# so no need to generate useful usings -->
 		<AutoIncludeUsings>false</AutoIncludeUsings>
+		<!-- This project owns the repository's skills, so it is the one that packs them into
+		     .agents/skills/. The authored copy lives at the repository root so the skills CLI
+		     can discover it in a git clone; see the Repository Skills Folder block in Sdk.props. -->
+		<PurviewPackRepositorySkills>true</PurviewPackRepositorySkills>
+		<!-- Only the SDK's own guidance ships to consumers. The repository's other authored skills
+		     (tunit-*, git-conventional-commits, lefthook-integration) describe working *in this
+		     repository*, so they stay installable from the git source but are not packed. -->
+		<PurviewSkillsToPack>project-placement-defaults;sdk-configuration-reference;sdk-engineering-principles;sdk-project-behavior-and-detection</PurviewSkillsToPack>
 	</PropertyGroup>
 
 	<ItemGroup>
