@@ -346,32 +346,9 @@
 		<CompilerVisibleProperty Include="ExcludeMSTelemetryExtension">
 			<Description>Opt-out flag that removes Microsoft.Extensions.Telemetry.Abstractions.</Description>
 		</CompilerVisibleProperty>
-		<CompilerVisibleProperty Include="EnableAgentFolderInPackage">
-			<Description>When true, copies the bundled .agents folder from the SDK NuGet package into the consuming repository. Defaults to true.</Description>
-		</CompilerVisibleProperty>
-		<CompilerVisibleProperty Include="AgentPackDestinationFolder">
-			<Description>Repo-relative destination folder that receives copied .agents content. Defaults to .agents.</Description>
-		</CompilerVisibleProperty>
-		<CompilerVisibleProperty Include="PurviewAgentSyncManifestPath">
-			<Description>Overrides the change-detection manifest used to skip unchanged .agents syncs. Defaults to the repository .purview/agent-sync.cache file.</Description>
-		</CompilerVisibleProperty>
-		<CompilerVisibleProperty Include="PurviewAgentFolderCopyRetries">
-			<Description>Number of copy attempts used when syncing bundled .agents content into the consuming repository. Defaults to 3.</Description>
-		</CompilerVisibleProperty>
-		<CompilerVisibleProperty Include="PurviewAgentFolderCopyRetryDelayMilliseconds">
-			<Description>Delay in milliseconds between .agents copy retry attempts. Defaults to 500.</Description>
-		</CompilerVisibleProperty>
-		<CompilerVisibleProperty Include="PurviewAgentFolderCopyFailureAsError">
-			<Description>When true, an .agents sync that still fails after every retry is reported as an error instead of a warning. Defaults to true.</Description>
-		</CompilerVisibleProperty>
+
 		<CompilerVisibleProperty Include="PurviewSkillsSourceFolder">
 			<Description>Repository folder holding authored agent skills. Defaults to the repository-root skills/ folder.</Description>
-		</CompilerVisibleProperty>
-		<CompilerVisibleProperty Include="PurviewPackRepositorySkills">
-			<Description>When true, packs PurviewSkillsSourceFolder into the package's .agents/skills/ folder. Defaults to false; set it on the one project that owns the repository's skills.</Description>
-		</CompilerVisibleProperty>
-		<CompilerVisibleProperty Include="PurviewSkillsToPack">
-			<Description>Semicolon-separated skill folder names this project packs. Empty packs every skill in PurviewSkillsSourceFolder.</Description>
 		</CompilerVisibleProperty>
 		<CompilerVisibleProperty Include="PurviewSkillsAgents">
 			<Description>Comma-separated agents that InstallPurviewSkills installs to. Defaults to '*' (every agent the skills CLI detects).</Description>
@@ -397,9 +374,6 @@
 		<CompilerVisibleProperty Include="PurviewSkillsInstallRoot">
 			<Description>Overrides the repository root every skill target runs from. Empty resolves it from PurviewRepositoryRootMarkers.</Description>
 		</CompilerVisibleProperty>
-		<CompilerVisibleProperty Include="PurviewMirrorPackagedSkills">
-			<Description>When true, the .agents mirror also copies skills/ from packages. Defaults to false; the skills CLI is the only installer of skills.</Description>
-		</CompilerVisibleProperty>
 		<CompilerVisibleProperty Include="PurviewRepositoryRootMarkers">
 			<Description>Ordered markers that identify a repository root, most authoritative first. The first is definitive and searched to the top; the rest resolve nearest-first. A trailing slash marks a directory.</Description>
 		</CompilerVisibleProperty>
@@ -415,9 +389,7 @@
 		<CompilerVisibleProperty Include="PurviewRepoBootstrapMode">
 			<Description>Controls repo-level file bootstrapping (IfMissing, Always, WarnOnDrift or Never). Defaults to IfMissing.</Description>
 		</CompilerVisibleProperty>
-		<CompilerVisibleProperty Include="PurviewAgentFolderSourcePath">
-			<Description>Source folder that provides the bundled .agents content mirrored into the consuming repository. Defaults to the package-level .agents folder beside Sdk/.</Description>
-		</CompilerVisibleProperty>
+
 		<CompilerVisibleProperty Include="PurviewRepoBootstrapCopyRetries">
 			<Description>Number of copy attempts used when bootstrapping repo-level files such as .editorconfig and global.json. Defaults to 3.</Description>
 		</CompilerVisibleProperty>
@@ -741,12 +713,7 @@
 			>$([System.IO.Path]::GetFullPath('$(_PurviewDiscoveredEditorConfigFilePath)'))</_PurviewDiscoveredEditorConfigFullPath>
 		<!-- Also bootstrap a physical repo-level .editorconfig for tools (for example CSharpier) that don't read @(EditorConfigFiles). -->
 		<DisableAutoCopySdkFiles Condition="'$(DisableAutoCopySdkFiles)' == ''">false</DisableAutoCopySdkFiles>
-		<!-- Where the bundled .agents content is mirrored from. The package packs Sdk/.agents
-		     into the package root, so the content sits beside this Sdk/ folder. The default is
-		     defined here (not in Props/Defaults.props) because $(MSBuildThisFileDirectory) must
-		     resolve relative to Sdk/, not Sdk/Props/. -->
-		<PurviewAgentFolderSourcePath Condition="'$(PurviewAgentFolderSourcePath)' == ''"
-			>$([MSBuild]::NormalizePath('$(MSBuildThisFileDirectory)', '..', '.agents'))</PurviewAgentFolderSourcePath>
+
 		<BootstrapEditorConfigToRepoRoot Condition="'$(BootstrapEditorConfigToRepoRoot)' == ''"
 			>true</BootstrapEditorConfigToRepoRoot>
 		<RepositoryEditorConfigFilePath
@@ -986,28 +953,24 @@
 	     ===================================================================== -->
 	<PropertyGroup Label="Automatic Sdk Folder Packaging">
 		<PurviewAutoSdkPack Condition="'$(PurviewAutoSdkPack)' == ''">true</PurviewAutoSdkPack>
-		<TargetsForTfmSpecificContentInPackage>$(TargetsForTfmSpecificContentInPackage);IncludeLinkedSdkFiles;IncludeSdkDotAgentsGitIgnoreFiles;IncludeRepoReadmeInPackage;IncludePurviewSkillsInPackage</TargetsForTfmSpecificContentInPackage>
+		<TargetsForTfmSpecificContentInPackage>$(TargetsForTfmSpecificContentInPackage);IncludeLinkedSdkFiles;IncludeRepoReadmeInPackage</TargetsForTfmSpecificContentInPackage>
 	</PropertyGroup>
 
 	<!-- =====================================================================
 	     REPOSITORY SKILLS FOLDER
-	     A skill has two audiences, and they reach it by different routes:
+	     Skills are authored at the repository root in 'skills/<name>/SKILL.md',
+	     because that is the only location the skills CLI (`npx skills`)
+	     discovers when it clones a git repository.
 
-	       * a consuming .NET repository, which receives it mirrored into
-	         .agents/ from the NuGet package, and
-	       * the skills CLI (`npx skills`), which clones the *git* repository
-	         and only discovers skills at a root 'skills/<name>/SKILL.md'.
-
-	     Those cannot both be served from Sdk/.agents/skills: the mirrored
-	     .agents/ folder is gitignored in every consuming repository, so it is
-	     absent from a git clone and invisible to the CLI. The authored source
-	     of truth is therefore the repository-root 'skills/' folder, and this
-	     SDK packs it into the package's '.agents/skills/' so the existing
-	     mirror is unchanged. One copy on disk, both audiences served.
+	     Nothing is packed into the NuGet package. The SDK contributes no
+	     '.agents/**' content at all - a package carries .NET artifacts, and
+	     skills are delivered by the CLI from git. ValidatePurviewSkills still
+	     runs at pack time so a malformed skill fails in the repository that
+	     owns it, rather than reaching the CLI.
 
 	     PurviewSkillsSourceFolder is resolved at evaluation time (rather than
-	     in a target) because the packaging ItemGroup needs it, and it uses the
-	     same AGENTS.md repo-root marker the agent-folder targets use.
+	     in a target) so every skill target sees it, using the same AGENTS.md
+	     repo-root marker the other repository-scoped features use.
 	     ===================================================================== -->
 	<PropertyGroup Label="Repository Skills Folder">
 		<!-- Recorded before defaulting, so the target-time resolution can tell a value the user set
@@ -1021,11 +984,6 @@
 			>$([MSBuild]::GetDirectoryNameOfFileAbove('$(MSBuildProjectDirectory)', 'AGENTS.md'))</PurviewSkillsRepoRoot>
 		<PurviewSkillsSourceFolder Condition="'$(PurviewSkillsSourceFolder)' == '' AND '$(PurviewSkillsRepoRoot)' != ''"
 			>$([MSBuild]::NormalizeDirectory('$(PurviewSkillsRepoRoot)', 'skills'))</PurviewSkillsSourceFolder>
-		<!-- Opt-in, not automatic. A repository usually has several packable projects and the
-		     skills belong to one of them; defaulting this to true would ship the same skills in
-		     every package the repository produces. Set it on the project that owns them. -->
-		<PurviewPackRepositorySkills Condition="'$(PurviewPackRepositorySkills)' == ''"
-			>false</PurviewPackRepositorySkills>
 	</PropertyGroup>
 
 	<PropertyGroup Label="Analyzer Closure and Project-Reference Assets">
@@ -1061,9 +1019,6 @@
 	</PropertyGroup>
 
 	<ItemGroup Label="Automatic Sdk Folder Packaging" Condition="'$(PurviewAutoSdkPack)' == 'true'">
-		<None Include="Sdk/.agents/**/*" Pack="true" Visible="true">
-			<PackagePath>.agents/$([System.String]::Copy('%(RecursiveDir)').Replace(&quot;\&quot;, &quot;/&quot;))%(Filename)%(Extension)</PackagePath>
-		</None>
 		<None Include="Sdk/.github/**/*" Pack="true" Visible="true">
 			<PackagePath>.github/$([System.String]::Copy('%(RecursiveDir)').Replace(&quot;\&quot;, &quot;/&quot;))%(Filename)%(Extension)</PackagePath>
 		</None>
@@ -1083,7 +1038,7 @@
 			Include="Sdk/**/*"
 			Pack="true"
 			Visible="true"
-			Exclude="Sdk/.agents/**/*;Sdk/.github/**/*;Sdk/build/**/*;Sdk/buildTransitive/**/*;Sdk/buildMultiTargeting/**/*;Sdk/*.md;Sdk/*.png;Sdk/*.jpg;Sdk/*.jpeg;Sdk/*.gif;Sdk/*.svg"
+			Exclude="Sdk/.github/**/*;Sdk/build/**/*;Sdk/buildTransitive/**/*;Sdk/buildMultiTargeting/**/*;Sdk/*.md;Sdk/*.png;Sdk/*.jpg;Sdk/*.jpeg;Sdk/*.gif;Sdk/*.svg"
 		>
 			<PackagePath>Sdk/$([System.String]::Copy('%(RecursiveDir)').Replace(&quot;\&quot;, &quot;/&quot;))%(Filename)%(Extension)</PackagePath>
 		</None>
@@ -1141,15 +1096,16 @@
 	</PropertyGroup>
 
 	<!-- =====================================================================
-	     REPOSITORY README
-	     When the repo-root README exists and PackageReadmeFile has not been
-	     explicitly configured, register it as the package readme. The file itself
-	     is added to the package by the IncludeRepoReadmeInPackage target during
-	     pack (which guards against duplicates).
+	     PACKAGE README
+	     Registers a README as the package readme when PackageReadmeFile has not
+	     been configured explicitly. A project's own README.md is preferred over
+	     the repository root one - a repository producing several packages has a
+	     different story to tell in each. The file itself is added to the package
+	     by IncludeRepoReadmeInPackage during pack (which guards duplicates).
 	     ===================================================================== -->
 	<PropertyGroup
-		Label="Repository Readme Defaults"
-		Condition="'$(IsPackable)' == 'true' AND '$(PackageReadmeFile)' == '' AND '$(RepoRoot)' != '' AND Exists('$(RepoRoot)/README.md')"
+		Label="Package Readme Defaults"
+		Condition="'$(IsPackable)' == 'true' AND '$(PackageReadmeFile)' == '' AND (Exists('$(MSBuildProjectDirectory)/README.md') OR ('$(RepoRoot)' != '' AND Exists('$(RepoRoot)/README.md')))"
 	>
 		<PackageReadmeFile>README.md</PackageReadmeFile>
 	</PropertyGroup>

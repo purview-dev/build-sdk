@@ -64,39 +64,28 @@ flowchart TD
 
 ## Publication
 
-Skills are authored at the **repository root**, in `skills/<name>/SKILL.md`, and published two ways
-from that one copy:
+Skills are authored at the **repository root**, in `skills/<name>/SKILL.md`, and published through
+the skills CLI, which clones the git repository and discovers a root `skills/` folder.
 
-- **To the skills CLI**, which clones the git repository and discovers a root `skills/` folder.
-- **To the NuGet package**, where `PurviewPackRepositorySkills` packs them into the package's
-  `.agents/skills/`, which the [agent folder](Agent-Folder.md) mirror copies into a consuming
-  repository's `.agents/`.
-
-Both routes matter: the mirrored `.agents/` folder is gitignored in every consuming repository, so
-it is absent from a clone and cannot serve the CLI.
+That is the only route. No NuGet package carries skills: a package holds .NET artifacts, and the
+CLI delivers skills from git.
 
 ```bash
 npx skills add purview-dev/build-sdk                    # every skill
-npx skills add purview-dev/build-sdk --skill tunit-filtering
+npx skills add purview-dev/build-sdk --skill purview-buildsdk-testing
 npx skills add purview-dev/build-sdk --list             # see what is there, install nothing
 ```
 
 Skills live **alongside the library they describe**, in that library's repository, rather than in
-one central skills repository. That is what makes version compatibility exact: a package and its
-skills are built from the same commit, so the package itself carries the mapping (see below). A
-central repository would have to re-derive that association, and would drift from the libraries it
-documents.
-
-`PurviewSkillsToPack` narrows which skills a given project packs, so a repository producing several
-packages ships each skill with the library it belongs to rather than duplicating all of them
-everywhere.
+one central skills repository. A central repository would have to re-derive which skill belongs to
+which library, and would drift from the libraries it documents.
 
 ## Authoring
 
 `npx skills init <name>` scaffolds a skill; move it under `skills/<name>/` and adapt the frontmatter
-to Purview conventions. `ValidatePurviewSkills` then checks it at pack time, and
-`IncludePurviewSkillsInPackage` depends on it — so a malformed skill fails the build of the
-repository that owns it rather than shipping a skill the CLI silently skips. It checks that:
+to Purview conventions. `ValidatePurviewSkills` runs `BeforeTargets="Pack"`, so a malformed skill
+fails the build of the repository that owns it rather than reaching the CLI, which would silently
+skip it. It checks that:
 
 - every folder under the skills root has a `SKILL.md`,
 - that file opens with YAML frontmatter carrying `name` and `description`,
@@ -249,7 +238,7 @@ This command is **experimental**, so it is suggested and never required, never i
 automatically, and always offered with the supported fallback (`npx skills add`). Prefer a stable
 restore command if the CLI gains one. The detection looks for any root dot-folder containing a
 `skills` folder rather than hard-coding agent directories, which belong to the CLI and change
-independently of this SDK; the SDK's own `.agents/` mirror is excluded.
+independently of this SDK. '.agents/' is included in that scan: it is the CLI's universal install location, and nothing else writes there any more.
 
 ## Installing from the SDK
 
@@ -312,8 +301,13 @@ dotnet msbuild <project> -t:InstallPurviewSkills -p:PurviewSkillsSource=.
 ```
 
 The CLI records that portably — `"source": "."`, `"sourceType": "local"` — so the resulting
-`skills-lock.json` survives a clone and can be committed. `Purview.BuildSdk` uses exactly this for
-its own skills; see `just skills-install`.
+`skills-lock.json` survives a clone and can be committed.
+
+`Purview.BuildSdk` itself deliberately does **not** do this. Every skill it authors describes the
+packages it ships and exists for *other* repositories to install, so an agent working in
+`build-sdk` reads them at their authored path and `.agents/skills/` is left for skills installed
+from elsewhere. Install from the working tree when a repository authors skills it also consumes;
+skip it when, as here, the skills are published rather than used locally.
 
 What the CLI writes should be gitignored, since all of it is reproducible from `skills/` plus the
 lockfile:
@@ -331,28 +325,26 @@ lockfile:
 
 ### One installer
 
-Skills have exactly one installer: **the skills CLI**. The `.agents` mirror does not copy them.
-
-A package still ships `.agents/skills/<name>/`, but as *metadata* — it is what
-`ResolvePurviewSkillSources` reads to map a package to its skills and to the commit it was built
-from. It is not content to be copied into the consuming repository.
-
-That split exists because the CLI's universal install location is `.agents/skills/` — exactly where
-the mirror used to write. Two writers on the same paths meant the mirror would overwrite a pinned
-install on the next build, silently undoing it, while `PRSKL0011` compared a lockfile ref against
-content the mirror had already replaced.
+Skills have exactly one installer: **the skills CLI**. The SDK writes nothing into an agent
+directory, at all.
 
 | Source | Destination | Who writes it |
 | -- | -- | -- |
-| package `.agents/agents/**` | `<dest>/agents/**` | the mirror |
-| package `.agents/prompts/**` | `<dest>/prompts/**` | the mirror |
 | package `.agents/skills/**` | *(not copied)* | — metadata only |
 | git `skills/<name>/` | `.agents/skills/`, `.claude/skills/`, … | the skills CLI |
 
-Because the mirror no longer owns them, skills are absent from the generated
-`<destination>/.gitignore`; a repository ignores its installed skills itself. `PurviewMirrorPackagedSkills=true`
-restores the old copy-everything behaviour for a repository that has not moved to the CLI, so an SDK
-upgrade is not a forced migration.
+A package ships `.agents/skills/<name>/` because `ResolvePurviewSkillSources` reads it to map a
+package to its skills and to the commit it was built from. It is not content to be copied into the
+consuming repository.
+
+Earlier versions of this SDK mirrored a package's whole `.agents/**` folder into the consuming
+repository. That is gone. The CLI's universal install location is `.agents/skills/` — exactly where
+the mirror wrote — so the two were two writers on one set of paths: the mirror would silently
+overwrite a pinned install on the next build, while `PRSKL0011` compared a lockfile ref against
+content the mirror had already replaced. The CLI covers the whole job, so the mirror was removed
+rather than fenced off, along with `EnableAgentFolderInPackage`, `AgentPackDestinationFolder` and
+the `PurviewAgentFolder*` properties. A repository that wants a package's skills installs them with
+the CLI — which is exactly what `InstallPurviewSkills` delegates to.
 
 ### Detecting the CLI
 
@@ -431,7 +423,7 @@ unaffected, because it sits below it.
 To consult a skill once without installing it:
 
 ```bash
-npx skills use purview-dev/build-sdk@tunit-filtering | claude
+npx skills use purview-dev/build-sdk@purview-buildsdk-testing | claude
 ```
 
 This is a good fit for a one-time operation. It is not a substitute for installing the skills a
@@ -444,7 +436,7 @@ project needs throughout development, and the SDK's recommendations do not sugge
 `node_modules`.
 
 **Purview does not use it, and should not.** Purview libraries ship as NuGet packages; their skills
-are already carried inside those packages and mirrored into `.agents/`, and are already installable
+are already described by those packages' metadata, and are already installable
 from git by `npx skills add`. Publishing a parallel npm package would mean:
 
 - a second release pipeline to version, publish and keep in step with the NuGet one,
@@ -491,6 +483,5 @@ Verified against the `skills` CLI v1.
 
 ## See also
 
-- [Agent Folder](Agent-Folder.md) — how `.agents/**` is mirrored into a consuming repository
 - [Configuration Reference](Configuration-Reference.md)
 - [Packaging](Packaging.md)

@@ -164,32 +164,15 @@ observe a partially written `.editorconfig` or `global.json`. Because every proj
 the same bootstrapping targets, a lost race between parallel projects is a no-op: an existing file is
 treated as success rather than a copy failure.
 
-## Agent folder
+## Sdk folder packaging
 
 | Property | Default | Description |
 | -- | -- | -- |
 | `PurviewAutoSdkPack` | `true` | When `true`, automatically packs the `Sdk/` folder contents into the NuGet package with the correct root-level paths. Disable this for MSBuild SDK projects. |
-| `EnableAgentFolderInPackage` | `true` | Mirrors the bundled `.agents/**` folder from the SDK NuGet package into the consuming repository's `.agents/` folder (or `$(AgentPackDestinationFolder)/`) before build. |
-| `AgentPackDestinationFolder` | `.agents` | Repo-relative destination folder that receives the mirrored agent folder contents when `EnableAgentFolderInPackage` is `true`. |
-| `PurviewAgentFolderSourcePath` | *(package-level `.agents`)* | Overrides the folder that provides the bundled `.agents` content. |
-| `PurviewAgentFolderCopyRetries` | `3` | Copy attempts per file before the failure is reported. |
-| `PurviewAgentFolderCopyRetryDelayMilliseconds` | `500` | Base delay between copy attempts. |
-| `PurviewAgentFolderCopyFailureAsError` | `true` | When `false`, a copy that still fails after every retry is reported as a warning and the build continues. |
-| `PurviewAgentSyncManifestPath` | `<repo root>/.purview/agent-sync.cache` | Overrides the change-detection manifest used to skip unchanged agent content. |
 
-The mirror is change-aware: content that already matches the manifest is skipped entirely, which keeps
-repeat builds free of file writes and file locks. Retry notices are demoted to low-importance messages
-(`MSB3026`); a copy that still fails after every retry is reported as an error that names the source,
-destination and OS error.
-
-To disable bundled agent folder copying in a consuming repo, set the opt-out property before
-importing the SDK:
-
-```xml
-<PropertyGroup>
-  <EnableAgentFolderInPackage>false</EnableAgentFolderInPackage>
-</PropertyGroup>
-```
+The SDK writes nothing into an agent directory. It used to mirror a package's `.agents/**` into the
+consuming repository; that is gone, because the skills CLI covers it. See
+[Agent Skills](Agent-Skills.md).
 
 ## Telemetry
 
@@ -231,8 +214,6 @@ read them through `build_property.<PropertyName>`:
 | `DisableSourceLink` | Disables automatic SourceLink integration. |
 | `ExcludePurviewTelemetry` | Opt-out for `Purview.Telemetry.SourceGenerator`. |
 | `ExcludeMSTelemetryExtension` | Opt-out for `Microsoft.Extensions.Telemetry.Abstractions`. |
-| `EnableAgentFolderInPackage` | When `true`, copies the bundled `.agents` folder into the consuming repository. |
-| `AgentPackDestinationFolder` | Repo-relative destination folder that receives copied `.agents` content. |
 | `PurviewAutoSdkPack` | When `true`, automatically packs the `Sdk/` folder contents into the NuGet package. |
 | `DisableGenerateAssemblyInfoClass` | Disables generated `AssemblyInfo` helper source. |
 | `DisableGenerateAssemblyIdentifierClass` | Disables the generated assembly identifier marker class. |

@@ -268,12 +268,14 @@ sealed class PurviewSkillRecommendationTests
 	}
 
 	[Test]
-	public async Task MirroredAgentFolder_IsNotMistakenForRestoredSkills(CancellationToken cancellationToken)
+	public async Task AgentsSkillsFolder_CountsAsARestoredInstall(CancellationToken cancellationToken)
 	{
 		using var harness = await ProjectHarness.CreateAsync("SkillConsumer", cancellationToken: cancellationToken);
 		GivenPackageShipping(harness, "purview-alpha");
-		// '.agents/skills' is written by this SDK's own mirror and exists in every consuming
-		// repository, so it must not be read as evidence that the CLI installed anything.
+		// '.agents/skills' is the skills CLI's universal install location. It used to be excluded
+		// from this scan because the SDK's own mirror wrote there, so finding it proved nothing -
+		// but the mirror is gone, and the folder now means exactly what it appears to mean.
+		// Excluding it would report PRSKL0014 against a repository whose skills are installed.
 		Directory.CreateDirectory(Path.Combine(harness.SolutionDirectory, ".agents", "skills"));
 		SkillPackageFixtures.WriteLockFile(
 			LockFilePath(harness),
@@ -283,7 +285,10 @@ sealed class PurviewSkillRecommendationTests
 		var (code, output) = await RecommendAsync(harness, cancellationToken: cancellationToken);
 
 		await Assert.That(code).IsZero().Because(output);
-		await Assert.That(output).Contains("PRSKL0014");
+		await Assert
+			.That(output)
+			.DoesNotContain("PRSKL0014")
+			.Because("the lockfile has been restored into the CLI's universal location");
 	}
 
 	[Test]

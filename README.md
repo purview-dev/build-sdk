@@ -182,16 +182,17 @@ The `templates/` folder contains ready-to-copy starter files for new repos:
 | `.gitattributes` | Line-ending normalisation for .cs, .json, .yml, etc. |
 | `.config/dotnet-tools.json` | CSharpier tool manifest |
 
-The package also ships bundled agent content under `.agents/**`. During build, the SDK mirrors `agents/` and `prompts/` into the consuming repository's `.agents/` folder by default — but **not** `skills/`, which the skills CLI installs instead (see [Agent Skills](docs/wiki/Agent-Skills.md)) so compatible coding agents can discover repository-aware guidance automatically. The SDK also injects a `.gitignore` file into each second-level agent folder with the content `# Ignore all files\n*\n\n# Don't ignore directories, so Git can traverse them\n!*/\n\n# Keep this file\n!.gitignore`, so the copied folder is ignored by Git while keeping the folder structure discoverable.
+A package built with `PurviewAutoSdkPack` carries its repository's authored skills at
+`.agents/skills/**`, but as *metadata*: nothing copies it out. It is what the SDK reads to map a
+restored package to the skills it offers and the commit it was built from. Installing is the skills
+CLI's job and nothing else's — see [Agent Skills](docs/wiki/Agent-Skills.md).
 
 Repository metadata can also be defined before the SDK import: the package recognizes `PurviewHomepage`, `PurviewProjectUrl`, and `PurviewDocsUrl` for repo/site metadata, which is useful when a package or generated metadata needs to point at a public docs site or project page without hard-coding repo-specific values in each project file.
 
-The mirror is change-aware: file fingerprints and content hashes are recorded in
-`.purview/agent-sync.cache` at the repository root, so unchanged content is skipped and repeat builds
-touch no files. Every write is staged into a temporary file and renamed into place, and because all
-projects in a solution share these destinations the retries are silent — copy retry notices (`MSB3026`)
-are demoted to low-importance messages while a copy that still fails after every retry is reported as an
-error. See [Agent Folder](docs/wiki/Agent-Folder.md) and
+`.editorconfig` and `global.json` are bootstrapped into the repository root. Every project in a
+solution writes those same destinations, so a write is staged into a temporary file and renamed into
+place, an existing file is never overwritten unless asked, retries are silent (`MSB3026` is demoted
+to a low-importance message) and only a copy that still fails after every retry is reported. See
 [Repository Bootstrap](docs/wiki/Repository-Bootstrap.md) for the retry and failure properties.
 
 ### Agent skills
@@ -320,27 +321,17 @@ Non-packable projects (including web applications) default `WarnOnPackingNonPack
 | `PurviewRepoBootstrapCopyFailureAsError` | `true` | When `false`, a failed bootstrap write is a warning instead of an error. |
 | `PurviewSuppressCopyRetryWarnings` | `true` | Demotes built-in copy retry notices (`MSB3026`) to messages. Set to `false` to see every retry attempt. |
 
-### Agent folder
+### Sdk folder packaging
 
 | Property | Default | Description |
 | -- | -- | -- |
 | `PurviewAutoSdkPack` | `true` | When `true`, automatically packs the `Sdk/` folder contents into the NuGet package with the correct root-level paths. Disable this for MSBuild SDK projects. |
-| `EnableAgentFolderInPackage` | `true` | Mirrors the bundled `.agents/**` folder from the SDK NuGet package into the consuming repository's `.agents/` folder (or `$(AgentPackDestinationFolder)/`) before build. |
-| `AgentPackDestinationFolder` | `.agents` | Repo-relative destination folder that receives the mirrored agent folder contents when `EnableAgentFolderInPackage` is `true`. |
-| `PurviewAgentFolderSourcePath` | *(package-level `.agents`)* | Overrides the folder that provides the bundled `.agents` content. |
-| `PurviewAgentFolderCopyRetries` | `3` | Copy attempts per file before the failure is reported. |
-| `PurviewAgentFolderCopyRetryDelayMilliseconds` | `500` | Base delay between copy attempts. |
-| `PurviewAgentFolderCopyFailureAsError` | `true` | When `false`, a copy that still fails after every retry is a warning instead of an error. |
-| `PurviewAgentSyncManifestPath` | `<repo root>/.purview/agent-sync.cache` | Overrides the change-detection manifest used to skip unchanged agent content. |
-| `PurviewMirrorPackagedSkills` | `false` | When `true`, the mirror also copies `.agents/skills/**`. Off by default: the skills CLI is the only installer of skills. |
 
-To disable bundled agent folder copying in a consuming repo, set the opt-out property before importing the SDK:
-
-```xml
-<PropertyGroup>
-  <EnableAgentFolderInPackage>false</EnableAgentFolderInPackage>
-</PropertyGroup>
-```
+> **The SDK writes nothing into an agent directory.** It used to mirror a package's `.agents/**`
+> into the consuming repository; that is gone, because the skills CLI covers it and two writers on
+> one set of paths meant the mirror could silently overwrite a pinned install. A package still
+> carries `.agents/skills/` as metadata describing which skills it offers and at which commit,
+> which is what the SDK reads to recommend an install.
 
 ### Agent skills
 
@@ -351,8 +342,6 @@ To disable bundled agent folder copying in a consuming repo, set the opt-out pro
 | `PurviewSkillRecommendationStampPath` | `<repo root>/.purview/skill-recommendations.cache` | Overrides the stamp that reports each distinct skill state once per repository. |
 | `PurviewSkillsLockFile` | `<repo root>/skills-lock.json` | Overrides where the skills CLI's lockfile is read from. |
 | `PurviewSkillsSourceFolder` | `<repo root>/skills` | Repository folder holding authored skills. |
-| `PurviewPackRepositorySkills` | `false` | Packs `PurviewSkillsSourceFolder` into the package's `.agents/skills/`. Set on the one project that owns the repository's skills. |
-| `PurviewSkillsToPack` | *(all)* | Semicolon-separated skill folder names this project packs. |
 | `PurviewSkillsAgents` | `*` | Agents that `InstallPurviewSkills` installs to, and that recommended commands name. |
 | `PurviewSkillsRunner` | `npx` | Package runner used to launch the skills CLI (`npx`, `bunx`, `bun`, `pnpm`, `yarn`, `deno`, `skills`, or any other). |
 | `PurviewSkillsRunnerCandidates` | `npx;bunx;bun;pnpm;yarn;deno` | Runners probed on `PATH` after `PurviewSkillsRunner`. |
@@ -440,12 +429,6 @@ The SDK now exports its properties via `CompilerVisibleProperty`, so analyzers a
 | `PurviewRepoBootstrapCopyRetries` | Number of write attempts before a bootstrap failure is reported (default `3`). |
 | `PurviewRepoBootstrapCopyRetryDelayMilliseconds` | Base delay between bootstrap write attempts (default `500`). |
 | `PurviewRepoBootstrapCopyFailureAsError` | When `true` (default), a bootstrap write that still fails after every retry is an error. |
-| `PurviewAgentFolderSourcePath` | Folder that provides the bundled `.agents` content mirrored into the repository. |
-| `PurviewAgentFolderCopyRetries` | Number of copy attempts per file before an agent folder sync failure is reported (default `3`). |
-| `PurviewAgentFolderCopyRetryDelayMilliseconds` | Base delay between agent folder copy attempts (default `500`). |
-| `PurviewAgentFolderCopyFailureAsError` | When `true` (default), an agent folder copy that still fails after every retry is an error. |
-| `PurviewAgentSyncManifestPath` | Change-detection manifest used to skip unchanged agent content (default `<repo root>/.purview/agent-sync.cache`). |
-| `PurviewMirrorPackagedSkills` | When `true`, the mirror also copies `.agents/skills/**` (default `false` — the skills CLI is the only installer of skills). |
 | `PurviewSuppressCopyRetryWarnings` | When `true` (default), built-in copy retry notices (`MSB3026`) are demoted to messages. |
 | `PurviewAutoSdkPack` | When `true`, automatically packs the `Sdk/` folder contents into the NuGet package with the correct root-level paths. |
 | `EnablePurviewSkillRecommendations` | When `true` (default), an ordinary build reports missing or version-drifted agent skills. |
@@ -453,8 +436,6 @@ The SDK now exports its properties via `CompilerVisibleProperty`, so analyzers a
 | `PurviewSkillRecommendationStampPath` | Stamp used to report each distinct skill state once (default `<repo root>/.purview/skill-recommendations.cache`). |
 | `PurviewSkillsLockFile` | Where the skills CLI's `skills-lock.json` is read from (default `<repo root>/skills-lock.json`). |
 | `PurviewSkillsSourceFolder` | Repository folder holding authored agent skills (default `<repo root>/skills`). |
-| `PurviewPackRepositorySkills` | When `true`, packs `PurviewSkillsSourceFolder` into the package's `.agents/skills/` folder (default `false`). |
-| `PurviewSkillsToPack` | Semicolon-separated skill folder names this project packs (default: every authored skill). |
 | `PurviewSkillsAgents` | Agents that `InstallPurviewSkills` installs to (default `*`). |
 | `PurviewSkillsRunner` | Package runner used to launch the skills CLI (default `npx`; also `bunx`, `bun`, `pnpm`, `yarn`, `deno`, `skills`). |
 | `PurviewSkillsRunnerCandidates` | Runners probed on `PATH` after `PurviewSkillsRunner` (default `npx;bunx;bun;pnpm;yarn;deno`). |

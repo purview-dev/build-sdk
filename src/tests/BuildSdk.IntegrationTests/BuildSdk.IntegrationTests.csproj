@@ -1,5 +1,14 @@
 <Project Sdk="Microsoft.NET.Sdk">
 	<!--
+		This repository authors the skills it ships, so it is the first consumer of its own skill
+		validation: RepositorySkillTests derives from the base class in Purview.Skills.Testing and
+		runs it against the real skills/ folder.
+	-->
+	<ItemGroup>
+		<ProjectReference Include="../../src/SkillsTesting/SkillsTesting.csproj" />
+	</ItemGroup>
+
+	<!--
 		Emit the absolute path to the SDK source directory as a compile-time constant so the
 		ProjectHarness can construct consumer projects that import the SDK from local source.
 	-->

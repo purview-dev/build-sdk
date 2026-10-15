@@ -367,175 +367,6 @@
 	</PropertyGroup>
 
 	<!-- =====================================================================
-	     SDK .AGENTS FOLDER GITIGNORE GENERATION
-	     Generates a .gitignore in each second-level folder of the Sdk/.agents
-	     folder - the folders this SDK wholly owns, such as a skill - so that
-	     copied agent content ends up in the NuGet package with the correct
-	     ignore rules. Mirrored files that sit beside repository-authored files
-	     are handled per file by WritePurviewAgentSyncGitIgnore instead.
-	     ===================================================================== -->
-	<UsingTask
-		TaskName="CreateSdkDotAgentsGitIgnoreFiles"
-		TaskFactory="RoslynCodeTaskFactory"
-		AssemblyFile="$([System.IO.Path]::Combine('$(MSBuildToolsPath)', 'Microsoft.Build.Tasks.Core.dll'))"
-	>
-		<ParameterGroup>
-			<AgentPackRoot ParameterType="System.String" Required="true" />
-			<SkillsRoot ParameterType="System.String" Required="false" />
-			<SkillNames ParameterType="System.String" Required="false" />
-			<StagingRoot ParameterType="System.String" Required="true" />
-			<GitIgnoreContent ParameterType="System.String" Required="true" />
-			<GitIgnoreFiles ParameterType="Microsoft.Build.Framework.ITaskItem[]" Output="true" />
-		</ParameterGroup>
-		<Task>
-			<Using Namespace="System.IO" />
-			<Using Namespace="Microsoft.Build.Framework" />
-			<Using Namespace="Microsoft.Build.Utilities" />
-			<Reference Include="$([System.IO.Path]::Combine('$(MSBuildToolsPath)', 'Microsoft.Build.Framework.dll'))" />
-			<Reference Include="$([System.IO.Path]::Combine('$(MSBuildToolsPath)', 'Microsoft.Build.Utilities.Core.dll'))" />
-			<Code Type="Fragment" Language="cs">
-				<![CDATA[
-					// A blanket '*' ignore is only safe in a folder this SDK wholly owns, which is why this
-					// walks second-level folders: a skill is a folder ('.agents/skills/<skill>/'), so the
-					// ignore cannot reach anything the consuming repository authored.
-					//
-					// '.agents/agents/' and '.agents/prompts/' are deliberately NOT covered here. In a
-					// consuming repository those folders hold the SDK's mirrored .md files *alongside* the
-					// repository's own authored prompts and agents, so ownership is file-granular rather
-					// than folder-granular and a blanket ignore would hide the author's own content. The
-					// mirrored files there are ignored per file by WritePurviewAgentSyncGitIgnore, which
-					// runs consumer-side where the mirrored set is known.
-					var files = new List<ITaskItem>();
-					var seen = new List<string>();
-					if (Directory.Exists(AgentPackRoot))
-					{
-						foreach (var firstLevelDir in Directory.GetDirectories(AgentPackRoot))
-						{
-							var firstLevelName = Path.GetFileName(firstLevelDir);
-							foreach (var secondLevelDir in Directory.GetDirectories(firstLevelDir))
-							{
-								var secondLevelName = Path.GetFileName(secondLevelDir);
-								var gitIgnorePath = Path.Combine(StagingRoot, firstLevelName, secondLevelName, ".gitignore");
-								Directory.CreateDirectory(Path.GetDirectoryName(gitIgnorePath));
-								File.WriteAllText(gitIgnorePath, GitIgnoreContent);
-								var item = new TaskItem(gitIgnorePath);
-								item.SetMetadata("PackagePath", ".agents/" + firstLevelName + "/" + secondLevelName + "/.gitignore");
-								files.Add(item);
-								seen.Add(firstLevelName + "/" + secondLevelName);
-							}
-						}
-					}
-
-					// Skills authored at the repository root are packed into '.agents/skills/<skill>/'
-					// (see the Repository Skills Folder block in Sdk.props), so they need the same
-					// wholly-owned-folder ignore as a skill that sits physically under Sdk/.agents.
-					if (!string.IsNullOrEmpty(SkillsRoot) && Directory.Exists(SkillsRoot))
-					{
-						// When the project packs only a subset (PurviewSkillsToPack), the ignore must
-						// cover exactly that subset: writing one for a skill this package does not ship
-						// would ignore a folder in the consumer that nothing ever mirrors into.
-						var selected = (SkillNames ?? string.Empty)
-							.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries);
-
-						foreach (var skillDir in Directory.GetDirectories(SkillsRoot))
-						{
-							var skillName = Path.GetFileName(skillDir);
-							if (seen.Contains("skills/" + skillName))
-								continue;
-
-							if (selected.Length > 0 && Array.IndexOf(selected, skillName) < 0)
-								continue;
-
-							var gitIgnorePath = Path.Combine(StagingRoot, "skills", skillName, ".gitignore");
-							Directory.CreateDirectory(Path.GetDirectoryName(gitIgnorePath));
-							File.WriteAllText(gitIgnorePath, GitIgnoreContent);
-							var item = new TaskItem(gitIgnorePath);
-							item.SetMetadata("PackagePath", ".agents/skills/" + skillName + "/.gitignore");
-							files.Add(item);
-						}
-					}
-					GitIgnoreFiles = files.ToArray();
-				]]>
-			</Code>
-		</Task>
-	</UsingTask>
-
-	<!-- =====================================================================
-	     DISCOVER PACKAGED AGENT FOLDERS
-	     Reads project.assets.json to find every restored NuGet package (any
-	     PackageReference, not just this SDK) that bundles its own .agents
-	     folder at its package root - the same layout PurviewAutoSdkPack
-	     produces for any packable project. Lets EnableAgentFolderInPackage
-	     copy bundled agent content from every such package automatically.
-	     ===================================================================== -->
-	<UsingTask
-		TaskName="DiscoverAgentPackageFolders"
-		TaskFactory="RoslynCodeTaskFactory"
-		AssemblyFile="$([System.IO.Path]::Combine('$(MSBuildToolsPath)', 'Microsoft.Build.Tasks.Core.dll'))"
-	>
-		<ParameterGroup>
-			<ProjectAssetsFile ParameterType="System.String" Required="true" />
-			<NuGetPackageFolders ParameterType="System.String" Required="false" />
-			<ExcludeFolder ParameterType="System.String" Required="false" />
-			<AgentFolders ParameterType="Microsoft.Build.Framework.ITaskItem[]" Output="true" />
-		</ParameterGroup>
-		<Task>
-			<Using Namespace="System.IO" />
-			<Using Namespace="System.Linq" />
-			<Using Namespace="System.Text.RegularExpressions" />
-			<Using Namespace="Microsoft.Build.Framework" />
-			<Using Namespace="Microsoft.Build.Utilities" />
-			<Reference Include="$([System.IO.Path]::Combine('$(MSBuildToolsPath)', 'Microsoft.Build.Framework.dll'))" />
-			<Reference Include="$([System.IO.Path]::Combine('$(MSBuildToolsPath)', 'Microsoft.Build.Utilities.Core.dll'))" />
-			<Code Type="Fragment" Language="cs">
-				<![CDATA[
-					var results = new List<ITaskItem>();
-					if (File.Exists(ProjectAssetsFile))
-					{
-						var roots = (NuGetPackageFolders ?? string.Empty)
-							.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries)
-							.Select(root => root.TrimEnd('\\', '/'))
-							.Where(root => root.Length > 0)
-							.ToArray();
-						var excludeFullPath = string.IsNullOrEmpty(ExcludeFolder) ? null : Path.GetFullPath(ExcludeFolder);
-
-						// project.assets.json "libraries" entries are consistently emitted by NuGet as
-						// "<id>/<version>": { "sha512": "...", "type": "package", "path": "<lowercase-id>/<version>", "files": [...] }
-						var json = File.ReadAllText(ProjectAssetsFile);
-						var libraryPattern = new Regex(
-							"\"(?<id>[^\"/]+)/[^\"]+\"\\s*:\\s*\\{[^{}]*?\"type\"\\s*:\\s*\"package\"[^{}]*?\"path\"\\s*:\\s*\"(?<path>[^\"]+)\"",
-							RegexOptions.Singleline
-						);
-						foreach (Match match in libraryPattern.Matches(json))
-						{
-							var libraryPath = match.Groups["path"].Value;
-							if (string.IsNullOrEmpty(libraryPath))
-								continue;
-
-							var normalizedPath = libraryPath.Replace('/', Path.DirectorySeparatorChar);
-							foreach (var root in roots)
-							{
-								var candidate = Path.GetFullPath(Path.Combine(root, normalizedPath, ".agents"));
-								if (!Directory.Exists(candidate))
-									continue;
-
-								if (excludeFullPath != null && string.Equals(candidate, excludeFullPath, StringComparison.OrdinalIgnoreCase))
-									break;
-
-								var item = new TaskItem(candidate);
-								item.SetMetadata("PackageId", match.Groups["id"].Value);
-								results.Add(item);
-								break;
-							}
-						}
-					}
-					AgentFolders = results.ToArray();
-				]]>
-			</Code>
-		</Task>
-	</UsingTask>
-
-	<!-- =====================================================================
 	     RESOLVE PURVIEW SKILL SOURCES
 	     Maps every restored NuGet package that ships skills to the git source
 	     and commit the skills CLI needs to install them.
@@ -755,7 +586,6 @@
 			<Agents ParameterType="System.String" Required="false" />
 			<CommandPrefix ParameterType="System.String" Required="false" />
 			<RepositoryRoot ParameterType="System.String" Required="false" />
-			<MirrorFolderName ParameterType="System.String" Required="false" />
 			<AgentSkillDirectoriesFound ParameterType="System.Boolean" Output="true" />
 			<Missing ParameterType="Microsoft.Build.Framework.ITaskItem[]" Output="true" />
 			<Drifted ParameterType="Microsoft.Build.Framework.ITaskItem[]" Output="true" />
@@ -848,14 +678,19 @@
 					// committed skills-lock.json and no installed skills at all. Rather than hard-code
 					// the agent directories - which the CLI owns, and which change independently of
 					// this SDK - look for any dot-folder at the repository root holding a 'skills'
-					// folder. The mirror destination is excluded because this SDK writes that itself.
+					// folder.
+					//
+					// '.agents' is deliberately *included* in that scan. It used to be excluded,
+					// because the SDK's own mirror wrote there and finding it proved nothing. The
+					// mirror is gone, so '.agents/skills/' is now unambiguously the CLI's universal
+					// install location - excluding it would report PRSKL0014 ("no agent skill
+					// directory exists") against a repository whose skills are correctly installed.
 					AgentSkillDirectoriesFound = false;
 					if (!string.IsNullOrEmpty(RepositoryRoot) && Directory.Exists(RepositoryRoot))
 					{
+						// Neither of these is ever an agent directory, and '.purview' is this SDK's own.
 						var ignored = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
 						{
-							string.IsNullOrEmpty(MirrorFolderName) ? ".agents" : MirrorFolderName.Trim('.', '/', '\\'),
-							".agents",
 							".git",
 							".purview",
 						};
@@ -1393,20 +1228,14 @@
 		AssemblyFile="$([System.IO.Path]::Combine('$(MSBuildToolsPath)', 'Microsoft.Build.Tasks.Core.dll'))"
 	>
 		<ParameterGroup>
-			<Mode ParameterType="System.String" Required="true" />
-			<Sources ParameterType="Microsoft.Build.Framework.ITaskItem[]" Required="false" />
-			<DestinationRoot ParameterType="System.String" Required="false" />
 			<DestinationFile ParameterType="System.String" Required="false" />
 			<SourceFile ParameterType="System.String" Required="false" />
 			<Lines ParameterType="Microsoft.Build.Framework.ITaskItem[]" Required="false" />
-			<ManifestPath ParameterType="System.String" Required="false" />
 			<OverwriteExisting ParameterType="System.Boolean" Required="false" />
 			<VerifyExistingContent ParameterType="System.Boolean" Required="false" />
 			<Retries ParameterType="System.Int32" Required="false" />
 			<RetryDelayMilliseconds ParameterType="System.Int32" Required="false" />
 			<TreatFailureAsError ParameterType="System.Boolean" Required="false" />
-			<DisableMirroredFileTrackingCheck ParameterType="System.Boolean" Required="false" />
-			<ExcludeRelativeFolders ParameterType="System.String" Required="false" />
 			<UpToDate ParameterType="System.Boolean" Output="true" />
 			<CopiedCount ParameterType="System.Int32" Output="true" />
 			<SkippedCount ParameterType="System.Int32" Output="true" />
@@ -1426,7 +1255,6 @@
 			<Reference Include="$([System.IO.Path]::Combine('$(MSBuildToolsPath)', 'Microsoft.Build.Utilities.Core.dll'))" />
 			<Code Type="Fragment" Language="cs">
 				<![CDATA[
-					var isMirror = string.Equals(Mode, "Mirror", StringComparison.OrdinalIgnoreCase);
 					var attemptLimit = Retries > 0 ? Retries : 3;
 					var retryDelay = RetryDelayMilliseconds > 0 ? RetryDelayMilliseconds : 500;
 					var pathComparison = Path.DirectorySeparatorChar == '\\'
@@ -1447,8 +1275,6 @@
 						|| exception is PathTooLongException
 						|| exception is DirectoryNotFoundException;
 
-					string NormalizeSlashes(string value) =>
-						string.IsNullOrEmpty(value) ? string.Empty : value.Replace('\\', '/');
 
 					ulong ComputeHash(byte[] bytes)
 					{
@@ -1468,18 +1294,6 @@
 
 					string ComputeFileHash(string path) =>
 						ComputeHash(File.ReadAllBytes(path)).ToString("x16", CultureInfo.InvariantCulture);
-
-					string GetRelativePath(string root, string file)
-					{
-						var rootFull = Path.GetFullPath(root);
-						if (!rootFull.EndsWith(Path.DirectorySeparatorChar.ToString(), StringComparison.Ordinal))
-							rootFull += Path.DirectorySeparatorChar;
-
-						var fileFull = Path.GetFullPath(file);
-						return fileFull.StartsWith(rootFull, pathComparison)
-							? NormalizeSlashes(fileFull.Substring(rootFull.Length))
-							: NormalizeSlashes(Path.GetFileName(fileFull));
-					}
 
 					void ClearReadOnlyAttribute(string path)
 					{
@@ -1518,267 +1332,6 @@
 						catch (Exception e) when (e is IOException || e is UnauthorizedAccessException)
 						{
 							return false;
-						}
-					}
-
-					// Projects build in parallel, in separate processes, and each one rewrites the whole
-					// manifest from its own group plus whatever it read of the others. Unsynchronised, two
-					// of them interleave and the last writer drops the group the other had just added - the
-					// generated .gitignore then lists only a subset, and the mirrored files it missed show
-					// up as untracked noise in the consuming repository. Serialising the read-modify-write
-					// is what makes the merge at the end of it sound.
-					//
-					// A named mutex is cross-process on every platform .NET targets. It is scoped to the
-					// manifest path so two repositories building at once never wait on each other, and the
-					// wait is bounded so a crashed build can never deadlock one that follows.
-					void WithManifestLock(string manifestFile, Action action)
-					{
-						var key = NormalizeSlashes(Path.GetFullPath(manifestFile)).ToLowerInvariant();
-						var name = "Purview.BuildSdk.AgentSync."
-							+ ComputeHash(Encoding.UTF8.GetBytes(key)).ToString("x16", CultureInfo.InvariantCulture);
-
-						Mutex mutex = null;
-						var held = false;
-						try
-						{
-							mutex = new Mutex(false, name);
-							try
-							{
-								held = mutex.WaitOne(TimeSpan.FromSeconds(30));
-							}
-							catch (AbandonedMutexException)
-							{
-								// A build that died holding it. The manifest is rebuilt from the file on
-								// disk either way, so the lock is simply ours now.
-								held = true;
-							}
-						}
-						catch (Exception e) when (e is IOException || e is UnauthorizedAccessException || e is NotSupportedException)
-						{
-							// The lock guards against interleaving; it is never a prerequisite. If it
-							// cannot be taken the merge still runs, just without the guarantee.
-							Log.LogMessage(
-								MessageImportance.Low,
-								"Could not synchronise access to the agent sync manifest '{0}': {1}",
-								manifestFile,
-								e.Message
-							);
-						}
-
-						// Outside the acquisition handler so it runs exactly once however that went.
-						try
-						{
-							action();
-						}
-						finally
-						{
-							if (mutex != null)
-							{
-								if (held)
-									mutex.ReleaseMutex();
-
-								mutex.Dispose();
-							}
-						}
-					}
-
-					// The entries the manifest records as mirrored, as '/'-rooted paths relative to the
-					// destination root - the same form the generated .gitignore uses.
-					List<string> MirroredRelativePaths(List<string> manifestLines)
-					{
-						var paths = new List<string>();
-						foreach (var manifestLine in manifestLines)
-						{
-							// Manifest lines are 'file|group|relpath|...'.
-							var parts = manifestLine.Split('|');
-							if (parts.Length < 3 || parts[0] != "file")
-								continue;
-
-							var relative = NormalizeSlashes(parts[2]).TrimStart('/');
-							if (relative.Length != 0)
-								paths.Add(relative);
-						}
-
-						return paths;
-					}
-
-					// A mirrored file that Git tracks is never ignored, however correct the generated
-					// .gitignore is - Git applies ignore rules only to untracked paths. The file is then
-					// rewritten by every upgrade that changes it and shows up as a local modification, which
-					// reads as the SDK dirtying the working tree. The repository has to untrack it once; the
-					// SDK cannot, so it says so here rather than leaving it to be discovered as churn.
-					//
-					// Only reached when something was actually mirrored this build, so a no-op build spawns
-					// no process. 'git ls-files' is asked for the destination root as a whole rather than for
-					// each path, which keeps it to one invocation and clear of command-line length limits.
-					void WarnOnTrackedMirroredFiles(string root, List<string> manifestLines)
-					{
-						if (DisableMirroredFileTrackingCheck || string.IsNullOrEmpty(root) || !Directory.Exists(root))
-							return;
-
-						var mirrored = new HashSet<string>(MirroredRelativePaths(manifestLines), StringComparer.Ordinal);
-						if (mirrored.Count == 0)
-							return;
-
-						string output;
-						try
-						{
-							var startInfo = new ProcessStartInfo("git", "ls-files --cached -z -- .")
-							{
-								WorkingDirectory = root,
-								UseShellExecute = false,
-								RedirectStandardOutput = true,
-								RedirectStandardError = true,
-								CreateNoWindow = true,
-							};
-
-							using (var process = Process.Start(startInfo))
-							{
-								if (process == null)
-									return;
-
-								output = process.StandardOutput.ReadToEnd();
-								process.StandardError.ReadToEnd();
-								if (!process.WaitForExit(10000) || process.ExitCode != 0)
-									return;
-							}
-						}
-						catch (Exception e)
-						{
-							// Git missing, not a repository, or not permitted to run: the check is advisory,
-							// so it stays silent rather than failing a build that is otherwise fine.
-							Log.LogMessage(
-								MessageImportance.Low,
-								"Could not check whether mirrored files under '{0}' are tracked by Git: {1}",
-								root,
-								e.Message
-							);
-							return;
-						}
-
-						var tracked = new List<string>();
-						foreach (var entry in output.Split('\0'))
-						{
-							var candidate = NormalizeSlashes(entry).TrimStart('/');
-							if (candidate.Length != 0 && mirrored.Contains(candidate))
-								tracked.Add(candidate);
-						}
-
-						if (tracked.Count == 0)
-							return;
-
-						tracked.Sort(StringComparer.Ordinal);
-
-						var folderName = new DirectoryInfo(root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)).Name;
-						var quoted = new StringBuilder();
-						foreach (var path in tracked)
-							quoted.Append(" '").Append(folderName).Append('/').Append(path).Append('\'');
-
-						Log.LogWarning(
-							subcategory: null,
-							warningCode: "PurviewTrackedMirroredFile",
-							helpKeyword: null,
-							file: Path.Combine(root, ".gitignore"),
-							lineNumber: 0,
-							columnNumber: 0,
-							endLineNumber: 0,
-							endColumnNumber: 0,
-							message: "{0} file(s) under '{1}' are mirrored from a NuGet package but tracked by Git, so '{1}/.gitignore' cannot ignore them and every upgrade that changes one shows up as a local modification. Untrack them once - they stay on disk and are rewritten by each build - with 'git rm --cached --{2}'. Suppress with DisableMirroredFileTrackingCheck=true.",
-							tracked.Count,
-							folderName,
-							quoted.ToString()
-						);
-					}
-
-					// Stage the write next to the destination so the final rename stays
-					// on one volume and is atomic on Windows, Linux and macOS.
-					// Writes '<destination root>/.gitignore' listing every file the manifest records as
-					// mirrored, so those files stay untracked while anything the repository authored in the
-					// same folder keeps its normal status. Manifest lines are 'file|group|relpath|...'.
-					// The file is only rewritten when its content changes, so a no-op build touches nothing.
-					void WriteAgentSyncGitIgnore(string root, List<string> manifestLines, int attempts, int delay)
-					{
-						if (string.IsNullOrEmpty(root) || !Directory.Exists(root))
-							return;
-
-						var paths = new List<string>();
-						foreach (var relative in MirroredRelativePaths(manifestLines))
-							paths.Add("/" + relative);
-
-						paths.Sort(StringComparer.Ordinal);
-
-						var content = new List<string>
-						{
-							"# Generated by Purview.BuildSdk - do not edit.",
-							"#",
-							"# These files are mirrored into this folder from NuGet packages on build. Ignoring them",
-							"# keeps an SDK or package upgrade from showing up as local modifications. Files you",
-							"# author in this folder are not listed here and are tracked as normal.",
-							"",
-							// This file is generated, so it ignores itself rather than being committed -
-							// otherwise it would show up as a new untracked file in every repository, which
-							// is the very thing it exists to prevent. Git reads an ignored .gitignore, so
-							// the entries below still apply. Matches the generated .purview/.gitignore.
-							"/.gitignore",
-						};
-
-						var seen = new HashSet<string>(StringComparer.Ordinal);
-						foreach (var path in paths)
-						{
-							if (seen.Add(path))
-								content.Add(path);
-						}
-
-						var target = Path.Combine(root, ".gitignore");
-						var desiredText = new StringBuilder();
-						foreach (var contentLine in content)
-							desiredText.Append(contentLine).Append('\n');
-
-						try
-						{
-							if (
-								File.Exists(target)
-								&& string.Equals(
-									File.ReadAllText(target).Replace("\r\n", "\n"),
-									desiredText.ToString(),
-									StringComparison.Ordinal
-								)
-							)
-							{
-								return;
-							}
-						}
-						catch (Exception e) when (IsTransient(e))
-						{
-							// Fall through and attempt the write.
-						}
-
-						for (var attempt = 1; attempt <= attempts; attempt++)
-						{
-							try
-							{
-								WriteAtomically(
-									target,
-									temporary => File.WriteAllLines(temporary, content, new UTF8Encoding(false))
-								);
-								break;
-							}
-							catch (Exception e) when (IsTransient(e))
-							{
-								if (attempt < attempts)
-								{
-									Thread.Sleep(delay);
-								}
-								else
-								{
-									Log.LogMessage(
-										MessageImportance.Low,
-										"Could not update the mirrored-content .gitignore '{0}': {1}",
-										target,
-										e.Message
-									);
-								}
-							}
 						}
 					}
 
@@ -1860,346 +1413,6 @@
 						SkippedCount = skipped;
 						FailedCount = failed;
 						return !Log.HasLoggedErrors;
-					}
-
-					if (isMirror)
-					{
-						var sources = Sources ?? Array.Empty<ITaskItem>();
-						var destinationRoot = DestinationRoot ?? string.Empty;
-						if (sources.Length == 0 || string.IsNullOrEmpty(destinationRoot))
-						{
-							upToDate = true;
-							return Finish();
-						}
-
-						var manifestFile = ManifestPath ?? string.Empty;
-						if (!string.IsNullOrEmpty(manifestFile))
-						{
-							// Keep the manifest folder invisible to Git without requiring any
-							// consumer configuration; the folder contents are build artifacts.
-							try
-							{
-								var manifestDirectory = Path.GetDirectoryName(manifestFile);
-								if (!string.IsNullOrEmpty(manifestDirectory))
-								{
-									Directory.CreateDirectory(manifestDirectory);
-									var ignoreFile = Path.Combine(manifestDirectory, ".gitignore");
-									if (!File.Exists(ignoreFile))
-										File.WriteAllText(ignoreFile, "*" + Environment.NewLine, new UTF8Encoding(false));
-								}
-							}
-							catch (Exception e) when (IsTransient(e))
-							{
-								Log.LogMessage(
-									MessageImportance.Low,
-									"Could not prepare the agent sync manifest folder '{0}': {1}",
-									manifestFile,
-									e.Message
-								);
-							}
-						}
-
-						var previous = new Dictionary<string, string>(StringComparer.Ordinal);
-						if (!string.IsNullOrEmpty(manifestFile) && File.Exists(manifestFile))
-						{
-							try
-							{
-								foreach (var line in File.ReadAllLines(manifestFile))
-								{
-									var parts = line.Split('|');
-									if (parts.Length >= 6 && parts[0] == "file")
-										previous[parts[1] + "|" + parts[2]] = parts[3] + "|" + parts[4] + "|" + parts[5];
-								}
-							}
-							catch (Exception e) when (IsTransient(e))
-							{
-								Log.LogMessage(
-									MessageImportance.Low,
-									"Ignoring unreadable agent sync manifest '{0}': {1}",
-									manifestFile,
-									e.Message
-								);
-								previous.Clear();
-							}
-						}
-
-						// Folders this mirror does not own, relative to each source root. Skills are the
-						// case this exists for: the skills CLI installs them, so a package ships them
-						// as metadata about what it offers rather than as content to copy.
-						var excludedFolders = (ExcludeRelativeFolders ?? string.Empty)
-							.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries)
-							.Select(folder => NormalizeSlashes(folder.Trim()).Trim('/'))
-							.Where(folder => folder.Length > 0)
-							.Select(folder => folder + "/")
-							.ToArray();
-
-						var groups = new HashSet<string>(StringComparer.Ordinal);
-						var assets = new List<ITaskItem>();
-						foreach (var source in sources)
-						{
-							var root = source.ItemSpec;
-							if (string.IsNullOrEmpty(root) || !Directory.Exists(root))
-								continue;
-
-							var group = source.GetMetadata("ChangeGroup");
-							if (string.IsNullOrEmpty(group))
-								group = NormalizeSlashes(Path.GetFullPath(root));
-							groups.Add(group);
-
-							try
-							{
-								foreach (var file in Directory.GetFiles(root, "*", SearchOption.AllDirectories))
-								{
-									var relative = GetRelativePath(root, file);
-									if (excludedFolders.Any(folder => relative.StartsWith(folder, pathComparison)))
-										continue;
-
-									var asset = new TaskItem(file);
-									asset.SetMetadata("PurviewGroup", group);
-									asset.SetMetadata("PurviewRelativePath", relative);
-									asset.SetMetadata(
-										"PurviewDestination",
-										Path.GetFullPath(
-											Path.Combine(destinationRoot, relative.Replace('/', Path.DirectorySeparatorChar))
-										)
-									);
-									assets.Add(asset);
-								}
-							}
-							catch (Exception e) when (IsTransient(e))
-							{
-								ReportFailure(root, destinationRoot, attemptLimit, e.Message);
-							}
-						}
-
-						var desired = new Dictionary<string, string>(StringComparer.Ordinal);
-						foreach (var asset in assets)
-						{
-							var assetSource = asset.ItemSpec;
-							var destination = asset.GetMetadata("PurviewDestination");
-							var key = asset.GetMetadata("PurviewGroup") + "|" + asset.GetMetadata("PurviewRelativePath");
-
-							string fingerprint;
-							string hash;
-							try
-							{
-								var info = new FileInfo(assetSource);
-								var length = info.Length.ToString(CultureInfo.InvariantCulture);
-								var ticks = info.LastWriteTimeUtc.Ticks.ToString(CultureInfo.InvariantCulture);
-								fingerprint = length + "|" + ticks;
-
-								var reuseCachedHash = false;
-								if (previous.TryGetValue(key, out var prior))
-								{
-									var priorParts = prior.Split('|');
-									// Only re-hash content when the cheap fingerprint moved. Hashing
-									// is what detects an in-place republish that keeps the package
-									// version and therefore may keep extraction timestamps.
-									reuseCachedHash =
-										priorParts.Length == 3
-										&& string.Equals(priorParts[0], length, StringComparison.Ordinal)
-										&& string.Equals(priorParts[1], ticks, StringComparison.Ordinal);
-									if (reuseCachedHash)
-										hash = priorParts[2];
-									else
-										hash = ComputeFileHash(assetSource);
-								}
-								else
-								{
-									hash = ComputeFileHash(assetSource);
-								}
-							}
-							catch (Exception e) when (IsTransient(e))
-							{
-								ReportFailure(assetSource, destination, attemptLimit, e.Message);
-								continue;
-							}
-
-							var value = fingerprint + "|" + hash;
-							desired[key] = value;
-
-							if (
-								File.Exists(destination)
-								&& previous.TryGetValue(key, out var previousValue)
-								&& string.Equals(previousValue, value, StringComparison.Ordinal)
-							)
-							{
-								skipped++;
-								continue;
-							}
-
-							upToDate = false;
-							for (var attempt = 1; attempt <= attemptLimit; attempt++)
-							{
-								try
-								{
-									if (File.Exists(destination) && FilesMatch(assetSource, destination))
-									{
-										// Another project or node already produced identical content,
-										// so the race is a no-op rather than a failure.
-										skipped++;
-										break;
-									}
-
-									WriteAtomically(destination, temporary => File.Copy(assetSource, temporary, true));
-									copied++;
-									break;
-								}
-								catch (Exception e) when (IsTransient(e))
-								{
-									if (attempt < attemptLimit)
-									{
-										Log.LogMessage(
-											MessageImportance.Low,
-											"Retrying copy of '{0}' to '{1}' (attempt {2} of {3}): {4}",
-											assetSource,
-											destination,
-											attempt + 1,
-											attemptLimit,
-											e.Message
-										);
-										Thread.Sleep(retryDelay + ((attempt - 1) * 100));
-									}
-									else
-									{
-										ReportFailure(assetSource, destination, attempt, e.Message);
-									}
-								}
-								catch (Exception e) when (IsPermanent(e))
-								{
-									ReportFailure(assetSource, destination, attempt, e.Message);
-									break;
-								}
-							}
-						}
-
-						if (!string.IsNullOrEmpty(manifestFile) && failed == 0)
-						{
-							// Held across the re-read, the write and the generated .gitignore, because all
-							// three derive from the merged set and a concurrent writer between any two of
-							// them is what loses a group.
-							WithManifestLock(manifestFile, () =>
-							{
-							var lines = new List<string> { "schema|1" };
-							var counts = new Dictionary<string, int>(StringComparer.Ordinal);
-							foreach (var pair in desired)
-							{
-								var separator = pair.Key.IndexOf('|');
-								if (separator < 0)
-									continue;
-
-								var group = pair.Key.Substring(0, separator);
-								counts[group] = counts.ContainsKey(group) ? counts[group] + 1 : 1;
-								lines.Add("file|" + group + "|" + pair.Key.Substring(separator + 1) + "|" + pair.Value);
-							}
-
-							foreach (var group in groups)
-								lines.Add("group|" + group + "|" + (counts.ContainsKey(group) ? counts[group] : 0));
-
-							// Entries owned by another target (the packaged agent folders, for
-							// example) are preserved so both targets can share one manifest.
-							if (File.Exists(manifestFile))
-							{
-								try
-								{
-									foreach (var line in File.ReadAllLines(manifestFile))
-									{
-										var parts = line.Split('|');
-										if (
-											parts.Length >= 3
-											&& (parts[0] == "file" || parts[0] == "group")
-											&& !groups.Contains(parts[1])
-										)
-										{
-											lines.Add(line);
-										}
-									}
-								}
-								catch (Exception e) when (IsTransient(e))
-								{
-									Log.LogMessage(
-										MessageImportance.Low,
-										"Could not preserve existing agent sync manifest entries: {0}",
-										e.Message
-									);
-								}
-							}
-
-							// A no-op build must not touch repository files at all, so the
-							// manifest is only written when its content actually changes.
-							var manifestUpToDate = false;
-							try
-							{
-								if (File.Exists(manifestFile))
-								{
-									var desiredManifest = new StringBuilder();
-									foreach (var line in lines)
-										desiredManifest.Append(line).Append('\n');
-
-									manifestUpToDate = string.Equals(
-										File.ReadAllText(manifestFile).Replace("\r\n", "\n"),
-										desiredManifest.ToString(),
-										StringComparison.Ordinal
-									);
-								}
-							}
-							catch (Exception e) when (IsTransient(e))
-							{
-								manifestUpToDate = false;
-							}
-
-							for (var attempt = 1; attempt <= attemptLimit && !manifestUpToDate; attempt++)
-							{
-								try
-								{
-									WriteAtomically(
-										manifestFile,
-										temporary => File.WriteAllLines(temporary, lines, new UTF8Encoding(false))
-									);
-									break;
-								}
-								catch (Exception e) when (IsTransient(e))
-								{
-									if (attempt < attemptLimit)
-									{
-										Thread.Sleep(retryDelay);
-									}
-									else
-									{
-										Log.LogMessage(
-											MessageImportance.Low,
-											"Could not update the agent sync manifest '{0}': {1}",
-											manifestFile,
-											e.Message
-										);
-									}
-								}
-							}
-							// Ignore the mirrored files per file, driven by the manifest just built.
-							//
-							// The packaged blanket '.gitignore' only covers folders this SDK wholly owns (a
-							// skill is its own folder). '.agents/agents/' and '.agents/prompts/' hold mirrored
-							// .md files beside the repository's own authored prompts and agents, so a blanket
-							// ignore there would hide the author's content. Listing only the manifest's paths
-							// keeps an SDK upgrade from dirtying the working tree while leaving authored files
-							// tracked as normal.
-							WriteAgentSyncGitIgnore(destinationRoot, lines, attemptLimit, retryDelay);
-
-							// Only when this build actually mirrored something: that is both the moment the
-							// churn would appear and the moment the advice is actionable.
-							if (copied > 0)
-								WarnOnTrackedMirroredFiles(destinationRoot, lines);
-							});
-						}
-						upToDate = upToDate || copied == 0;
-						Log.LogMessage(
-							MessageImportance.Low,
-							"Purview .agents sync: {0} copied, {1} unchanged, {2} failed.",
-							copied,
-							skipped,
-							failed
-						);
-						return Finish();
 					}
 
 					var destinationFile = DestinationFile ?? string.Empty;
@@ -2439,7 +1652,6 @@
 				>$(_EffectiveRepositoryEditorConfigFilePath)</RepositoryEditorConfigFilePath>
 		</PropertyGroup>
 		<SyncPurviewRepositoryFiles
-			Mode="WriteFile"
 			DestinationFile="$(_EffectiveRepositoryEditorConfigFilePath)"
 			SourceFile="$(EditorConfigFilePath)"
 			OverwriteExisting="$(_PurviewRepoBootstrapOverwriteExisting)"
@@ -2448,127 +1660,6 @@
 			RetryDelayMilliseconds="$(PurviewRepoBootstrapCopyRetryDelayMilliseconds)"
 			TreatFailureAsError="$(PurviewRepoBootstrapCopyFailureAsError)"
 			Condition="'$(_EffectiveRepositoryEditorConfigFilePath)' != ''"
-		/>
-	</Target>
-
-	<Target
-		Name="ResolveAgentPackDestinationRootTarget"
-		DependsOnTargets="InitializeSourceControlInformation"
-		Condition="'$(EnableAgentFolderInPackage)' != 'false' AND '$(_PurviewAgentFolderDestinationRoot)' == ''"
-		Label="Resolves the repo-relative destination root used when copying bundled .agents folders."
-	>
-		<ItemGroup>
-			<_PurviewAgentSourceRoot Include="@(SourceRoot -> WithMetadataValue('SourceControl', 'git'))" />
-		</ItemGroup>
-
-		<PropertyGroup>
-			<_PurviewAgentFolderRepoRoot Condition="'$(RepoRoot)' != ''">$(RepoRoot)</_PurviewAgentFolderRepoRoot>
-		</PropertyGroup>
-
-		<!-- The same marker walk the skill targets use, so the mirror and the skills CLI can never
-		     disagree about where the repository is. Before this, the mirror knew only RepoRoot and an
-		     AGENTS.md walk-up, which finds nothing in a repository that has neither - and resolves to
-		     a subdirectory in one whose AGENTS.md is not at the root. -->
-		<FindPurviewRepositoryRoot
-			Condition="'$(_PurviewAgentFolderRepoRoot)' == '' AND '$(PurviewRepositoryRootMarkers)' != ''"
-			StartDirectory="$(MSBuildProjectDirectory)"
-			Markers="$(PurviewRepositoryRootMarkers)"
-		>
-			<Output TaskParameter="RepositoryRoot" PropertyName="_PurviewAgentFolderRepoRoot" />
-			<Output TaskParameter="MatchedMarker" PropertyName="_PurviewAgentFolderRepoRootMarker" />
-		</FindPurviewRepositoryRoot>
-
-		<PropertyGroup>
-			<_PurviewAgentFolderRepoRoot Condition="'$(_PurviewAgentFolderRepoRoot)' == ''"
-				>@(_PurviewAgentSourceRoot)</_PurviewAgentFolderRepoRoot>
-			<_PurviewAgentFolderDestinationRoot Condition="'$(_PurviewAgentFolderRepoRoot)' != ''"
-				>$([MSBuild]::NormalizePath('$(_PurviewAgentFolderRepoRoot)', '$(AgentPackDestinationFolder)'))</_PurviewAgentFolderDestinationRoot>
-			<!-- Skills are installed by the skills CLI and by nothing else, so the mirror leaves that
-			     folder alone. A package still ships '.agents/skills/' as metadata, which is what
-			     ResolvePurviewSkillSources reads to map a package to its skills and commit. -->
-			<_PurviewAgentFolderExcludedFolders Condition="'$(PurviewMirrorPackagedSkills)' != 'true'"
-				>skills</_PurviewAgentFolderExcludedFolders>
-		</PropertyGroup>
-	</Target>
-
-	<Target
-		Name="ResolveAgentSyncManifestPathTarget"
-		DependsOnTargets="ResolveAgentPackDestinationRootTarget"
-		Condition="'$(EnableAgentFolderInPackage)' != 'false' AND '$(_PurviewAgentSyncManifestPath)' == ''"
-		Label="Resolves the change-detection manifest used to skip unchanged .agents syncs."
-	>
-		<PropertyGroup Condition="'$(_PurviewAgentFolderRepoRoot)' != ''">
-			<_PurviewAgentSyncManifestPath>$([MSBuild]::NormalizePath('$(_PurviewAgentFolderRepoRoot)', '.purview', 'agent-sync.cache'))</_PurviewAgentSyncManifestPath>
-		</PropertyGroup>
-		<PropertyGroup Condition="'$(PurviewAgentSyncManifestPath)' != ''">
-			<_PurviewAgentSyncManifestPath>$(PurviewAgentSyncManifestPath)</_PurviewAgentSyncManifestPath>
-		</PropertyGroup>
-	</Target>
-
-	<Target
-		Name="EnsureAgentFolderInPackageTarget"
-		BeforeTargets="PrepareForBuild"
-		DependsOnTargets="ResolveAgentPackDestinationRootTarget;ResolveAgentSyncManifestPathTarget"
-		Condition="'$(EnableAgentFolderInPackage)' != 'false' AND Exists('$(PurviewAgentFolderSourcePath)') AND ('$(DefaultTargetFramework)' == '' OR '$(TargetFramework)' == '$(DefaultTargetFramework)')"
-		Label="Copies the bundled .agents folder into the consuming repository for agent discovery."
-	>
-		<ItemGroup Condition="'$(_PurviewAgentFolderDestinationRoot)' != ''">
-			<_PurviewAgentFolderSyncSource Include="$(PurviewAgentFolderSourcePath)">
-				<ChangeGroup>sdk:$(PurviewBuildSdkVersionForGlobalJson)</ChangeGroup>
-			</_PurviewAgentFolderSyncSource>
-		</ItemGroup>
-		<SyncPurviewRepositoryFiles
-			Mode="Mirror"
-			Sources="@(_PurviewAgentFolderSyncSource)"
-			DestinationRoot="$(_PurviewAgentFolderDestinationRoot)"
-			ManifestPath="$(_PurviewAgentSyncManifestPath)"
-			Retries="$(PurviewAgentFolderCopyRetries)"
-			RetryDelayMilliseconds="$(PurviewAgentFolderCopyRetryDelayMilliseconds)"
-			TreatFailureAsError="$(PurviewAgentFolderCopyFailureAsError)"
-			DisableMirroredFileTrackingCheck="$(DisableMirroredFileTrackingCheck)"
-			ExcludeRelativeFolders="$(_PurviewAgentFolderExcludedFolders)"
-			Condition="'@(_PurviewAgentFolderSyncSource)' != '' AND '$(_PurviewAgentFolderDestinationRoot)' != ''"
-		>
-			<Output TaskParameter="UpToDate" PropertyName="_PurviewAgentFolderUpToDate" />
-			<Output TaskParameter="CopiedCount" PropertyName="_PurviewAgentFolderCopiedCount" />
-		</SyncPurviewRepositoryFiles>
-		<Message
-			Condition="'$(_PurviewAgentFolderUpToDate)' == 'true'"
-			Importance="Low"
-			Text="Bundled .agents content is already in sync with '$(_PurviewAgentFolderDestinationRoot)'."
-		/>
-	</Target>
-
-	<Target
-		Name="CopyPackagedAgentFoldersTarget"
-		BeforeTargets="PrepareForBuild"
-		DependsOnTargets="ResolveAgentPackDestinationRootTarget;ResolveAgentSyncManifestPathTarget"
-		Condition="'$(EnableAgentFolderInPackage)' != 'false' AND '$(_PurviewAgentFolderDestinationRoot)' != '' AND Exists('$(ProjectAssetsFile)') AND ('$(DefaultTargetFramework)' == '' OR '$(TargetFramework)' == '$(DefaultTargetFramework)')"
-		Label="Copies bundled .agents folders shipped by any restored NuGet package (via PurviewAutoSdkPack) into the consuming repository."
-	>
-		<DiscoverAgentPackageFolders
-			ProjectAssetsFile="$(ProjectAssetsFile)"
-			NuGetPackageFolders="$(NuGetPackageFolders)"
-			ExcludeFolder="$([System.IO.Path]::GetFullPath('$(PurviewAgentFolderSourcePath)'))"
-		>
-			<Output TaskParameter="AgentFolders" ItemName="_PurviewPackagedAgentFolder" />
-		</DiscoverAgentPackageFolders>
-		<ItemGroup Condition="'@(_PurviewPackagedAgentFolder)' != ''">
-			<_PurviewPackagedAgentFolderSyncSource Include="@(_PurviewPackagedAgentFolder)">
-				<ChangeGroup>package:%(PackageId)</ChangeGroup>
-			</_PurviewPackagedAgentFolderSyncSource>
-		</ItemGroup>
-		<SyncPurviewRepositoryFiles
-			Mode="Mirror"
-			Sources="@(_PurviewPackagedAgentFolderSyncSource)"
-			DestinationRoot="$(_PurviewAgentFolderDestinationRoot)"
-			ManifestPath="$(_PurviewAgentSyncManifestPath)"
-			Retries="$(PurviewAgentFolderCopyRetries)"
-			RetryDelayMilliseconds="$(PurviewAgentFolderCopyRetryDelayMilliseconds)"
-			TreatFailureAsError="$(PurviewAgentFolderCopyFailureAsError)"
-			DisableMirroredFileTrackingCheck="$(DisableMirroredFileTrackingCheck)"
-			ExcludeRelativeFolders="$(_PurviewAgentFolderExcludedFolders)"
-			Condition="'@(_PurviewPackagedAgentFolderSyncSource)' != ''"
 		/>
 	</Target>
 
@@ -2920,7 +2011,7 @@
 		<Warning
 			Code="PRSKL0002"
 			Condition="'@(PurviewUnresolvableSkillSource)' != ''"
-			Text="%(PurviewUnresolvableSkillSource.PackageId) %(PurviewUnresolvableSkillSource.PackageVersion) ships %(PurviewUnresolvableSkillSource.SkillCount) skill(s) that cannot be installed reproducibly because %(PurviewUnresolvableSkillSource.Reason). The skills are still mirrored into $(AgentPackDestinationFolder)/ by the package itself."
+			Text="%(PurviewUnresolvableSkillSource.PackageId) %(PurviewUnresolvableSkillSource.PackageVersion) ships %(PurviewUnresolvableSkillSource.SkillCount) skill(s) that cannot be installed reproducibly because %(PurviewUnresolvableSkillSource.Reason). Install them explicitly with a pinned ref, or ask the package author to publish it with repository metadata."
 		/>
 
 		<!-- Report whether installing would work, so the answer is known before committing to it.
@@ -3046,7 +2137,7 @@
 		<Warning
 			Code="PRSKL0002"
 			Condition="'@(PurviewUnresolvableSkillSource)' != ''"
-			Text="%(PurviewUnresolvableSkillSource.PackageId) %(PurviewUnresolvableSkillSource.PackageVersion) ships %(PurviewUnresolvableSkillSource.SkillCount) skill(s) that cannot be installed reproducibly because %(PurviewUnresolvableSkillSource.Reason). The skills are still mirrored into $(AgentPackDestinationFolder)/ by the package itself."
+			Text="%(PurviewUnresolvableSkillSource.PackageId) %(PurviewUnresolvableSkillSource.PackageVersion) ships %(PurviewUnresolvableSkillSource.SkillCount) skill(s) that cannot be installed reproducibly because %(PurviewUnresolvableSkillSource.Reason). Install them explicitly with a pinned ref, or ask the package author to publish it with repository metadata."
 		/>
 	</Target>
 
@@ -3122,7 +2213,6 @@
 			RespectStamp="$(_PurviewSkillRespectStamp)"
 			Agents="$(PurviewSkillsAgents)"
 			RepositoryRoot="$(_PurviewSkillRecommendationRoot)"
-			MirrorFolderName="$(AgentPackDestinationFolder)"
 		>
 			<Output TaskParameter="Missing" ItemName="PurviewMissingSkill" />
 			<Output TaskParameter="Drifted" ItemName="PurviewDriftedSkill" />
@@ -3221,62 +2311,25 @@
 		</ItemGroup>
 	</Target>
 
-	<Target
-		Name="IncludeSdkDotAgentsGitIgnoreFiles"
-		DependsOnTargets="InitializeSourceControlInformation"
-		Condition="'$(DefaultTargetFramework)' == '' OR '$(TargetFramework)' == '$(DefaultTargetFramework)'"
-		Label="Generates .gitignore files for each second-level folder under Sdk/.agents and includes them in the package."
-	>
-		<PropertyGroup>
-			<_PurviewSdkDotAgentsRoot>$([MSBuild]::NormalizePath('$(MSBuildProjectDirectory)', 'Sdk', '.agents'))</_PurviewSdkDotAgentsRoot>
-			<_PurviewSdkDotAgentsGitIgnoreStagingRoot>$([MSBuild]::NormalizePath('$(IntermediateOutputPath)', '_PurviewSdkDotAgentsGitIgnores'))</_PurviewSdkDotAgentsGitIgnoreStagingRoot>
-		</PropertyGroup>
-		<RemoveDir
-			Directories="$(_PurviewSdkDotAgentsGitIgnoreStagingRoot)"
-			Condition="'$(_PurviewSdkDotAgentsGitIgnoreStagingRoot)' != ''"
-		/>
-		<!--
-			The trailing entry of GitIgnoreContent ignores the generated file itself rather than
-			re-including it. '!.gitignore' left a mirrored, never-committed file permanently untracked in
-			every consuming repository, and because the nearest .gitignore wins it also overrode the
-			generated '.agents/.gitignore' that lists the mirrored files - so the folder could not be made
-			clean from above. Matches the generated '.purview/.gitignore'.
-		-->
-		<PropertyGroup>
-			<_PurviewSkillsGitIgnoreRoot Condition="'$(PurviewPackRepositorySkills)' == 'true'"
-				>$(PurviewSkillsSourceFolder)</_PurviewSkillsGitIgnoreRoot>
-		</PropertyGroup>
-		<CreateSdkDotAgentsGitIgnoreFiles
-			AgentPackRoot="$(_PurviewSdkDotAgentsRoot)"
-			SkillsRoot="$(_PurviewSkillsGitIgnoreRoot)"
-			SkillNames="$(PurviewSkillsToPack)"
-			StagingRoot="$(_PurviewSdkDotAgentsGitIgnoreStagingRoot)"
-			GitIgnoreContent="# Ignore all files%0a*%0a%0a# Don't ignore directories, so Git can traverse them%0a!*/%0a%0a# This file is mirrored from a NuGet package, so ignore it too%0a/.gitignore"
-			Condition="Exists('$(_PurviewSdkDotAgentsRoot)') OR Exists('$(_PurviewSkillsGitIgnoreRoot)')"
-		>
-			<Output TaskParameter="GitIgnoreFiles" ItemName="_PurviewSdkDotAgentsGitIgnoreFiles" />
-		</CreateSdkDotAgentsGitIgnoreFiles>
-		<ItemGroup Condition="'@(_PurviewSdkDotAgentsGitIgnoreFiles)' != ''">
-			<TfmSpecificPackageFile Include="@(_PurviewSdkDotAgentsGitIgnoreFiles)">
-				<PackagePath>%(PackagePath)</PackagePath>
-			</TfmSpecificPackageFile>
-		</ItemGroup>
-	</Target>
-
 	<!-- =====================================================================
-	     PACK REPOSITORY SKILLS
-	     Packs the repository-root 'skills/' folder into the package's
-	     '.agents/skills/', so a package ships the same skills the skills CLI
-	     discovers in the git repository. Opt-in per project through
-	     PurviewPackRepositorySkills, because the skills belong to one project
-	     in a repository that usually produces several packages.
+	     VALIDATE REPOSITORY SKILLS
+	     Skills are authored at the repository root in skills/<name>/SKILL.md
+	     and published only through the skills CLI, which clones the git
+	     repository. Nothing is packed into the NuGet package - see the
+	     Repository Skills Folder block in Sdk.props.
+
+	     This target is what keeps a malformed skill from reaching the CLI: it
+	     runs at pack time in the repository that owns the skills, so the
+	     failure lands on the author rather than silently producing a skill the
+	     CLI skips.
 	     ===================================================================== -->
 	<Target
 		Name="ValidatePurviewSkills"
+		BeforeTargets="Pack"
 		Condition="'$(PurviewSkillsSourceFolder)' != '' AND Exists('$(PurviewSkillsSourceFolder)')"
 		Label="Validates that every authored skill is well formed."
 	>
-		<ValidatePurviewSkillFolders SkillsRoot="$(PurviewSkillsSourceFolder)" SkillNames="$(PurviewSkillsToPack)">
+		<ValidatePurviewSkillFolders SkillsRoot="$(PurviewSkillsSourceFolder)">
 			<Output TaskParameter="Failures" ItemName="_PurviewSkillValidationFailure" />
 		</ValidatePurviewSkillFolders>
 		<Error
@@ -3291,54 +2344,6 @@
 		/>
 	</Target>
 
-	<Target
-		Name="IncludePurviewSkillsInPackage"
-		DependsOnTargets="ValidatePurviewSkills"
-		Condition="'$(PurviewPackRepositorySkills)' == 'true' AND '$(PurviewSkillsSourceFolder)' != '' AND Exists('$(PurviewSkillsSourceFolder)') AND ('$(DefaultTargetFramework)' == '' OR '$(TargetFramework)' == '$(DefaultTargetFramework)')"
-		Label="Packs the repository-root skills/ folder into the package's .agents/skills/ folder."
-	>
-		<!-- No PurviewSkillsToPack: the project ships every authored skill. RecursiveDir already
-		     starts with the skill folder name, so it maps straight through. -->
-		<ItemGroup Condition="'$(PurviewSkillsToPack)' == ''">
-			<_PurviewRepositorySkillFile Include="$(PurviewSkillsSourceFolder)**/*" />
-			<TfmSpecificPackageFile Include="@(_PurviewRepositorySkillFile)">
-				<PackagePath>.agents/skills/$([System.String]::Copy('%(RecursiveDir)').Replace(&quot;\&quot;, &quot;/&quot;))%(Filename)%(Extension)</PackagePath>
-			</TfmSpecificPackageFile>
-		</ItemGroup>
-
-		<!-- A repository usually produces several packages, and a skill belongs to the one whose
-		     library it describes - Purview.Results.AspNetCore's HTTP mapping skill has no business
-		     in Purview.Results. PurviewSkillsToPack names that subset. The authored copy still lives
-		     once at the repository root; only the delivery is split.
-
-		     Here the glob starts inside the skill folder, so RecursiveDir is relative to it and the
-		     skill name has to be carried as metadata to rebuild the package path. -->
-		<ItemGroup Condition="'$(PurviewSkillsToPack)' != ''">
-			<_PurviewSkillToPack Include="$(PurviewSkillsToPack)" />
-			<_PurviewNamedSkillFile Include="$(PurviewSkillsSourceFolder)%(_PurviewSkillToPack.Identity)/**/*">
-				<SkillName>%(_PurviewSkillToPack.Identity)</SkillName>
-			</_PurviewNamedSkillFile>
-		</ItemGroup>
-
-		<!-- Building the package path is a second step on purpose. Done in the group above, the
-		     expression would mix batching over _PurviewSkillToPack with the new item's own
-		     RecursiveDir; done directly on TfmSpecificPackageFile, '%(SkillName)' would batch over
-		     that whole list - which already holds the .gitignore items - and MSB4096 would follow.
-		     Here only one item list is in play, so every reference is unambiguous. -->
-		<ItemGroup Condition="'$(PurviewSkillsToPack)' != ''">
-			<_PurviewNamedSkillPackageFile Include="@(_PurviewNamedSkillFile)">
-				<PackagePath>.agents/skills/%(SkillName)/$([System.String]::Copy('%(RecursiveDir)').Replace(&quot;\&quot;, &quot;/&quot;))%(Filename)%(Extension)</PackagePath>
-			</_PurviewNamedSkillPackageFile>
-			<TfmSpecificPackageFile Include="@(_PurviewNamedSkillPackageFile)" />
-		</ItemGroup>
-
-		<Error
-			Code="PRSKL0003"
-			Condition="'$(PurviewSkillsToPack)' != '' AND !Exists('$(PurviewSkillsSourceFolder)%(_PurviewSkillToPack.Identity)')"
-			Text="PurviewSkillsToPack names '%(_PurviewSkillToPack.Identity)', but '$(PurviewSkillsSourceFolder)%(_PurviewSkillToPack.Identity)' does not exist. A renamed or deleted skill would otherwise be dropped from the package silently."
-		/>
-	</Target>
-
 	<!-- =====================================================================
 	     REPOSITORY README PACKAGING
 	     Packs the repository-root README for packable projects when the file
@@ -3348,9 +2353,9 @@
 	     ===================================================================== -->
 	<Target
 		Name="IncludeRepoReadmeInPackage"
-		DependsOnTargets="IncludeLinkedSdkFiles;IncludeSdkDotAgentsGitIgnoreFiles"
-		Condition="'$(IsPackable)' == 'true' AND '$(PackageReadmeFile)' == 'README.md' AND '$(RepoRoot)' != '' AND Exists('$(RepoRoot)/README.md') AND ('$(DefaultTargetFramework)' == '' OR '$(TargetFramework)' == '$(DefaultTargetFramework)')"
-		Label="Packs the repository-root README when present and PackageReadmeFile is unset."
+		DependsOnTargets="IncludeLinkedSdkFiles"
+		Condition="'$(IsPackable)' == 'true' AND '$(PackageReadmeFile)' == 'README.md' AND ('$(DefaultTargetFramework)' == '' OR '$(TargetFramework)' == '$(DefaultTargetFramework)')"
+		Label="Packs a project's own README, or the repository-root one, when PackageReadmeFile is unset."
 	>
 		<ItemGroup>
 			<_PurviewPackedReadme
@@ -3366,8 +2371,20 @@
 				Condition="$([System.String]::Copy('%(TfmSpecificPackageFile.Filename)').ToLowerInvariant()) == 'readme'"
 			/>
 		</ItemGroup>
-		<ItemGroup Condition="'@(_PurviewPackedReadme)' == ''">
-			<TfmSpecificPackageFile Include="$(RepoRoot)/README.md">
+		<!-- A project's own README wins over the repository's. A repository that produces several
+		     packages has several stories to tell, and shipping the repository README in every one
+		     tells the reader about the other packages instead of the one they installed. The
+		     repository README stays the fallback for a single-package repository, where the two
+		     are the same document. -->
+		<PropertyGroup Condition="'@(_PurviewPackedReadme)' == ''">
+			<_PurviewReadmeToPack Condition="Exists('$(MSBuildProjectDirectory)/README.md')"
+				>$(MSBuildProjectDirectory)/README.md</_PurviewReadmeToPack>
+			<_PurviewReadmeToPack
+				Condition="'$(_PurviewReadmeToPack)' == '' AND '$(RepoRoot)' != '' AND Exists('$(RepoRoot)/README.md')"
+				>$(RepoRoot)/README.md</_PurviewReadmeToPack>
+		</PropertyGroup>
+		<ItemGroup Condition="'$(_PurviewReadmeToPack)' != ''">
+			<TfmSpecificPackageFile Include="$(_PurviewReadmeToPack)">
 				<PackagePath>/</PackagePath>
 			</TfmSpecificPackageFile>
 		</ItemGroup>
@@ -3782,7 +2799,6 @@
 			<_RepositoryGlobalJsonLines Include="}" />
 		</ItemGroup>
 		<SyncPurviewRepositoryFiles
-			Mode="WriteFile"
 			DestinationFile="$(_EffectiveRepositoryGlobalJsonFilePath)"
 			Lines="@(_RepositoryGlobalJsonLines)"
 			OverwriteExisting="$(_PurviewRepoBootstrapOverwriteExisting)"

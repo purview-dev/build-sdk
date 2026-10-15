@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<PackageId>Purview.Skills.Testing</PackageId>
+		<Title>Purview Skills Testing</Title>
+		<Description>Validates a repository's authored agent skills against the Agent Skills specification: SKILL.md frontmatter, name and description constraints, optional fields, bundled resource links and body size. Ships a TUnit base class, so a consuming repository adds one derived test class and its skills/ folder is checked on every test run.</Description>
+		<PackageTags>agent-skills;skills;skill-md;validation;tunit;purview;dotnet</PackageTags>
+		<IsPackable>true</IsPackable>
+
+		<!--
+			The catalogue and the evaluator are deliberately free of MSBuild and test-framework types,
+			so the rules can be exercised directly. Only PurviewSkillTests touches TUnit.
+		-->
+		<TargetFramework>net10.0</TargetFramework>
+
+		<!--
+			The package name is Purview.Skills.Testing, not Purview.BuildSdk.SkillsTesting: it is
+			consumed by repositories that have no relationship to this SDK beyond building with it.
+			Setting RootNamespace keeps IDE0130's folder check aligned with that choice. Mirrors
+			Purview.Architecture.Testing, which is packaged the same way for the same reason.
+		-->
+		<RootNamespace>Purview.Skills.Testing</RootNamespace>
+		<AssemblyName>Purview.Skills.Testing</AssemblyName>
+		<NamespacePrefix>Purview.Skills</NamespacePrefix>
+		<!--
+			Off because the SDK otherwise emits `global using Purview.BuildSdk;` from the repository
+			prefix, and this assembly deliberately sits outside it. The files here declare their
+			usings explicitly.
+		-->
+		<AutoIncludeUsings>false</AutoIncludeUsings>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<!--
+			TUnit supplies the base class only. These are normal dependencies rather than development
+			ones: a consuming test project derives from PurviewSkillTests and needs the attributes and
+			assertions at compile time.
+		-->
+		<PackageReference Include="TUnit.Core" />
+		<PackageReference Include="TUnit.Assertions" />
+	</ItemGroup>
+</Project>

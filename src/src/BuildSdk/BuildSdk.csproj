@@ -30,14 +30,10 @@
 		<NoDefaultExcludes>true</NoDefaultExcludes>
 		<!-- No C# so no need to generate useful usings -->
 		<AutoIncludeUsings>false</AutoIncludeUsings>
-		<!-- This project owns the repository's skills, so it is the one that packs them into
-		     .agents/skills/. The authored copy lives at the repository root so the skills CLI
-		     can discover it in a git clone; see the Repository Skills Folder block in Sdk.props. -->
-		<PurviewPackRepositorySkills>true</PurviewPackRepositorySkills>
-		<!-- Only the SDK's own guidance ships to consumers. The repository's other authored skills
-		     (tunit-*, git-conventional-commits, lefthook-integration) describe working *in this
-		     repository*, so they stay installable from the git source but are not packed. -->
-		<PurviewSkillsToPack>project-placement-defaults;sdk-configuration-reference;sdk-engineering-principles;sdk-project-behavior-and-detection</PurviewSkillsToPack>
+		<!-- Skills are not packed into any package. They live at the repository root in skills/
+		     and are published through the skills CLI, which clones the git repository:
+		     `npx skills add purview-dev/build-sdk`. ValidatePurviewSkills still runs before Pack,
+		     so a malformed skill fails here rather than reaching the CLI. -->
 	</PropertyGroup>
 
 	<ItemGroup>
@@ -67,12 +63,6 @@
 			Visible="true"
 		/>
 
-		<None
-			Include="Sdk/.agents/**/*"
-			Pack="true"
-			PackagePath=".agents/$([System.String]::Copy('%(RecursiveDir)').Replace(&quot;\&quot;, &quot;/&quot;))%(Filename)%(Extension)"
-			Visible="true"
-		/>
 		<None
 			Include="Sdk/.github/**/*"
 			Pack="true"
@@ -108,7 +98,7 @@
 			Pack="true"
 			PackagePath="Sdk/$([System.String]::Copy('%(RecursiveDir)').Replace(&quot;\&quot;, &quot;/&quot;))%(Filename)%(Extension)"
 			Visible="true"
-			Exclude="Sdk/.agents/**/*;Sdk/.github/**/*;Sdk/build/**/*;Sdk/buildTransitive/**/*;Sdk/buildMultiTargeting/**/*;Sdk/*.md;Sdk/*.png;Sdk/*.jpg;Sdk/*.jpeg;Sdk/*.gif;Sdk/*.svg"
+			Exclude="Sdk/.github/**/*;Sdk/build/**/*;Sdk/buildTransitive/**/*;Sdk/buildMultiTargeting/**/*;Sdk/*.md;Sdk/*.png;Sdk/*.jpg;Sdk/*.jpeg;Sdk/*.gif;Sdk/*.svg"
 		/>
 
 		<None Include="$(MSBuildThisFileDirectory)../../../README.md" Pack="true" PackagePath="/" />

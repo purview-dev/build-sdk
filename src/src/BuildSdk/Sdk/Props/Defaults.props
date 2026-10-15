@@ -51,7 +51,6 @@
 		<DockerfileContext Condition="'$(DockerfileContext)' == ''"></DockerfileContext>
 		<EditorConfigFilePath Condition="'$(EditorConfigFilePath)' == ''"></EditorConfigFilePath>
 		<EmbedUntrackedSources Condition="'$(EmbedUntrackedSources)' == ''">true</EmbedUntrackedSources>
-		<EnableAgentFolderInPackage Condition="'$(EnableAgentFolderInPackage)' == ''">true</EnableAgentFolderInPackage>
 		<EnableDynamicNativeInstrumentation Condition="'$(EnableDynamicNativeInstrumentation)' == ''"
 			>false</EnableDynamicNativeInstrumentation>
 		<EnableMicrosoftTestingPlatform Condition="'$(EnableMicrosoftTestingPlatform)' == ''"
@@ -62,18 +61,6 @@
 		<EnforceCodeStyleInBuild Condition="'$(EnforceCodeStyleInBuild)' == ''">true</EnforceCodeStyleInBuild>
 		<EnableAssemblyNameGeneration Condition="'$(EnableAssemblyNameGeneration)' == ''"
 			>true</EnableAssemblyNameGeneration>
-		<AgentPackDestinationFolder Condition="'$(AgentPackDestinationFolder)' == ''"
-			>.agents</AgentPackDestinationFolder>
-		<PurviewAgentFolderCopyFailureAsError Condition="'$(PurviewAgentFolderCopyFailureAsError)' == ''"
-			>true</PurviewAgentFolderCopyFailureAsError>
-		<PurviewAgentFolderCopyRetries Condition="'$(PurviewAgentFolderCopyRetries)' == ''"
-			>3</PurviewAgentFolderCopyRetries>
-		<PurviewAgentFolderCopyRetryDelayMilliseconds
-			Condition="'$(PurviewAgentFolderCopyRetryDelayMilliseconds)' == ''"
-			>500</PurviewAgentFolderCopyRetryDelayMilliseconds>
-		<PurviewAgentSyncManifestPath
-			Condition="'$(PurviewAgentSyncManifestPath)' == ''"
-		></PurviewAgentSyncManifestPath>
 		<!-- Recommendations are the one skill feature that runs during an ordinary build. They stay
 		     offline (they read the restore graph and the skills CLI's own lockfile), they never
 		     install anything, and they never fail a build. -->
@@ -111,13 +98,8 @@
 		     'package.json' - a monorepo package is not the repository. A trailing slash marks a
 		     directory (and still matches a file of that name, because '.git' is a file in a worktree
 		     or submodule); anything else must be a file. -->
-		<!-- Skills have exactly one installer: the skills CLI. A package still ships
-		     '.agents/skills/' so the SDK can tell which skills it offers and at which commit, but
-		     that folder is metadata, not content to copy - the mirror writing it as well would put
-		     two writers on the same paths, and the mirror would silently overwrite a pinned install
-		     on the next build. Set false to restore the old copy-everything behaviour. -->
-		<PurviewMirrorPackagedSkills Condition="'$(PurviewMirrorPackagedSkills)' == ''"
-			>false</PurviewMirrorPackagedSkills>
+		<!-- Skills have exactly one installer: the skills CLI. There is deliberately no property
+		     here that re-enables mirroring them - see the exclusion in Sdk.targets. -->
 		<PurviewRepositoryRootMarkers Condition="'$(PurviewRepositoryRootMarkers)' == ''"
 			>.git/;.github/;.gitattributes;LICENSE.md;AGENTS.md;.agents/;CLAUDE.md;.claude/;package.json</PurviewRepositoryRootMarkers>
 		<PurviewRepoBootstrapCopyFailureAsError Condition="'$(PurviewRepoBootstrapCopyFailureAsError)' == ''"

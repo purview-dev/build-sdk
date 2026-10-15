@@ -24,7 +24,6 @@ repo root inherits everything automatically.
 - [SDK-Shipped Analyzers](Analyzers.md)
 - [Code Fixes](Code-Fixes.md)
 - [Repository Bootstrap](Repository-Bootstrap.md)
-- [Agent Folder](Agent-Folder.md)
 - [Agent Skills](Agent-Skills.md)
 - [Release Flow](Release-Flow.md)
 

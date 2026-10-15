@@ -162,19 +162,18 @@ sealed class PurviewSkillValidationTests
 	}
 
 	[Test]
-	public async Task ValidatePurviewSkills_OnlyChecksTheSkillsThisProjectPacks(CancellationToken cancellationToken)
+	public async Task ValidatePurviewSkills_ChecksEveryAuthoredSkill(CancellationToken cancellationToken)
 	{
 		using var harness = await CreateHarnessAsync(cancellationToken);
 		await WriteSkillAsync(harness, "purview-shipped", ValidSkill("purview-shipped"), cancellationToken);
-		// Broken, but owned by a different project in the same repository.
+		// Nothing is packed any more, so there is no per-project subset to narrow to: every skill in
+		// the repository is published through the CLI, so every skill has to be well formed.
 		await WriteSkillAsync(harness, "purview-other", "# no frontmatter\n", cancellationToken);
 
-		var (exitCode, stdOut, stdErr) = await harness.RunMSBuildAsync(
-			"-t:ValidatePurviewSkills -v:n -p:PurviewSkillsToPack=purview-shipped",
-			cancellationToken
-		);
+		var (exitCode, stdOut, stdErr) = await ValidateAsync(harness, cancellationToken);
 
-		await Assert.That(exitCode).IsZero().Because(TestHelpers.GenerateError(stdOut, stdErr));
+		await Assert.That(exitCode).IsNotZero().Because(TestHelpers.GenerateError(stdOut, stdErr));
+		await Assert.That(stdOut + stdErr).Contains("purview-other");
 	}
 
 	[Test]
@@ -187,7 +186,6 @@ sealed class PurviewSkillValidationTests
 			<DisableSourceLink>true</DisableSourceLink>
 			<ExcludePurviewTelemetry>true</ExcludePurviewTelemetry>
 			<ExcludeMSTelemetryExtension>true</ExcludeMSTelemetryExtension>
-			<PurviewPackRepositorySkills>true</PurviewPackRepositorySkills>
 			""",
 			cancellationToken: cancellationToken
 		);
