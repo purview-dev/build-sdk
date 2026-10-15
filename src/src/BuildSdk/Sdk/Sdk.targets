@@ -706,6 +706,143 @@
 	</UsingTask>
 
 	<!-- =====================================================================
+	     VALIDATE AUTHORED SKILLS
+	     A malformed skill fails quietly where it hurts most: the skills CLI
+	     skips a SKILL.md whose frontmatter it cannot parse, so the skill simply
+	     never appears, and a consumer has no way to tell that from a skill that
+	     was never written. The package would ship it regardless.
+
+	     So the shape is checked at pack time, where the repository that owns
+	     the skill is the one that sees the failure:
+
+	       * every folder under the skills root has a SKILL.md,
+	       * that file opens with YAML frontmatter carrying 'name' and
+	         'description' - the two fields the CLI requires,
+	       * 'name' matches the folder name, because the CLI addresses a skill
+	         by the name in the frontmatter while a human reads the folder, and
+	       * every 'references/...' path the body links to exists.
+
+	     Deliberately not checked: prose quality, and whether an agent obeys the
+	     skill. A build can only check that a skill is well formed.
+	     ===================================================================== -->
+	<UsingTask
+		TaskName="ValidatePurviewSkillFolders"
+		TaskFactory="RoslynCodeTaskFactory"
+		AssemblyFile="$([System.IO.Path]::Combine('$(MSBuildToolsPath)', 'Microsoft.Build.Tasks.Core.dll'))"
+	>
+		<ParameterGroup>
+			<SkillsRoot ParameterType="System.String" Required="true" />
+			<SkillNames ParameterType="System.String" Required="false" />
+			<Failures ParameterType="Microsoft.Build.Framework.ITaskItem[]" Output="true" />
+		</ParameterGroup>
+		<Task>
+			<Using Namespace="System.IO" />
+			<Using Namespace="System.Linq" />
+			<Using Namespace="System.Text.RegularExpressions" />
+			<Using Namespace="Microsoft.Build.Framework" />
+			<Using Namespace="Microsoft.Build.Utilities" />
+			<Reference Include="$([System.IO.Path]::Combine('$(MSBuildToolsPath)', 'Microsoft.Build.Framework.dll'))" />
+			<Reference Include="$([System.IO.Path]::Combine('$(MSBuildToolsPath)', 'Microsoft.Build.Utilities.Core.dll'))" />
+			<Code Type="Fragment" Language="cs">
+				<![CDATA[
+					var failures = new List<ITaskItem>();
+					var seenNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+					if (Directory.Exists(SkillsRoot))
+					{
+						var selected = (SkillNames ?? string.Empty)
+							.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries)
+							.Select(name => name.Trim())
+							.Where(name => name.Length > 0)
+							.ToArray();
+
+						foreach (var skillDirectory in Directory.GetDirectories(SkillsRoot).OrderBy(dir => dir, StringComparer.Ordinal))
+						{
+							var folderName = Path.GetFileName(skillDirectory);
+							if (selected.Length > 0 && Array.IndexOf(selected, folderName) < 0)
+								continue;
+
+							var skillFile = Path.Combine(skillDirectory, "SKILL.md");
+							if (!File.Exists(skillFile))
+							{
+								failures.Add(new TaskItem(folderName + ": no SKILL.md. A skill folder without one is invisible to the skills CLI."));
+								continue;
+							}
+
+							var text = File.ReadAllText(skillFile);
+							var normalized = text.Replace("\r\n", "\n");
+							if (!normalized.StartsWith("---\n", StringComparison.Ordinal))
+							{
+								failures.Add(new TaskItem(folderName + ": SKILL.md does not open with YAML frontmatter ('---' on the first line)."));
+								continue;
+							}
+
+							var end = normalized.IndexOf("\n---", 3, StringComparison.Ordinal);
+							if (end < 0)
+							{
+								failures.Add(new TaskItem(folderName + ": SKILL.md frontmatter is not terminated by a closing '---'."));
+								continue;
+							}
+
+							var frontmatter = normalized.Substring(4, end - 3);
+							var body = normalized.Substring(end);
+
+							// 'name: value' on its own line. The value is required; a bare key is not a name.
+							var nameMatch = Regex.Match(frontmatter, "(?m)^name:[ \\t]*(?<value>\\S.*?)[ \\t]*$");
+							if (!nameMatch.Success)
+								failures.Add(new TaskItem(folderName + ": SKILL.md frontmatter has no 'name'. The skills CLI requires it."));
+							else
+							{
+								var declaredName = nameMatch.Groups["value"].Value.Trim().Trim('"', '\'');
+								if (!string.Equals(declaredName, folderName, StringComparison.Ordinal))
+								{
+									failures.Add(new TaskItem(
+										folderName + ": frontmatter name is '" + declaredName + "' but the folder is '" + folderName
+											+ "'. The CLI installs by frontmatter name, so they must match."
+									));
+								}
+
+								string firstSeenIn;
+								if (seenNames.TryGetValue(declaredName, out firstSeenIn))
+									failures.Add(new TaskItem(folderName + ": skill name '" + declaredName + "' is already used by '" + firstSeenIn + "'."));
+								else
+									seenNames[declaredName] = folderName;
+							}
+
+							// A description may be inline or a YAML block scalar ('>-' then indented lines),
+							// so an empty inline value is only a failure when nothing is indented beneath it.
+							var descriptionMatch = Regex.Match(frontmatter, "(?m)^description:[ \\t]*(?<value>.*)$");
+							if (!descriptionMatch.Success)
+								failures.Add(new TaskItem(folderName + ": SKILL.md frontmatter has no 'description'. It is the activation trigger."));
+							else
+							{
+								var inline = descriptionMatch.Groups["value"].Value.Trim();
+								var hasBlock = Regex.IsMatch(
+									frontmatter.Substring(descriptionMatch.Index + descriptionMatch.Length),
+									"^\\n[ \\t]+\\S"
+								);
+								if ((inline.Length == 0 || inline == ">-" || inline == ">" || inline == "|" || inline == "|-") && !hasBlock)
+									failures.Add(new TaskItem(folderName + ": SKILL.md 'description' is empty. It is the activation trigger."));
+							}
+
+							// Every references/... path the body links to has to exist, or progressive
+							// disclosure sends the agent to a file that is not there.
+							foreach (Match reference in Regex.Matches(body, "references/(?<file>[A-Za-z0-9._-]+\\.md)"))
+							{
+								var referencePath = Path.Combine(skillDirectory, "references", reference.Groups["file"].Value);
+								if (!File.Exists(referencePath))
+									failures.Add(new TaskItem(folderName + ": SKILL.md links to 'references/" + reference.Groups["file"].Value + "', which does not exist."));
+							}
+						}
+					}
+
+					Failures = failures.ToArray();
+				]]>
+			</Code>
+		</Task>
+	</UsingTask>
+
+	<!-- =====================================================================
 	     DETECT THE SKILLS CLI
 	     Installation shells out to the skills CLI, which is Node tooling and is
 	     therefore not guaranteed to be present on a machine that can build .NET.
@@ -2251,7 +2388,28 @@
 	     in a repository that usually produces several packages.
 	     ===================================================================== -->
 	<Target
+		Name="ValidatePurviewSkills"
+		Condition="'$(PurviewSkillsSourceFolder)' != '' AND Exists('$(PurviewSkillsSourceFolder)')"
+		Label="Validates that every authored skill is well formed."
+	>
+		<ValidatePurviewSkillFolders SkillsRoot="$(PurviewSkillsSourceFolder)" SkillNames="$(PurviewSkillsToPack)">
+			<Output TaskParameter="Failures" ItemName="_PurviewSkillValidationFailure" />
+		</ValidatePurviewSkillFolders>
+		<Error
+			Code="PRSKL0005"
+			Condition="'@(_PurviewSkillValidationFailure)' != ''"
+			Text="%(_PurviewSkillValidationFailure.Identity)"
+		/>
+		<Message
+			Importance="Low"
+			Condition="'@(_PurviewSkillValidationFailure)' == ''"
+			Text="Authored skills in '$(PurviewSkillsSourceFolder)' are well formed."
+		/>
+	</Target>
+
+	<Target
 		Name="IncludePurviewSkillsInPackage"
+		DependsOnTargets="ValidatePurviewSkills"
 		Condition="'$(PurviewPackRepositorySkills)' == 'true' AND '$(PurviewSkillsSourceFolder)' != '' AND Exists('$(PurviewSkillsSourceFolder)') AND ('$(DefaultTargetFramework)' == '' OR '$(TargetFramework)' == '$(DefaultTargetFramework)')"
 		Label="Packs the repository-root skills/ folder into the package's .agents/skills/ folder."
 	>

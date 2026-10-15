@@ -81,6 +81,19 @@ The CLI is Node tooling, so it is not guaranteed on a machine that can build .NE
 
 `ListPurviewSkills` reports CLI availability but **never** errors on its absence — resolving and reporting needs no Node tooling at all.
 
+### Validating skills
+
+`ValidatePurviewSkills` checks that every authored skill is well formed, and `IncludePurviewSkillsInPackage` depends on it — so a malformed skill fails the pack in the repository that owns it, rather than shipping a skill the CLI will silently skip. It checks:
+
+- every folder under the skills root has a `SKILL.md`,
+- that file opens with YAML frontmatter carrying `name` and `description` (a `>-` block scalar counts),
+- `name` matches the folder name, because the CLI installs by frontmatter name while a human reads the folder, and
+- every `references/...` path the body links to exists.
+
+Failures are reported as `PRSKL0005`, one per problem. When `PurviewSkillsToPack` is set, only that subset is checked, so one project is not failed by another project's skill. Prose quality and whether an agent obeys a skill are deliberately **not** checked — a build can only check that a skill is well formed.
+
+Tests live in `src/tests/BuildSdk.IntegrationTests/PurviewSkillValidationTests.cs`.
+
 ### Installing from an explicit source
 
 `PurviewSkillsSource` installs straight from a git source, bypassing package resolution, for a repository that wants a Purview skill it has no `PackageReference` for:
