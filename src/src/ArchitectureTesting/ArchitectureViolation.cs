@@ -43,4 +43,13 @@ public static class ArchitectureRules
 
 	/// <summary>A waiver that is stale, unjustified or malformed.</summary>
 	public const string WaiverIntegrity = "waiverIntegrity";
+
+	/// <summary>
+	/// No projects were discovered, so every other rule would pass vacuously.
+	/// </summary>
+	/// <remarks>
+	/// The most dangerous result this package can produce is a green run that checked nothing. An
+	/// empty graph satisfies every rule by construction, so emptiness is itself a violation.
+	/// </remarks>
+	public const string GraphDiscovery = "graphDiscovery";
 }

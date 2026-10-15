@@ -22,6 +22,17 @@ public sealed class ArchitecturePolicy
 	[JsonPropertyName("version")]
 	public int Version { get; init; }
 
+	/// <summary>
+	/// Repo-relative folders holding the projects. An empty array scans the repository root.
+	/// </summary>
+	/// <remarks>
+	/// Defaults to <c>src</c>, which is the Purview layout. A repository with a different shape must
+	/// set this, or discovery finds nothing - which the GraphDiscovery rule reports rather than
+	/// letting every other rule pass vacuously.
+	/// </remarks>
+	[JsonPropertyName("sourceRoots")]
+	public IReadOnlyList<string> SourceRoots { get; init; } = ["src"];
+
 	[JsonPropertyName("responsibilities")]
 	public IReadOnlyList<Responsibility> Responsibilities { get; init; } = [];
 
@@ -76,8 +87,23 @@ public sealed class ArchitecturePolicy
 		DirectoryInfo? directory = new(AppContext.BaseDirectory);
 		while (directory is not null)
 		{
-			if (File.Exists(Path.Combine(directory.FullName, ".config", "architecture-policy.json")))
+			if (File.Exists(Path.Combine(directory.FullName, RelativePath)))
 				return directory.FullName;
+
+			// Stop at the repository boundary. Walking past it would happily find a policy belonging
+			// to a parent folder - a sibling checkout, or a stray file in the directory everything is
+			// cloned into - and silently validate this repository against someone else's rules.
+			if (
+				Directory.Exists(Path.Combine(directory.FullName, ".git"))
+				|| File.Exists(Path.Combine(directory.FullName, ".git"))
+			)
+			{
+				throw new InvalidOperationException(
+					$"No architecture policy was found in the repository at '{directory.FullName}'. "
+						+ $"Add '{RelativePath}', or override RepositoryRoot on the test class. "
+						+ "The search deliberately stops at the repository boundary rather than continuing into parent folders."
+				);
+			}
 
 			directory = directory.Parent;
 		}

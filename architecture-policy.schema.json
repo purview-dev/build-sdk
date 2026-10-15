@@ -35,6 +35,13 @@
         }
       }
     },
+    "sourceRoots": {
+      "type": "array",
+      "description": "Repo-relative folders holding the projects. Defaults to [\"src\"]. An empty array scans the repository root, which suits a flat layout. Getting this wrong finds no projects, which the graphDiscovery rule reports rather than passing every other rule vacuously.",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true,
+      "default": ["src"]
+    },
     "responsibilities": {
       "type": "array",
       "minItems": 1,

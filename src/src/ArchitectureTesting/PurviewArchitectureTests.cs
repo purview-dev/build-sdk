@@ -66,6 +66,11 @@ public abstract class PurviewArchitectureTests
 	}
 
 	[Test]
+	public Task Repository_GivenItsSourceRoots_YieldsProjectsToCheck() =>
+		// Runs before the rules it protects: an empty graph satisfies all of them.
+		AssertRule(ArchitectureRules.GraphDiscovery, Evaluator.GraphDiscovery());
+
+	[Test]
 	public Task ProductionProjects_GivenTheirNames_MapToAResponsibility() =>
 		AssertRule(ArchitectureRules.Naming, Evaluator.Naming());
 

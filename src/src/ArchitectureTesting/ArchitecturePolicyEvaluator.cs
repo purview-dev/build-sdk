@@ -32,7 +32,9 @@ public sealed class ArchitecturePolicyEvaluator
 	{
 		var root = repositoryRoot ?? ArchitecturePolicy.RepositoryRoot();
 
-		return new ArchitecturePolicyEvaluator(ArchitecturePolicy.Load(root), ProjectGraph.Load(root));
+		var policy = ArchitecturePolicy.Load(root);
+
+		return new ArchitecturePolicyEvaluator(policy, ProjectGraph.Load(root, policy.SourceRoots));
 	}
 
 	/// <summary>The policy being applied.</summary>
@@ -45,6 +47,7 @@ public sealed class ArchitecturePolicyEvaluator
 	/// <returns>Every violation found, in rule order.</returns>
 	public IReadOnlyList<ArchitectureViolation> EvaluateAll() =>
 		[
+			.. GraphDiscovery(),
 			.. Naming(),
 			.. DiscouragedNames(),
 			.. DependencyMatrix(),
@@ -55,6 +58,27 @@ public sealed class ArchitecturePolicyEvaluator
 			.. TestReferences(),
 			.. WaiverIntegrity(),
 		];
+
+	/// <summary>Reports when no projects were discovered at all.</summary>
+	/// <returns>The violations.</returns>
+	/// <remarks>
+	/// Every other rule is satisfied by an empty graph, so without this a repository whose layout the
+	/// scan does not match gets a completely green architecture suite that checked nothing. Emptiness
+	/// has to be the loud failure, not the quiet success.
+	/// </remarks>
+	public IReadOnlyList<ArchitectureViolation> GraphDiscovery() =>
+		ProductionProjects.Any()
+			? []
+			:
+			[
+				new ArchitectureViolation(
+					ArchitectureRules.GraphDiscovery,
+					"(repository)",
+					"No production projects were discovered, so every other rule would pass without checking anything. "
+						+ $"Looked under: {(_policy.SourceRoots.Count == 0 ? "(repository root)" : string.Join(", ", _policy.SourceRoots))}. "
+						+ "Set 'sourceRoots' in the policy to the folders holding the projects; an empty array scans the repository root."
+				),
+			];
 
 	/// <summary>Projects whose names map to no responsibility.</summary>
 	/// <returns>The violations.</returns>

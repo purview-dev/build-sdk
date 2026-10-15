@@ -27,17 +27,50 @@ public sealed record ProjectNode(
 /// </remarks>
 public static class ProjectGraph
 {
-	/// <summary>Loads every project beneath the repository's source folder.</summary>
+	/// <summary>Loads every project beneath the repository's default source folder.</summary>
 	/// <param name="repositoryRoot">The repository root.</param>
 	/// <returns>The projects, keyed by name.</returns>
-	public static IReadOnlyDictionary<string, ProjectNode> Load(string repositoryRoot)
+	public static IReadOnlyDictionary<string, ProjectNode> Load(string repositoryRoot) => Load(repositoryRoot, ["src"]);
+
+	/// <summary>Loads every project beneath the given source roots.</summary>
+	/// <param name="repositoryRoot">The repository root.</param>
+	/// <param name="sourceRoots">
+	/// Repo-relative folders to scan. An empty collection scans the repository root, which suits a
+	/// flat layout.
+	/// </param>
+	/// <returns>The projects, keyed by name.</returns>
+	/// <remarks>
+	/// A source root that does not exist is skipped rather than throwing, because a repository may
+	/// legitimately configure roots it does not all use. The caller must notice an *empty* result:
+	/// an empty graph satisfies every other rule, so it would otherwise pass silently. That is what
+	/// <see cref="ArchitecturePolicyEvaluator.GraphDiscovery"/> is for.
+	/// </remarks>
+	public static IReadOnlyDictionary<string, ProjectNode> Load(
+		string repositoryRoot,
+		IReadOnlyList<string> sourceRoots
+	)
 	{
-		var sourceRoot = Path.Combine(repositoryRoot, "src");
+		ArgumentNullException.ThrowIfNull(sourceRoots);
+
 		Dictionary<string, ProjectNode> projects = new(StringComparer.OrdinalIgnoreCase);
 
-		if (!Directory.Exists(sourceRoot))
-			return projects;
+		var roots =
+			sourceRoots.Count == 0 ? [repositoryRoot] : sourceRoots.Select(root => Path.Combine(repositoryRoot, root));
 
+		foreach (var sourceRoot in roots)
+		{
+			if (Directory.Exists(sourceRoot))
+				Scan(sourceRoot, projects);
+		}
+
+		return projects;
+	}
+
+	/// <summary>Scans one source root for projects.</summary>
+	/// <param name="sourceRoot">The folder to scan.</param>
+	/// <param name="projects">The accumulating project map.</param>
+	static void Scan(string sourceRoot, Dictionary<string, ProjectNode> projects)
+	{
 		foreach (var projectPath in Directory.EnumerateFiles(sourceRoot, "*.csproj", SearchOption.AllDirectories))
 		{
 			// bin/ and obj/ can hold copies of project files during a build; they are not the source.
@@ -58,8 +91,6 @@ public static class ProjectGraph
 			var node = Read(projectPath);
 			projects[node.Name] = node;
 		}
-
-		return projects;
 	}
 
 	/// <summary>Reads a single project file.</summary>
