@@ -382,6 +382,18 @@
 		<CompilerVisibleProperty Include="PurviewSkillsSource">
 			<Description>Installs from an explicit git source (owner/repo, optionally '#ref') instead of from referenced packages.</Description>
 		</CompilerVisibleProperty>
+		<CompilerVisibleProperty Include="EnablePurviewSkillRecommendations">
+			<Description>When true, an ordinary build reports missing or version-drifted agent skills. Offline, never installs, never fails the build. Defaults to true.</Description>
+		</CompilerVisibleProperty>
+		<CompilerVisibleProperty Include="PurviewSkillRecommendationsInCI">
+			<Description>When true, skill recommendations are reported on CI builds as well. Defaults to false.</Description>
+		</CompilerVisibleProperty>
+		<CompilerVisibleProperty Include="PurviewSkillRecommendationStampPath">
+			<Description>Overrides the stamp used to report each distinct skill state once per repository. Defaults to the repository .purview/skill-recommendations.cache file.</Description>
+		</CompilerVisibleProperty>
+		<CompilerVisibleProperty Include="PurviewSkillsLockFile">
+			<Description>Overrides where the skills CLI's skills-lock.json is read from. Defaults to the repository root.</Description>
+		</CompilerVisibleProperty>
 		<CompilerVisibleProperty Include="PurviewRepoBootstrapMode">
 			<Description>Controls repo-level file bootstrapping (IfMissing, Always, WarnOnDrift or Never). Defaults to IfMissing.</Description>
 		</CompilerVisibleProperty>

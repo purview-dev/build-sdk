@@ -1,0 +1,60 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<PackageId>Purview.Architecture.Testing</PackageId>
+		<Title>Purview Architecture Testing</Title>
+		<Description>Evaluates a repository's project graph against a declared architecture policy: dependency direction, sibling independence, composition boundaries, forbidden framework packages, cycles and project naming. Ships the policy JSON Schema and a TUnit base class, so a consuming repository adds a policy file and one derived test class.</Description>
+		<PackageTags>architecture;architecture-tests;dependency-rules;tunit;purview;dotnet</PackageTags>
+		<IsPackable>true</IsPackable>
+
+		<!--
+			The policy reader and evaluator are deliberately free of MSBuild and test-framework types,
+			so the rules can be exercised directly. Only PurviewArchitectureTests touches TUnit.
+		-->
+		<TargetFramework>net10.0</TargetFramework>
+
+		<!--
+			The package name is Purview.Architecture.Testing, not Purview.BuildSdk.ArchitectureTesting:
+			it is consumed by repositories that have no relationship to this SDK beyond building with
+			it. Setting RootNamespace keeps IDE0130's folder check aligned with that choice.
+		-->
+		<RootNamespace>Purview.Architecture.Testing</RootNamespace>
+		<AssemblyName>Purview.Architecture.Testing</AssemblyName>
+		<NamespacePrefix>Purview.Architecture</NamespacePrefix>
+		<!--
+			Off because the SDK otherwise emits `global using Purview.BuildSdk;` from the repository
+			prefix, and this assembly deliberately sits outside it. BuildSdk.csproj does the same for
+			the same reason; the files here declare their usings explicitly.
+		-->
+		<AutoIncludeUsings>false</AutoIncludeUsings>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<PackageReference Include="JsonSchema.Net" />
+		<!--
+			TUnit supplies the base class only. These are normal dependencies rather than development
+			ones: a consuming test project derives from PurviewArchitectureTests and needs the
+			attributes and assertions at compile time.
+		-->
+		<PackageReference Include="TUnit.Core" />
+		<PackageReference Include="TUnit.Assertions" />
+	</ItemGroup>
+
+	<!--
+		The schema is embedded so the evaluator can validate a policy without reaching the network,
+		and linked so it is visible in the project tree. It is also published at a raw GitHub URL for
+		editors, which is the identifier a policy file's `$schema` points at. Mirrors how
+		Purview.Build ships purview-build.schema.json.
+	-->
+	<ItemGroup>
+		<EmbeddedResource
+			Include="$(MSBuildThisFileDirectory)../../../architecture-policy.schema.json"
+			LogicalName="Purview.Architecture.Testing.PolicySchema.json"
+		/>
+		<None
+			Include="$(MSBuildThisFileDirectory)../../../architecture-policy.schema.json"
+			Link="architecture-policy.schema.json"
+			Pack="true"
+			PackagePath="content/architecture-policy.schema.json"
+		/>
+	</ItemGroup>
+</Project>

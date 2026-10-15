@@ -94,6 +94,31 @@ Failures are reported as `PRSKL0005`, one per problem. When `PurviewSkillsToPack
 
 Tests live in `src/tests/BuildSdk.IntegrationTests/PurviewSkillValidationTests.cs`.
 
+### Recommending skills
+
+Installation is explicit, but **recommendation runs during an ordinary build** — it is the one skill feature that does. `RecommendPurviewSkillsOnBuild` (`AfterTargets="Build"`) delegates to `RecommendPurviewSkills`, which can also be invoked by name:
+
+```bash
+dotnet msbuild <project> -t:RecommendPurviewSkills
+```
+
+`EvaluatePurviewSkillState` (inline task in `Sdk/Sdk.targets`) joins the skills each restored package ships against the CLI's own `skills-lock.json` and classifies every one: satisfied, missing (`PRSKL0010`), ref-drifted (`PRSKL0011`), unverifiable (`PRSKL0012`), orphaned (`PRSKL0013`), or recorded-but-never-restored (`PRSKL0014`). Both inputs are local, so it stays offline and spawns no process.
+
+The lockfile is read directly rather than by parsing `npx skills list --json`, because that listing omits the `ref` — and the ref is the whole compatibility question. Reading a file also needs no Node tooling, which is what keeps recommendations working on a machine that can build .NET but has no Node. There is deliberately no competing lockfile.
+
+Drift **never** recommends `npx skills update`: `update` installs the newest published skill, which is only correct when the newest skill happens to describe the referenced package version. `PRSKL0011` names the referenced package's own commit in a pinned `npx skills add` instead.
+
+Four things keep it quiet, and all of them are load-bearing:
+
+- design-time builds (`DesignTimeBuild`), CI builds (`ContinuousIntegrationBuild`/`TF_BUILD`/`GITHUB_ACTIONS`/`CI` unless `PurviewSkillRecommendationsInCI=true`), non-default TFM passes and `EnablePurviewSkillRecommendations=false` are all skipped outright;
+- a fingerprint stamp (`<repo root>/.purview/skill-recommendations.cache`) means a given state is reported once per repository rather than once per project and again on every rebuild — the explicit target ignores the stamp;
+- missing and drifted are warnings (actionable in one command), while unverifiable and orphaned are messages, so no amount of skill advice can break a build using `TreatWarningsAsErrors`; and
+- a correctly installed set produces no output at all.
+
+Orphan detection is **owner-scoped on purpose**: a lockfile cannot record who asked for an entry, so only an entry under an owner the project references — but from a repository it no longer references — is reported. A skill from any other owner is the developer's own and is never mentioned.
+
+Tests live in `src/tests/BuildSdk.IntegrationTests/PurviewSkillRecommendationTests.cs`, with the shared on-disk fixtures (fake restored package, assets file, lockfile) in `SkillPackageFixtures.cs`. Note that `BuildingProject` is only `true` when the `Build` target actually runs, so tests driving the build hook by name must supply it; `AnOrdinaryBuild_ReportsSkillState` covers the genuine end-to-end path.
+
 ### Installing from an explicit source
 
 `PurviewSkillsSource` installs straight from a git source, bypassing package resolution, for a repository that wants a Purview skill it has no `PackageReference` for:
@@ -106,8 +131,27 @@ The caller owns the ref in that case — append `#<ref>` to pin it. This path ne
 
 Tests live in `src/tests/BuildSdk.IntegrationTests/PurviewSkillResolutionTests.cs`, including the guarantee that an ordinary restore-and-build writes no lockfile and creates no agent directory.
 
+## Purview.Architecture.Testing
+
+`src/src/ArchitectureTesting/` ships a second package: the architecture rule engine other repositories consume, so the policy is defined once rather than copied into every repo's test project.
+
+Three layers, deliberately separated:
+
+- **`ArchitecturePolicy` / `ProjectGraph`** — read `.config/architecture-policy.json` and the `.csproj` graph. No MSBuild or test-framework types.
+- **`ArchitecturePolicyEvaluator`** — the rules, returning typed `ArchitectureViolation` lists per rule. Takes an in-memory graph, so a rule is tested as a three-project fixture rather than a repository on disk (`ArchitectureTesting.UnitTests`).
+- **`PurviewArchitectureTests`** — a TUnit base class wrapping the evaluator, one `[Test]` per rule.
+
+A consuming repository adds a policy file and `[InheritsTests] public sealed class ArchitectureTests : PurviewArchitectureTests;`.
+
+**`[InheritsTests]` is load-bearing.** TUnit does not walk base types during discovery, so without it the class compiles, the run is green and nothing is enforced. `InheritedBaseClassTests` exists to prove discovery works — it is the test that would catch that regression, and it runs against a temporary fixture repository because this repo's own projects (an MSBuild SDK and Roslyn components) are not described by the responsibility catalogue.
+
+The policy JSON Schema lives at the repository root (`architecture-policy.schema.json`), embedded as a resource for offline validation and published at its raw GitHub URL for editors — the same arrangement `Purview.Build` uses for `purview-build.json`.
+
+This project sets `RootNamespace`, `AssemblyName` and `AutoIncludeUsings=false`, because the package namespace deliberately sits outside the repository's `Purview.BuildSdk` prefix; without that the SDK emits a `global using` for a namespace this assembly does not contain.
+
 ## Repository map
 
+- `src/src/ArchitectureTesting/` — packable architecture rule engine (`Purview.Architecture.Testing`)
 - `src/src/BuildSdk/` — packable MSBuild SDK package (`Purview.BuildSdk`)
 - `src/src/Analyzers/` — Roslyn analyzer/source-generator assembly
 - `src/src/CodeFixers/` — Roslyn code-fix assembly (`Purview.BuildSdk.CodeFixers`)

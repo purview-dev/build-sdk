@@ -194,6 +194,26 @@ are demoted to low-importance messages while a copy that still fails after every
 error. See [Agent Folder](docs/wiki/Agent-Folder.md) and
 [Repository Bootstrap](docs/wiki/Repository-Bootstrap.md) for the retry and failure properties.
 
+### Agent skills
+
+Purview skills are published in the standard [Agent Skills](https://skills.sh/) format and installed
+with the standard `skills` CLI. The SDK is the discovery and compatibility half only: it reads the
+skills each referenced NuGet package ships, compares them against the CLI's own `skills-lock.json`,
+and recommends the command that fixes the difference. It never installs, updates or removes a skill
+as a side effect of a restore or a build.
+
+```bash
+npx skills add purview-dev/build-sdk                # install, the ordinary way
+dotnet msbuild <project> -t:RecommendPurviewSkills  # what is missing, drifted or unverifiable
+dotnet msbuild <project> -t:InstallPurviewSkills    # explicit; delegates to the CLI
+```
+
+Compatibility is pinned by commit: a package's nuspec names the commit it was built from, the CLI
+accepts `owner/repo#<commit>` and records it, so a project on an older package version is never
+advised to install skills describing a newer API. Set `EnablePurviewSkillRecommendations=false` to
+turn the build-time reporting off; it is already silent on CI, during design-time builds, and when
+everything is installed and compatible. See [Agent Skills](docs/wiki/Agent-Skills.md).
+
 ---
 
 ## Configuration reference
@@ -314,6 +334,21 @@ To disable bundled agent folder copying in a consuming repo, set the opt-out pro
 </PropertyGroup>
 ```
 
+### Agent skills
+
+| Property | Default | Description |
+| -- | -- | -- |
+| `EnablePurviewSkillRecommendations` | `true` | Reports missing or version-drifted agent skills after an ordinary build. Offline; never installs; never fails the build. |
+| `PurviewSkillRecommendationsInCI` | `false` | When `true`, recommendations are reported on CI builds as well. |
+| `PurviewSkillRecommendationStampPath` | `<repo root>/.purview/skill-recommendations.cache` | Overrides the stamp that reports each distinct skill state once per repository. |
+| `PurviewSkillsLockFile` | `<repo root>/skills-lock.json` | Overrides where the skills CLI's lockfile is read from. |
+| `PurviewSkillsSourceFolder` | `<repo root>/skills` | Repository folder holding authored skills. |
+| `PurviewPackRepositorySkills` | `false` | Packs `PurviewSkillsSourceFolder` into the package's `.agents/skills/`. Set on the one project that owns the repository's skills. |
+| `PurviewSkillsToPack` | *(all)* | Semicolon-separated skill folder names this project packs. |
+| `PurviewSkillsAgents` | `*` | Agents that `InstallPurviewSkills` installs to, and that recommended commands name. |
+| `PurviewSkillsCommand` | *(detected)* | Overrides how the skills CLI is invoked. Empty detects `skills` then `npx` on `PATH`. |
+| `PurviewSkillsSource` | *(none)* | Installs from an explicit git source (`owner/repo`, optionally `#ref`) instead of from referenced packages. |
+
 When a project is packable, the SDK treats any content under `Sdk/` as a pack target with these rules:
 
 | Source path | Package path |
@@ -399,6 +434,16 @@ The SDK now exports its properties via `CompilerVisibleProperty`, so analyzers a
 | `PurviewAgentSyncManifestPath` | Change-detection manifest used to skip unchanged agent content (default `<repo root>/.purview/agent-sync.cache`). |
 | `PurviewSuppressCopyRetryWarnings` | When `true` (default), built-in copy retry notices (`MSB3026`) are demoted to messages. |
 | `PurviewAutoSdkPack` | When `true`, automatically packs the `Sdk/` folder contents into the NuGet package with the correct root-level paths. |
+| `EnablePurviewSkillRecommendations` | When `true` (default), an ordinary build reports missing or version-drifted agent skills. |
+| `PurviewSkillRecommendationsInCI` | When `true`, skill recommendations are reported on CI builds as well (default `false`). |
+| `PurviewSkillRecommendationStampPath` | Stamp used to report each distinct skill state once (default `<repo root>/.purview/skill-recommendations.cache`). |
+| `PurviewSkillsLockFile` | Where the skills CLI's `skills-lock.json` is read from (default `<repo root>/skills-lock.json`). |
+| `PurviewSkillsSourceFolder` | Repository folder holding authored agent skills (default `<repo root>/skills`). |
+| `PurviewPackRepositorySkills` | When `true`, packs `PurviewSkillsSourceFolder` into the package's `.agents/skills/` folder (default `false`). |
+| `PurviewSkillsToPack` | Semicolon-separated skill folder names this project packs (default: every authored skill). |
+| `PurviewSkillsAgents` | Agents that `InstallPurviewSkills` installs to (default `*`). |
+| `PurviewSkillsCommand` | Overrides how the skills CLI is invoked. Empty detects `skills` then `npx` on `PATH`. |
+| `PurviewSkillsSource` | Installs from an explicit git source (`owner/repo`, optionally `#ref`) instead of from referenced packages. |
 | `CurrentYear` | Current year used in generated assembly metadata. |
 | `AutoGeneratedAssemblyInfoFile` | File name of the generated AssemblyInfo source file (written under the intermediate `Properties/` folder). |
 | `AutoGeneratedAssemblyIdentifierFile` | File name of the generated assembly identifier source file (written under the intermediate `Properties/` folder). |

@@ -74,6 +74,25 @@
 		<PurviewAgentSyncManifestPath
 			Condition="'$(PurviewAgentSyncManifestPath)' == ''"
 		></PurviewAgentSyncManifestPath>
+		<!-- Recommendations are the one skill feature that runs during an ordinary build. They stay
+		     offline (they read the restore graph and the skills CLI's own lockfile), they never
+		     install anything, and they never fail a build. -->
+		<EnablePurviewSkillRecommendations Condition="'$(EnablePurviewSkillRecommendations)' == ''"
+			>true</EnablePurviewSkillRecommendations>
+		<!-- CI installs nothing and has nobody to act on the advice, so the nudge is noise there.
+		     Set true to opt a pipeline back in - a build that verifies skill state deliberately. -->
+		<PurviewSkillRecommendationsInCI Condition="'$(PurviewSkillRecommendationsInCI)' == ''"
+			>false</PurviewSkillRecommendationsInCI>
+		<!-- Repository-level stamp holding a fingerprint of the last reported state, so a solution
+		     of thirty projects reports once rather than thirty times, and an unchanged state does
+		     not repeat the same advice on every build. Empty resolves to
+		     '<repo root>/.purview/skill-recommendations.cache' at target time. -->
+		<PurviewSkillRecommendationStampPath
+			Condition="'$(PurviewSkillRecommendationStampPath)' == ''"
+		></PurviewSkillRecommendationStampPath>
+		<!-- Overrides where skills-lock.json is read from. Empty resolves to the repository root,
+		     which is where the CLI writes it for a project-scope install. -->
+		<PurviewSkillsLockFile Condition="'$(PurviewSkillsLockFile)' == ''"></PurviewSkillsLockFile>
 		<PurviewRepoBootstrapCopyFailureAsError Condition="'$(PurviewRepoBootstrapCopyFailureAsError)' == ''"
 			>true</PurviewRepoBootstrapCopyFailureAsError>
 		<PurviewRepoBootstrapCopyRetries Condition="'$(PurviewRepoBootstrapCopyRetries)' == ''"

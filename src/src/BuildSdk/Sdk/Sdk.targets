@@ -706,6 +706,394 @@
 	</UsingTask>
 
 	<!-- =====================================================================
+	     EVALUATE LOCAL SKILL STATE
+	     Joins the skills a restored package ships against the skills the
+	     repository actually has installed, and classifies every one of them.
+
+	     Both halves are local, so this runs offline and spawns no process:
+
+	       * the restore graph says which packages are referenced, at which
+	         version, and which commit each was built from, and
+	       * 'skills-lock.json' - written by the skills CLI itself - says
+	         which skills are installed, from which source, at which ref.
+
+	     Reading the CLI's own lockfile is deliberate. Its JSON listing is
+	     machine-readable but omits the ref, and the ref is the whole
+	     question: without it there is nothing to compare a package's commit
+	     against. The lockfile carries it, costs no Node tooling, and this
+	     SDK therefore needs no competing manifest of its own.
+
+	     Classification, per skill:
+
+	       Satisfied  - installed from the same source at the same commit the
+	                    referenced package was built from.
+	       Missing    - the package ships it and the lockfile has no entry.
+	       Drifted    - installed from the same source at a *different* ref.
+	                    The installed skill describes some other version of
+	                    the library than the one referenced.
+	       Unknown    - installed with no ref recorded, installed from a
+	                    different source under the same name, or shipped by a
+	                    package that cannot be pinned at all.
+	       Orphaned   - in the lockfile, under an owner this project does
+	                    reference, but from a repository it no longer does.
+
+	     Orphan detection is deliberately owner-scoped. A lockfile cannot say
+	     who asked for an entry, so anything outside the owners the project
+	     references is treated as the developer's own and left alone.
+	     ===================================================================== -->
+	<UsingTask
+		TaskName="EvaluatePurviewSkillState"
+		TaskFactory="RoslynCodeTaskFactory"
+		AssemblyFile="$([System.IO.Path]::Combine('$(MSBuildToolsPath)', 'Microsoft.Build.Tasks.Core.dll'))"
+	>
+		<ParameterGroup>
+			<SkillSources ParameterType="Microsoft.Build.Framework.ITaskItem[]" Required="false" />
+			<UnresolvableSkillSources ParameterType="Microsoft.Build.Framework.ITaskItem[]" Required="false" />
+			<LockFilePath ParameterType="System.String" Required="false" />
+			<StampPath ParameterType="System.String" Required="false" />
+			<RespectStamp ParameterType="System.Boolean" Required="false" />
+			<Agents ParameterType="System.String" Required="false" />
+			<RepositoryRoot ParameterType="System.String" Required="false" />
+			<MirrorFolderName ParameterType="System.String" Required="false" />
+			<AgentSkillDirectoriesFound ParameterType="System.Boolean" Output="true" />
+			<Missing ParameterType="Microsoft.Build.Framework.ITaskItem[]" Output="true" />
+			<Drifted ParameterType="Microsoft.Build.Framework.ITaskItem[]" Output="true" />
+			<Unknown ParameterType="Microsoft.Build.Framework.ITaskItem[]" Output="true" />
+			<Satisfied ParameterType="Microsoft.Build.Framework.ITaskItem[]" Output="true" />
+			<Orphaned ParameterType="Microsoft.Build.Framework.ITaskItem[]" Output="true" />
+			<LockFileFound ParameterType="System.Boolean" Output="true" />
+			<ShouldReport ParameterType="System.Boolean" Output="true" />
+		</ParameterGroup>
+		<Task>
+			<Using Namespace="System.IO" />
+			<Using Namespace="System.Linq" />
+			<Using Namespace="System.Text" />
+			<Using Namespace="System.Text.RegularExpressions" />
+			<Using Namespace="Microsoft.Build.Framework" />
+			<Using Namespace="Microsoft.Build.Utilities" />
+			<Reference Include="$([System.IO.Path]::Combine('$(MSBuildToolsPath)', 'Microsoft.Build.Framework.dll'))" />
+			<Reference Include="$([System.IO.Path]::Combine('$(MSBuildToolsPath)', 'Microsoft.Build.Utilities.Core.dll'))" />
+			<Code Type="Fragment" Language="cs">
+				<![CDATA[
+					var sources = SkillSources ?? new ITaskItem[0];
+					var unpinnable = UnresolvableSkillSources ?? new ITaskItem[0];
+					var agents = string.IsNullOrEmpty(Agents) ? "*" : Agents;
+
+					// ---- Read the CLI's lockfile -------------------------------------------------
+					// Entries are flat objects, so one regex over the 'skills' object is enough. A
+					// shape this does not understand degrades to "not installed", which only ever
+					// produces advice, never a failure.
+					var lockedSource = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+					var lockedRef = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+					LockFileFound = !string.IsNullOrEmpty(LockFilePath) && File.Exists(LockFilePath);
+					if (LockFileFound)
+					{
+						var lockText = string.Empty;
+						try { lockText = File.ReadAllText(LockFilePath); }
+						catch (IOException) { LockFileFound = false; }
+						catch (UnauthorizedAccessException) { LockFileFound = false; }
+
+						var skillsKey = lockText.IndexOf("\"skills\"", StringComparison.Ordinal);
+						var open = skillsKey < 0 ? -1 : lockText.IndexOf('{', skillsKey);
+						if (open >= 0)
+						{
+							// Walk to the matching brace rather than regexing the whole document, so a
+							// sibling key that happens to contain braces cannot be swept in.
+							var depth = 0;
+							var inString = false;
+							var escaped = false;
+							var close = -1;
+							for (var index = open; index < lockText.Length; index++)
+							{
+								var character = lockText[index];
+								if (escaped) { escaped = false; continue; }
+								if (character == '\\' && inString) { escaped = true; continue; }
+								if (character == '"') { inString = !inString; continue; }
+								if (inString) continue;
+								if (character == '{') depth++;
+								else if (character == '}')
+								{
+									depth--;
+									if (depth == 0) { close = index; break; }
+								}
+							}
+
+							if (close > open)
+							{
+								var body = lockText.Substring(open, close - open + 1);
+								var entryPattern = new Regex("\"(?<name>[^\"]+)\"\\s*:\\s*\\{(?<entry>[^{}]*)\\}", RegexOptions.Singleline);
+								// '"source"' cannot match '"sourceType"': the closing quote differs.
+								var sourcePattern = new Regex("\"source\"\\s*:\\s*\"(?<value>[^\"]*)\"");
+								var refPattern = new Regex("\"ref\"\\s*:\\s*\"(?<value>[^\"]*)\"");
+
+								foreach (Match entry in entryPattern.Matches(body))
+								{
+									var name = entry.Groups["name"].Value;
+									var text = entry.Groups["entry"].Value;
+									var sourceMatch = sourcePattern.Match(text);
+									var refMatch = refPattern.Match(text);
+									lockedSource[name] = sourceMatch.Success ? sourceMatch.Groups["value"].Value : string.Empty;
+									lockedRef[name] = refMatch.Success ? refMatch.Groups["value"].Value : string.Empty;
+								}
+							}
+						}
+					}
+
+					// ---- Has the lockfile ever been restored here? -------------------------------
+					// A lockfile is a record of an install, not proof of one: a fresh clone carries a
+					// committed skills-lock.json and no installed skills at all. Rather than hard-code
+					// the agent directories - which the CLI owns, and which change independently of
+					// this SDK - look for any dot-folder at the repository root holding a 'skills'
+					// folder. The mirror destination is excluded because this SDK writes that itself.
+					AgentSkillDirectoriesFound = false;
+					if (!string.IsNullOrEmpty(RepositoryRoot) && Directory.Exists(RepositoryRoot))
+					{
+						var ignored = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+						{
+							string.IsNullOrEmpty(MirrorFolderName) ? ".agents" : MirrorFolderName.Trim('.', '/', '\\'),
+							".agents",
+							".git",
+							".purview",
+						};
+
+						foreach (var directory in Directory.GetDirectories(RepositoryRoot, ".*"))
+						{
+							if (ignored.Contains(Path.GetFileName(directory)))
+								continue;
+
+							if (Directory.Exists(Path.Combine(directory, "skills")))
+							{
+								AgentSkillDirectoriesFound = true;
+								break;
+							}
+						}
+					}
+
+					// ---- Classify ----------------------------------------------------------------
+					var missing = new List<ITaskItem>();
+					var drifted = new List<ITaskItem>();
+					var unknown = new List<ITaskItem>();
+					var satisfied = new List<ITaskItem>();
+					var orphaned = new List<ITaskItem>();
+
+					var knownSources = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+					var knownOwners = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+					var claimedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+					foreach (var item in sources.Concat(unpinnable))
+					{
+						var source = item.GetMetadata("Source") ?? string.Empty;
+						if (source.Length == 0)
+							continue;
+
+						knownSources.Add(source);
+						var slash = source.IndexOf('/');
+						if (slash > 0)
+							knownOwners.Add(source.Substring(0, slash));
+					}
+
+					foreach (var item in sources)
+					{
+						var packageId = item.GetMetadata("PackageId");
+						var packageVersion = item.GetMetadata("PackageVersion");
+						var source = item.GetMetadata("Source");
+						var commit = item.GetMetadata("RepositoryCommit");
+						var sourceWithRef = item.GetMetadata("SourceWithRef");
+
+						var names = (item.GetMetadata("Skills") ?? string.Empty)
+							.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries)
+							.OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+							.ToArray();
+
+						var missingNames = new List<string>();
+						var driftedNames = new List<string>();
+						var unknownNames = new List<string>();
+						var unknownReasons = new List<string>();
+						var satisfiedNames = new List<string>();
+
+						foreach (var name in names)
+						{
+							claimedNames.Add(name);
+
+							string installedSource;
+							if (!lockedSource.TryGetValue(name, out installedSource))
+							{
+								missingNames.Add(name);
+								continue;
+							}
+
+							// Same name, different repository: somebody installed their own skill under
+							// this name. Reporting it as drift would be wrong, and overwriting it is not
+							// this SDK's call, so it is surfaced as unknown and left alone.
+							if (!string.Equals(installedSource, source, StringComparison.OrdinalIgnoreCase))
+							{
+								unknownNames.Add(name);
+								unknownReasons.Add(name + " is installed from '" + installedSource + "', not '" + source + "'");
+								continue;
+							}
+
+							var installedRef = lockedRef[name];
+							if (installedRef.Length == 0)
+							{
+								unknownNames.Add(name);
+								unknownReasons.Add(name + " is installed with no ref recorded, so it cannot be matched to a package version");
+							}
+							else if (string.Equals(installedRef, commit, StringComparison.OrdinalIgnoreCase))
+								satisfiedNames.Add(name);
+							else
+								driftedNames.Add(name);
+						}
+
+						// The install command names each skill explicitly and repeats the flag: the CLI
+						// matches nothing when given one comma-separated value.
+						var commandFor = new Func<List<string>, string>(selected =>
+							"npx skills add \"" + sourceWithRef + "\" --skill \""
+								+ string.Join("\" --skill \"", selected) + "\" --agent \"" + agents + "\" -y");
+
+						var addItem = new Func<List<ITaskItem>, List<string>, ITaskItem>((bucket, selected) =>
+						{
+							var created = new TaskItem(packageId);
+							created.SetMetadata("PackageId", packageId);
+							created.SetMetadata("PackageVersion", packageVersion);
+							created.SetMetadata("Source", source);
+							created.SetMetadata("SourceWithRef", sourceWithRef);
+							created.SetMetadata("RepositoryCommit", commit);
+							created.SetMetadata("Skills", string.Join(";", selected));
+							created.SetMetadata("SkillCount", selected.Count.ToString());
+							created.SetMetadata("Command", commandFor(selected));
+							bucket.Add(created);
+							return created;
+						});
+
+						if (missingNames.Count > 0)
+							addItem(missing, missingNames);
+
+						if (driftedNames.Count > 0)
+						{
+							var driftedItem = addItem(drifted, driftedNames);
+							driftedItem.SetMetadata(
+								"InstalledRefs",
+								string.Join(";", driftedNames.Select(name => name + "@" + lockedRef[name]))
+							);
+						}
+
+						if (unknownNames.Count > 0)
+						{
+							var unknownItem = addItem(unknown, unknownNames);
+							unknownItem.SetMetadata("Reason", string.Join("; ", unknownReasons));
+						}
+
+						if (satisfiedNames.Count > 0)
+							addItem(satisfied, satisfiedNames);
+					}
+
+					// A package that ships skills but carries no pinnable git identity is unknown
+					// rather than missing: there is no ref to compare against and none to install from.
+					foreach (var item in unpinnable)
+					{
+						foreach (var name in (item.GetMetadata("Skills") ?? string.Empty)
+							.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries))
+						{
+							claimedNames.Add(name);
+						}
+
+						var created = new TaskItem(item.GetMetadata("PackageId"));
+						created.SetMetadata("PackageId", item.GetMetadata("PackageId"));
+						created.SetMetadata("PackageVersion", item.GetMetadata("PackageVersion"));
+						created.SetMetadata("Source", item.GetMetadata("Source"));
+						created.SetMetadata("Skills", item.GetMetadata("Skills"));
+						created.SetMetadata("SkillCount", item.GetMetadata("SkillCount"));
+						created.SetMetadata("Reason", item.GetMetadata("Reason"));
+						created.SetMetadata("Command", string.Empty);
+						unknown.Add(created);
+					}
+
+					// ---- Orphans -----------------------------------------------------------------
+					foreach (var entry in lockedSource.OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase))
+					{
+						var installedSource = entry.Value;
+						var slash = installedSource.IndexOf('/');
+						if (slash <= 0 || claimedNames.Contains(entry.Key))
+							continue;
+
+						// Outside the owners this project references, an entry is the developer's own.
+						if (!knownOwners.Contains(installedSource.Substring(0, slash)) || knownSources.Contains(installedSource))
+							continue;
+
+						var created = new TaskItem(entry.Key);
+						created.SetMetadata("Skill", entry.Key);
+						created.SetMetadata("Source", installedSource);
+						created.SetMetadata("Ref", lockedRef[entry.Key]);
+						created.SetMetadata("Command", "npx skills remove \"" + entry.Key + "\"");
+						orphaned.Add(created);
+					}
+
+					Missing = missing.ToArray();
+					Drifted = drifted.ToArray();
+					Unknown = unknown.ToArray();
+					Satisfied = satisfied.ToArray();
+					Orphaned = orphaned.ToArray();
+
+					// ---- Deduplicate -------------------------------------------------------------
+					// A solution has many projects and they share one repository, so the same advice
+					// would otherwise be printed once per project, and again on every rebuild. The
+					// stamp holds a fingerprint of the exact state last reported: advice repeats only
+					// when the state actually changes.
+					var fingerprint = new StringBuilder();
+					foreach (var pair in new[]
+					{
+						new KeyValuePair<string, List<ITaskItem>>("missing", missing),
+						new KeyValuePair<string, List<ITaskItem>>("drifted", drifted),
+						new KeyValuePair<string, List<ITaskItem>>("unknown", unknown),
+						new KeyValuePair<string, List<ITaskItem>>("orphaned", orphaned),
+					})
+					{
+						foreach (var line in pair.Value
+							.Select(item => pair.Key + "|" + item.GetMetadata("PackageId") + "|"
+								+ item.GetMetadata("PackageVersion") + "|" + item.GetMetadata("Skills")
+								+ item.GetMetadata("Skill") + "|" + item.GetMetadata("RepositoryCommit"))
+							.OrderBy(line => line, StringComparer.Ordinal))
+						{
+							fingerprint.Append(line).Append('\n');
+						}
+					}
+
+					// An unrestored lockfile is its own state: restoring it must end the advice.
+					if (LockFileFound && !AgentSkillDirectoriesFound && lockedSource.Count > 0)
+						fingerprint.Append("needs-restore\n");
+
+					var current = fingerprint.ToString();
+					ShouldReport = true;
+
+					if (RespectStamp && !string.IsNullOrEmpty(StampPath))
+					{
+						var previous = string.Empty;
+						try { if (File.Exists(StampPath)) previous = File.ReadAllText(StampPath); }
+						catch (IOException) { }
+						catch (UnauthorizedAccessException) { }
+
+						ShouldReport = !string.Equals(previous, current, StringComparison.Ordinal);
+
+						// A stamp that cannot be written costs a repeated message, never a failed
+						// build: a read-only or concurrently-built tree must still build.
+						if (ShouldReport)
+						{
+							try
+							{
+								Directory.CreateDirectory(Path.GetDirectoryName(StampPath));
+								File.WriteAllText(StampPath, current);
+							}
+							catch (IOException) { }
+							catch (UnauthorizedAccessException) { }
+						}
+					}
+				]]>
+			</Code>
+		</Task>
+	</UsingTask>
+
+	<!-- =====================================================================
 	     VALIDATE AUTHORED SKILLS
 	     A malformed skill fails quietly where it hurts most: the skills CLI
 	     skips a SKILL.md whose frontmatter it cannot parse, so the skill simply
@@ -2320,6 +2708,147 @@
 			Text="%(PurviewUnresolvableSkillSource.PackageId) %(PurviewUnresolvableSkillSource.PackageVersion) ships %(PurviewUnresolvableSkillSource.SkillCount) skill(s) that cannot be installed reproducibly because %(PurviewUnresolvableSkillSource.Reason). The skills are still mirrored into $(AgentPackDestinationFolder)/ by the package itself."
 		/>
 	</Target>
+
+	<!-- =====================================================================
+	     SKILL RECOMMENDATIONS
+	     The one skill feature that runs during an ordinary build. It reads
+	     the restore graph and the skills CLI's own lockfile, both local, so
+	     it stays offline; it recommends commands and never runs them; and it
+	     never fails a build, because a missing skill is advice, not a defect.
+
+	     Three things keep it quiet:
+
+	       * a design-time build, a CI build and a non-default TFM pass are
+	         all skipped outright,
+	       * a repository-level stamp means a given state is reported once,
+	         not once per project and again on every rebuild, and
+	       * a correctly installed set produces no output at all.
+
+	     Severity splits on what the developer can act on. A missing or
+	     version-drifted skill is something they can fix with one command, so
+	     it is a warning. An unverifiable or orphaned one usually is not -
+	     a package without SourceLink metadata cannot be pinned by anybody -
+	     so it is a message, and no amount of it can break a build that
+	     treats warnings as errors.
+	     ===================================================================== -->
+	<Target
+		Name="_ResolvePurviewSkillRecommendationPaths"
+		Label="Resolves the repository-level lockfile and stamp paths skill recommendations read."
+	>
+		<PropertyGroup>
+			<_PurviewSkillRecommendationRoot
+				Condition="'$(_PurviewSkillRecommendationRoot)' == '' AND '$(PurviewSkillsRepoRoot)' != ''"
+				>$(PurviewSkillsRepoRoot)</_PurviewSkillRecommendationRoot>
+			<_PurviewSkillRecommendationRoot Condition="'$(_PurviewSkillRecommendationRoot)' == ''"
+				>$(MSBuildProjectDirectory)</_PurviewSkillRecommendationRoot>
+			<!-- Where the CLI writes it for a project-scope install: beside the repository root. -->
+			<PurviewSkillsLockFile Condition="'$(PurviewSkillsLockFile)' == ''"
+				>$([MSBuild]::NormalizePath('$(_PurviewSkillRecommendationRoot)', 'skills-lock.json'))</PurviewSkillsLockFile>
+			<PurviewSkillRecommendationStampPath Condition="'$(PurviewSkillRecommendationStampPath)' == ''"
+				>$([MSBuild]::NormalizePath('$(_PurviewSkillRecommendationRoot)', '.purview', 'skill-recommendations.cache'))</PurviewSkillRecommendationStampPath>
+			<!-- The explicit target always reports; only the build hook honours the stamp. -->
+			<_PurviewSkillRespectStamp Condition="'$(_PurviewSkillRespectStamp)' == ''"
+				>false</_PurviewSkillRespectStamp>
+			<PurviewSkillsAgents Condition="'$(PurviewSkillsAgents)' == ''">*</PurviewSkillsAgents>
+		</PropertyGroup>
+	</Target>
+
+	<Target
+		Name="RecommendPurviewSkills"
+		DependsOnTargets="_ResolvePurviewSkillRecommendationPaths;ResolvePurviewSkillsTarget"
+		Condition="'$(DefaultTargetFramework)' == '' OR '$(TargetFramework)' == '$(DefaultTargetFramework)'"
+		Label="Reports which Purview skills are missing, drifted or unverifiable, and how to fix each."
+	>
+		<EvaluatePurviewSkillState
+			SkillSources="@(PurviewSkillSource)"
+			UnresolvableSkillSources="@(PurviewUnresolvableSkillSource)"
+			LockFilePath="$(PurviewSkillsLockFile)"
+			StampPath="$(PurviewSkillRecommendationStampPath)"
+			RespectStamp="$(_PurviewSkillRespectStamp)"
+			Agents="$(PurviewSkillsAgents)"
+			RepositoryRoot="$(_PurviewSkillRecommendationRoot)"
+			MirrorFolderName="$(AgentPackDestinationFolder)"
+		>
+			<Output TaskParameter="Missing" ItemName="PurviewMissingSkill" />
+			<Output TaskParameter="Drifted" ItemName="PurviewDriftedSkill" />
+			<Output TaskParameter="Unknown" ItemName="PurviewUnverifiableSkill" />
+			<Output TaskParameter="Satisfied" ItemName="PurviewSatisfiedSkill" />
+			<Output TaskParameter="Orphaned" ItemName="PurviewOrphanedSkill" />
+			<Output TaskParameter="LockFileFound" PropertyName="_PurviewSkillsLockFileFound" />
+			<Output TaskParameter="AgentSkillDirectoriesFound" PropertyName="_PurviewAgentSkillDirectoriesFound" />
+			<Output TaskParameter="ShouldReport" PropertyName="_PurviewSkillStateChanged" />
+		</EvaluatePurviewSkillState>
+
+		<!-- One warning per package, carrying the exact command that fixes it. -->
+		<Warning
+			Code="PRSKL0010"
+			Condition="'$(_PurviewSkillStateChanged)' == 'true' AND '@(PurviewMissingSkill)' != ''"
+			Text="Purview Skills: %(PurviewMissingSkill.PackageId) %(PurviewMissingSkill.PackageVersion) ships %(PurviewMissingSkill.SkillCount) agent skill(s) that are not installed: %(PurviewMissingSkill.Skills). Install them with: %(PurviewMissingSkill.Command)"
+		/>
+
+		<!-- Drift is the compatible-update case, and the command is pinned on purpose.
+		     'npx skills update' installs the newest published skill, which is only correct when
+		     the newest skill happens to describe the referenced package version - something that
+		     cannot be known offline, and is false for any project that is not on the latest
+		     package. Recommending it here would be exactly the "blindly recommended update" the
+		     design forbids, so the referenced package's own commit is named instead. -->
+		<Warning
+			Code="PRSKL0011"
+			Condition="'$(_PurviewSkillStateChanged)' == 'true' AND '@(PurviewDriftedSkill)' != ''"
+			Text="Purview Skills: %(PurviewDriftedSkill.PackageId) %(PurviewDriftedSkill.PackageVersion) was built from commit %(PurviewDriftedSkill.RepositoryCommit), but these skills are installed from a different ref: %(PurviewDriftedSkill.InstalledRefs). They may describe a different version of the library than the one referenced. Install the matching skills with: %(PurviewDriftedSkill.Command). Prefer this over 'npx skills update', which installs the newest published skill regardless of which package version this project references."
+		/>
+
+		<!-- Not actionable by the consumer in the common case, so it never becomes a warning. -->
+		<Message
+			Importance="High"
+			Condition="'$(_PurviewSkillStateChanged)' == 'true' AND '@(PurviewUnverifiableSkill)' != ''"
+			Text="PRSKL0012: Purview Skills: compatibility of %(PurviewUnverifiableSkill.SkillCount) skill(s) from %(PurviewUnverifiableSkill.PackageId) %(PurviewUnverifiableSkill.PackageVersion) cannot be verified because %(PurviewUnverifiableSkill.Reason). Inspect what is installed with: npx skills list"
+		/>
+
+		<!-- Owner-scoped, so a skill the developer installed themselves is never named. -->
+		<Message
+			Importance="High"
+			Condition="'$(_PurviewSkillStateChanged)' == 'true' AND '@(PurviewOrphanedSkill)' != ''"
+			Text="PRSKL0013: Purview Skills: '%(PurviewOrphanedSkill.Skill)' is installed from '%(PurviewOrphanedSkill.Source)', which this project no longer references. Remove it if it is no longer wanted: %(PurviewOrphanedSkill.Command)"
+		/>
+
+		<!-- A committed lockfile with nothing restored beside it: the one case experimental_install
+		     is actually for. It is a suggestion, never run automatically, and it is flagged as
+		     experimental because the CLI flags it that way. -->
+		<Message
+			Importance="High"
+			Condition="'$(_PurviewSkillStateChanged)' == 'true' AND '$(_PurviewSkillsLockFileFound)' == 'true' AND '$(_PurviewAgentSkillDirectoriesFound)' != 'true'"
+			Text="PRSKL0014: Purview Skills: '$(PurviewSkillsLockFile)' lists installed skills, but no agent skill directory exists in this repository. Restore them with: npx skills experimental_install (experimental; 'npx skills add' is the supported fallback)."
+		/>
+	</Target>
+
+	<Target
+		Name="_PurviewSkillRecommendationBuildSetup"
+		Label="Opts the build-time recommendation pass into stamp-based deduplication."
+	>
+		<PropertyGroup>
+			<_PurviewSkillRespectStamp>true</_PurviewSkillRespectStamp>
+		</PropertyGroup>
+	</Target>
+
+	<!-- Build integration lives in its own target so RecommendPurviewSkills itself keeps no
+	     BeforeTargets/AfterTargets, and a consumer can still invoke it explicitly with none of
+	     this gating applied. Nothing here installs: this is the recommendation half only, and
+	     InstallPurviewSkills remains a thing a person asks for by name. -->
+	<Target
+		Name="RecommendPurviewSkillsOnBuild"
+		AfterTargets="Build"
+		DependsOnTargets="_PurviewSkillRecommendationBuildSetup;RecommendPurviewSkills"
+		Condition="'$(EnablePurviewSkillRecommendations)' == 'true'
+			AND '$(DesignTimeBuild)' != 'true'
+			AND '$(BuildingProject)' == 'true'
+			AND Exists('$(ProjectAssetsFile)')
+			AND ('$(DefaultTargetFramework)' == '' OR '$(TargetFramework)' == '$(DefaultTargetFramework)')
+			AND ('$(PurviewSkillRecommendationsInCI)' == 'true'
+				OR ('$(ContinuousIntegrationBuild)' != 'true' AND '$(TF_BUILD)' != 'true'
+					AND '$(GITHUB_ACTIONS)' != 'true' AND '$(CI)' != 'true'))"
+		Label="Reports skill recommendations after an ordinary, interactive build."
+	/>
 
 	<Target
 		Name="IncludeLinkedSdkFiles"

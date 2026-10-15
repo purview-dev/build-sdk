@@ -1,0 +1,161 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/purview-dev/build-sdk/main/architecture-policy.schema.json",
+  "title": "Purview architecture policy",
+  "description": "The authoritative project responsibility, naming and dependency policy. The architecture tests read this document; PolicyDocumentationTests asserts the wiki agrees with it. See docs/wiki/Project-Responsibilities.md.",
+  "type": "object",
+  "required": ["version", "responsibilities"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Pointer to this schema, so an editor validates the file as it is written."
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Schema version of this document. Increment when a change would break a reader that understood the previous shape."
+    },
+    "description": {
+      "type": "string"
+    },
+    "conventions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "qualifiedNameSeparator": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1,
+          "description": "Separates the responsibility from its implementation qualifier, as in Persistence.SqlServer."
+        },
+        "dependencyArrowMeaning": {
+          "type": "string",
+          "description": "States what an arrow means, so compile-time references are not confused with runtime calls."
+        }
+      }
+    },
+    "responsibilities": {
+      "type": "array",
+      "minItems": 1,
+      "description": "The responsibility catalogue. A project name is <Responsibility>[.<Implementation>]; only the first segment is classified.",
+      "items": { "$ref": "#/$defs/responsibility" }
+    },
+    "discouragedProjectNames": {
+      "type": "object",
+      "required": ["names", "reason"],
+      "additionalProperties": false,
+      "description": "Names that describe a category rather than a responsibility, so nothing can be excluded from them.",
+      "properties": {
+        "names": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/projectNameSegment" }
+        },
+        "reason": { "type": "string", "minLength": 20 }
+      }
+    },
+    "rules": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Repository-wide rules that are not expressed per responsibility.",
+      "properties": {
+        "noCycles": { "type": "boolean" },
+        "noProductionToTestReferences": { "type": "boolean" },
+        "implementationsMustNotReferenceComposition": { "type": "boolean" },
+        "siblingImplementationsIndependent": { "type": "boolean" }
+      }
+    },
+    "waivers": {
+      "type": "array",
+      "description": "Deliberate, reviewed departures. A waiver excuses the narrowest thing possible - usually the name - and mapsTo keeps the project classified so every dependency rule still applies.",
+      "items": { "$ref": "#/$defs/waiver" }
+    }
+  },
+  "$defs": {
+    "projectNameSegment": {
+      "type": "string",
+      "pattern": "^[A-Za-z][A-Za-z0-9]*$",
+      "description": "A single PascalCase segment, with no dots: the responsibility, not a qualified project name."
+    },
+    "responsibility": {
+      "type": "object",
+      "required": ["name", "category", "purpose", "mayDependOn", "mustNotDependOn"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "$ref": "#/$defs/projectNameSegment" },
+        "aliases": {
+          "type": "array",
+          "description": "Recognised alternative names. An established project using one of these is not renamed.",
+          "items": { "$ref": "#/$defs/projectNameSegment" }
+        },
+        "category": {
+          "type": "string",
+          "enum": ["domain", "application", "infrastructure", "composition", "host", "shared"]
+        },
+        "purpose": { "type": "string", "minLength": 20 },
+        "mayDependOn": {
+          "type": "array",
+          "description": "Responsibilities this one may reference at compile time. An empty array means it depends on nothing.",
+          "items": { "$ref": "#/$defs/projectNameSegment" },
+          "uniqueItems": true
+        },
+        "mustNotDependOn": {
+          "type": "array",
+          "description": "Responsibilities this one must never reference. Must not overlap mayDependOn.",
+          "items": { "$ref": "#/$defs/projectNameSegment" },
+          "uniqueItems": true
+        },
+        "forbiddenPackagePrefixes": {
+          "type": "array",
+          "description": "NuGet identifier prefixes that must not appear in this responsibility, such as Microsoft.EntityFrameworkCore in Core.",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "siblingIndependence": {
+          "type": "boolean",
+          "description": "When true, qualified implementations of this responsibility must not reference one another.",
+          "default": false
+        },
+        "separateProjectWhen": { "type": "string", "minLength": 10 },
+        "mayRemainCombinedWhen": { "type": "string", "minLength": 10 }
+      }
+    },
+    "waiver": {
+      "type": "object",
+      "required": ["project", "rules", "reason"],
+      "additionalProperties": false,
+      "properties": {
+        "project": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The project name the waiver applies to, exactly as it appears on disk."
+        },
+        "mapsTo": {
+          "$ref": "#/$defs/projectNameSegment",
+          "description": "The responsibility this project actually has. Keeps every dependency rule in force while excusing the name."
+        },
+        "rules": {
+          "type": "array",
+          "minItems": 1,
+          "description": "The rules this waiver excuses. A waiver that excuses nothing does nothing.",
+          "items": {
+            "type": "string",
+            "enum": ["naming", "discouragedName"]
+          },
+          "uniqueItems": true
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 40,
+          "description": "Why the departure is acceptable. A blanket suppression with no reason makes the policy unfalsifiable."
+        },
+        "reviewedOn": {
+          "type": "string",
+          "format": "date",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        }
+      }
+    }
+  }
+}
