@@ -6,7 +6,7 @@ artifacts_folder := "./artifacts"
 
 pipeline_tool := "dotnet purview-build"
 
-current_version := `node -p "require('./package.json').version"`
+current_version := `bun -p "require('./package.json').version"`
 
 [private]
 default:
