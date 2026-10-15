@@ -54,7 +54,10 @@ All test and shared-testing projects get:
 - `CollectCoverage=true` with coverage exclusions for `[NSubstitute*]`, `[TUnit.*]`, `[xunit.*]`,
   `[Microsoft.Testing.*]`, `[Microsoft.NET.Test*]`, and `[Bogus*]`.
 - `ExcludeByAttribute` for `ExcludeFromCodeCoverageAttribute`.
-- `IsPackable=false`, `IsPublishable=false`, `MaxCpuCount=0`, `DisableGenerateAssemblyInfoClass=true`.
+- `IsPackable=false`, `IsPublishable=false`, `MaxCpuCount=0`, `DisableGenerateAssemblyInfoClass=true`,
+  `DisableGenerateAssemblyIdentifierClass=true` (the test assembly is the one asserting, so it has
+  nothing to identify — see
+  [Assembly identifier class](Assembly-Name-Generation.md#assembly-identifier-class)).
 - Disabled native instrumentation.
 - An `[assembly: ExcludeFromCodeCoverage]` attribute.
 

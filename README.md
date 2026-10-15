@@ -182,17 +182,45 @@ The `templates/` folder contains ready-to-copy starter files for new repos:
 | `.gitattributes` | Line-ending normalisation for .cs, .json, .yml, etc. |
 | `.config/dotnet-tools.json` | CSharpier tool manifest |
 
-The package also ships bundled agent content under `.agents/**`. During build, the SDK mirrors it into the consuming repository's `.agents/` folder by default so compatible coding agents can discover repository-aware guidance automatically. The SDK also injects a `.gitignore` file into each second-level agent folder with the content `# Ignore all files\n*\n\n# Don't ignore directories, so Git can traverse them\n!*/\n\n# Keep this file\n!.gitignore`, so the copied folder is ignored by Git while keeping the folder structure discoverable.
+A package built with `PurviewAutoSdkPack` carries its repository's authored skills at
+`.agents/skills/**`, but as *metadata*: nothing copies it out. It is what the SDK reads to map a
+restored package to the skills it offers and the commit it was built from. Installing is the skills
+CLI's job and nothing else's — see [Agent Skills](docs/wiki/Agent-Skills.md).
 
 Repository metadata can also be defined before the SDK import: the package recognizes `PurviewHomepage`, `PurviewProjectUrl`, and `PurviewDocsUrl` for repo/site metadata, which is useful when a package or generated metadata needs to point at a public docs site or project page without hard-coding repo-specific values in each project file.
 
-The mirror is change-aware: file fingerprints and content hashes are recorded in
-`.purview/agent-sync.cache` at the repository root, so unchanged content is skipped and repeat builds
-touch no files. Every write is staged into a temporary file and renamed into place, and because all
-projects in a solution share these destinations the retries are silent — copy retry notices (`MSB3026`)
-are demoted to low-importance messages while a copy that still fails after every retry is reported as an
-error. See [Agent Folder](docs/wiki/Agent-Folder.md) and
+`.editorconfig` and `global.json` are bootstrapped into the repository root. Every project in a
+solution writes those same destinations, so a write is staged into a temporary file and renamed into
+place, an existing file is never overwritten unless asked, retries are silent (`MSB3026` is demoted
+to a low-importance message) and only a copy that still fails after every retry is reported. See
 [Repository Bootstrap](docs/wiki/Repository-Bootstrap.md) for the retry and failure properties.
+
+### Agent skills
+
+Purview skills are published in the standard [Agent Skills](https://skills.sh/) format and installed
+with the standard `skills` CLI. The SDK is the discovery and compatibility half only: it reads the
+skills each referenced NuGet package ships, compares them against the CLI's own `skills-lock.json`,
+and recommends the command that fixes the difference. It never installs, updates or removes a skill
+as a side effect of a restore or a build.
+
+```bash
+npx skills add purview-dev/build-sdk                # install, the ordinary way
+dotnet msbuild <project> -t:RecommendPurviewSkills  # what is missing, drifted or unverifiable
+dotnet msbuild <project> -t:InstallPurviewSkills    # explicit; delegates to the CLI
+```
+
+Compatibility is pinned by commit: a package's nuspec names the commit it was built from, the CLI
+accepts `owner/repo#<commit>` and records it, so a project on an older package version is never
+advised to install skills describing a newer API. Set `EnablePurviewSkillRecommendations=false` to
+turn the build-time reporting off; it is already silent on CI, during design-time builds, and when
+everything is installed and compatible.
+
+The CLI is launched through a package runner. `PurviewSkillsRunner` defaults to `npx` — which ships
+with Node itself — and also accepts `bunx`, `bun`, `pnpm`, `yarn`, `deno` or `skills`; anything else
+falls through to `<runner> skills@1`. Because `skills-lock.json` and the agent directories belong to
+the repository rather than to a project, every skill target runs **from the repository root,
+always**, and reports `PRSKL0003` rather than falling back to a project folder when that root cannot
+be resolved. See [Agent Skills](docs/wiki/Agent-Skills.md).
 
 ---
 
@@ -251,6 +279,8 @@ Version detection logging is disabled by default. Set `VersionDetectionLogEnable
 | `EnableAssemblyNameGeneration` | `true` | When `true` (default), `AssemblyName` and `PackageId` derive from the fully evaluated `RootNamespace`. When explicitly `false`, standard .NET behaviour applies (`$(MSBuildProjectName)`). Explicit `<AssemblyName>`/`<PackageId>` in a `.csproj` always take precedence. |
 | `DisableProjectFileNamingConventionCheck` | `false` | Set to `true` to disable the validation that requires `MyProject\MyProject.csproj` naming alignment. |
 | `DisableGenerateAssemblyInfoClass` | `false` | Set to `true` to disable the generated `AssemblyInfo` helper source. |
+| `DisableGenerateAssemblyIdentifierClass` | `false` (`true` for test and shared-testing projects) | Set to `true` to disable the generated assembly identifier marker class. |
+| `AssemblyIdentifierClassName` | `<project name minus NamespacePrefix, dots removed>Assembly` | Overrides the name of the generated assembly identifier marker class. |
 | `AutoIncludeUsings` | `true` | Controls SDK-added global usings for `NamespacePrefix` and `RootNamespace`. |
 
 ### Packable project defaults
@@ -291,26 +321,35 @@ Non-packable projects (including web applications) default `WarnOnPackingNonPack
 | `PurviewRepoBootstrapCopyFailureAsError` | `true` | When `false`, a failed bootstrap write is a warning instead of an error. |
 | `PurviewSuppressCopyRetryWarnings` | `true` | Demotes built-in copy retry notices (`MSB3026`) to messages. Set to `false` to see every retry attempt. |
 
-### Agent folder
+### Sdk folder packaging
 
 | Property | Default | Description |
 | -- | -- | -- |
 | `PurviewAutoSdkPack` | `true` | When `true`, automatically packs the `Sdk/` folder contents into the NuGet package with the correct root-level paths. Disable this for MSBuild SDK projects. |
-| `EnableAgentFolderInPackage` | `true` | Mirrors the bundled `.agents/**` folder from the SDK NuGet package into the consuming repository's `.agents/` folder (or `$(AgentPackDestinationFolder)/`) before build. |
-| `AgentPackDestinationFolder` | `.agents` | Repo-relative destination folder that receives the mirrored agent folder contents when `EnableAgentFolderInPackage` is `true`. |
-| `PurviewAgentFolderSourcePath` | *(package-level `.agents`)* | Overrides the folder that provides the bundled `.agents` content. |
-| `PurviewAgentFolderCopyRetries` | `3` | Copy attempts per file before the failure is reported. |
-| `PurviewAgentFolderCopyRetryDelayMilliseconds` | `500` | Base delay between copy attempts. |
-| `PurviewAgentFolderCopyFailureAsError` | `true` | When `false`, a copy that still fails after every retry is a warning instead of an error. |
-| `PurviewAgentSyncManifestPath` | `<repo root>/.purview/agent-sync.cache` | Overrides the change-detection manifest used to skip unchanged agent content. |
 
-To disable bundled agent folder copying in a consuming repo, set the opt-out property before importing the SDK:
+> **The SDK writes nothing into an agent directory.** It used to mirror a package's `.agents/**`
+> into the consuming repository; that is gone, because the skills CLI covers it and two writers on
+> one set of paths meant the mirror could silently overwrite a pinned install. A package still
+> carries `.agents/skills/` as metadata describing which skills it offers and at which commit,
+> which is what the SDK reads to recommend an install.
 
-```xml
-<PropertyGroup>
-  <EnableAgentFolderInPackage>false</EnableAgentFolderInPackage>
-</PropertyGroup>
-```
+### Agent skills
+
+| Property | Default | Description |
+| -- | -- | -- |
+| `EnablePurviewSkillRecommendations` | `true` | Reports missing or version-drifted agent skills after an ordinary build. Offline; never installs; never fails the build. |
+| `PurviewSkillRecommendationsInCI` | `false` | When `true`, recommendations are reported on CI builds as well. |
+| `PurviewSkillRecommendationStampPath` | `<repo root>/.purview/skill-recommendations.cache` | Overrides the stamp that reports each distinct skill state once per repository. |
+| `PurviewSkillsLockFile` | `<repo root>/skills-lock.json` | Overrides where the skills CLI's lockfile is read from. |
+| `PurviewSkillsSourceFolder` | `<repo root>/skills` | Repository folder holding authored skills. |
+| `PurviewSkillsAgents` | `*` | Agents that `InstallPurviewSkills` installs to, and that recommended commands name. |
+| `PurviewSkillsRunner` | `npx` | Package runner used to launch the skills CLI (`npx`, `bunx`, `bun`, `pnpm`, `yarn`, `deno`, `skills`, or any other). |
+| `PurviewSkillsRunnerCandidates` | `npx;bunx;bun;pnpm;yarn;deno` | Runners probed on `PATH` after `PurviewSkillsRunner`. |
+| `PurviewSkillsPackage` | `skills@1` | Package spec the executed launcher pins to. |
+| `PurviewSkillsInstallRoot` | *(resolved)* | Overrides the repository root every skill target runs from. |
+| `PurviewRepositoryRootMarkers` | `.git/;.github/;.gitattributes;LICENSE.md;AGENTS.md;.agents/;CLAUDE.md;.claude/;package.json` | Ordered markers identifying a repository root. The first is definitive and searched to the top; the rest resolve nearest-first. |
+| `PurviewSkillsCommand` | *(detected)* | Overrides the launcher entirely and skips runner detection. |
+| `PurviewSkillsSource` | *(none)* | Installs from an explicit git source (`owner/repo`, optionally `#ref`) instead of from referenced packages. |
 
 When a project is packable, the SDK treats any content under `Sdk/` as a pack target with these rules:
 
@@ -362,6 +401,8 @@ The SDK now exports its properties via `CompilerVisibleProperty`, so analyzers a
 | `ExcludePurviewTelemetry` | Opt-out for `Purview.Telemetry.SourceGenerator`. |
 | `ExcludeMSTelemetryExtension` | Opt-out for `Microsoft.Extensions.Telemetry.Abstractions`. |
 | `DisableGenerateAssemblyInfoClass` | Disables generated `AssemblyInfo` helper source. |
+| `DisableGenerateAssemblyIdentifierClass` | Disables the generated assembly identifier marker class. |
+| `AssemblyIdentifierClassName` | Name of the generated assembly identifier marker class. |
 | `EnableAssemblyNameGeneration` | When `true` (default), `AssemblyName` derives from `RootNamespace`. |
 | `DisableAutoInternalsVisibleTo` | Disables automatic `InternalsVisibleTo` generation. |
 | `AutoIncludeUsings` | Controls SDK-added global usings. |
@@ -388,15 +429,24 @@ The SDK now exports its properties via `CompilerVisibleProperty`, so analyzers a
 | `PurviewRepoBootstrapCopyRetries` | Number of write attempts before a bootstrap failure is reported (default `3`). |
 | `PurviewRepoBootstrapCopyRetryDelayMilliseconds` | Base delay between bootstrap write attempts (default `500`). |
 | `PurviewRepoBootstrapCopyFailureAsError` | When `true` (default), a bootstrap write that still fails after every retry is an error. |
-| `PurviewAgentFolderSourcePath` | Folder that provides the bundled `.agents` content mirrored into the repository. |
-| `PurviewAgentFolderCopyRetries` | Number of copy attempts per file before an agent folder sync failure is reported (default `3`). |
-| `PurviewAgentFolderCopyRetryDelayMilliseconds` | Base delay between agent folder copy attempts (default `500`). |
-| `PurviewAgentFolderCopyFailureAsError` | When `true` (default), an agent folder copy that still fails after every retry is an error. |
-| `PurviewAgentSyncManifestPath` | Change-detection manifest used to skip unchanged agent content (default `<repo root>/.purview/agent-sync.cache`). |
 | `PurviewSuppressCopyRetryWarnings` | When `true` (default), built-in copy retry notices (`MSB3026`) are demoted to messages. |
 | `PurviewAutoSdkPack` | When `true`, automatically packs the `Sdk/` folder contents into the NuGet package with the correct root-level paths. |
+| `EnablePurviewSkillRecommendations` | When `true` (default), an ordinary build reports missing or version-drifted agent skills. |
+| `PurviewSkillRecommendationsInCI` | When `true`, skill recommendations are reported on CI builds as well (default `false`). |
+| `PurviewSkillRecommendationStampPath` | Stamp used to report each distinct skill state once (default `<repo root>/.purview/skill-recommendations.cache`). |
+| `PurviewSkillsLockFile` | Where the skills CLI's `skills-lock.json` is read from (default `<repo root>/skills-lock.json`). |
+| `PurviewSkillsSourceFolder` | Repository folder holding authored agent skills (default `<repo root>/skills`). |
+| `PurviewSkillsAgents` | Agents that `InstallPurviewSkills` installs to (default `*`). |
+| `PurviewSkillsRunner` | Package runner used to launch the skills CLI (default `npx`; also `bunx`, `bun`, `pnpm`, `yarn`, `deno`, `skills`). |
+| `PurviewSkillsRunnerCandidates` | Runners probed on `PATH` after `PurviewSkillsRunner` (default `npx;bunx;bun;pnpm;yarn;deno`). |
+| `PurviewSkillsPackage` | Package spec the executed launcher pins to (default `skills@1`). |
+| `PurviewSkillsInstallRoot` | Overrides the repository root every skill target runs from. |
+| `PurviewRepositoryRootMarkers` | Ordered markers identifying a repository root (default `.git/;.github/;.gitattributes;LICENSE.md;AGENTS.md;.agents/;CLAUDE.md;.claude/;package.json`). |
+| `PurviewSkillsCommand` | Overrides the launcher entirely and skips runner detection. |
+| `PurviewSkillsSource` | Installs from an explicit git source (`owner/repo`, optionally `#ref`) instead of from referenced packages. |
 | `CurrentYear` | Current year used in generated assembly metadata. |
-| `AutoGeneratedAssemblyInfoFile` | Relative path to generated AssemblyInfo source file. |
+| `AutoGeneratedAssemblyInfoFile` | File name of the generated AssemblyInfo source file (written under the intermediate `Properties/` folder). |
+| `AutoGeneratedAssemblyIdentifierFile` | File name of the generated assembly identifier source file (written under the intermediate `Properties/` folder). |
 
 #### Example: switch a repo to Xunit + NSubstitute and disable Bogus
 
@@ -481,12 +531,47 @@ Define `PURVIEW_SDK_EXCLUDE_EMBEDDED` only when your build already provides `Mic
 
 ---
 
+## Assembly identifier class
+
+Architecture tests need a handle on each assembly under test. Matching one by name (`Assembly.Load("Acme.Billing")`) is a string that no compiler checks, so a rename silently empties the test instead of failing it.
+
+`GenerateAssemblyIdentifierClassTarget` writes an empty marker class into the intermediate output for every production C# project, so the reference becomes a `typeof`:
+
+```csharp
+// <auto-generated />
+
+/// <summary>
+/// Identifies the <c>Acme.Billing</c> assembly to architecture tests.
+/// </summary>
+public static partial class BillingAssembly
+{
+}
+```
+
+```csharp
+var assembly = typeof(BillingAssembly).Assembly;
+```
+
+The class name comes from `$(MSBuildProjectName)` with the `NamespacePrefix` and every remaining dot removed, suffixed with `Assembly` — `Acme.Billing.Core.Abstractions` and `Core.Abstractions` both produce `CoreAbstractionsAssembly`. Set `AssemblyIdentifierClassName` to choose a different name.
+
+It is emitted in the global namespace deliberately: a test project that references several assemblies should not need a `using` per marker. Being `partial`, a project can add members to it.
+
+Test and shared-testing projects do not get one — the test assembly is the one doing the asserting, so it has nothing to identify. Set `DisableGenerateAssemblyIdentifierClass=true` to opt a production project out.
+
+---
+
 ## Namespace stripping
 
 Certain suffixes are automatically stripped from `RootNamespace` to avoid awkward namespace names like `Acme.MyProject.Core.Something`.
 
 The current built-in stripping set is intentionally broader than the common examples and includes:
-`SourceGeneration`, `SourceGenerators`, `SourceGenerator`, `ServiceDefaults`, `Infrastructure`, `Abstractions`, `ClientShared`, `Persistence`, `CodeFixers`, `CodeFixes`, `DataAccess`, `Extensions`, `Generators`, `Analyzers`, `Contracts`, `Framework`, `Utilities`, `AppHost`, `Helpers`, `Library`, `Common`, `Shared`, `Infra`, `Utils`, `Core`, `Data`, `Host`, `Util`, `Lib`, `EF`, plus the known shared and shared-testing project names (`Shared*`, `SharedTesting*`).
+`ServiceDefaults`, `Infrastructure`, `Abstractions`, `ClientShared`, `DataAccess`, `Extensions`, `Contracts`, `Framework`, `Utilities`, `Helpers`, `Library`, `Common`, `Shared`, `Infra`, `Utils`, `Core`, `Host`, `Util`, `Lib`, `EF`, plus the known shared and shared-testing project names (`Shared*`, `SharedTesting*`).
+
+Three groups are deliberately **not** stripped:
+
+- **Roslyn component names** — `SourceGenerator`, `SourceGenerators`, `SourceGeneration`, `Generators`, `Analyzers`, `CodeFixers`, `CodeFixes`. A component's suffix is part of its identity, and stripping them produced `IDE0130` across every Roslyn-component repository consuming this SDK.
+- **`Persistence`, `AppHost` and `Data`** — they read as layer noise but are routinely the whole point of the project.
+- Anything a project opts back in with `<NamespaceRemoveSuffix Include="..." />`.
 
 ### Keeping suffixes (opt a stripped suffix back in)
 

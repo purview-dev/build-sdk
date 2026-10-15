@@ -663,3 +663,19 @@ sketch
 
 
 .tools/
+
+# Agent skills installed by the skills CLI.
+#
+# The authored copies live at skills/<name>/ and are the only tracked ones. Everything below is
+# written by `npx skills add` from that folder and is reproducible from the committed
+# skills-lock.json, so none of it belongs in the repository:
+#
+#   .agents/skills/   the CLI's "universal" location, shared by most agents
+#   .claude/skills/   per-agent links into the universal location
+#   agent/skills/     ditto
+#
+# Note that .agents/agents/ and .agents/prompts/ are authored content and stay tracked, so the
+# skills folder is ignored specifically rather than the whole of .agents/.
+/.agents/skills/
+/.claude/skills/
+/agent/skills/

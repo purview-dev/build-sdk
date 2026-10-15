@@ -33,6 +33,8 @@ See [Version Detection](Version-Detection.md) for the full resolution rules.
 | `EnableAssemblyNameGeneration` | `true` | When `true` (default), `AssemblyName` and `PackageId` derive from the fully evaluated `RootNamespace`. When explicitly `false`, standard .NET behaviour applies (`$(MSBuildProjectName)`). Explicit `<AssemblyName>`/`<PackageId>` in a `.csproj` always take precedence. |
 | `DisableProjectFileNamingConventionCheck` | `false` | Set to `true` to disable the validation that requires `MyProject\MyProject.csproj` naming alignment. |
 | `DisableGenerateAssemblyInfoClass` | `false` | Set to `true` to disable the generated `AssemblyInfo` helper source. |
+| `DisableGenerateAssemblyIdentifierClass` | `false` (`true` for test and shared-testing projects) | Set to `true` to disable the generated assembly identifier marker class. See [Assembly identifier class](Assembly-Name-Generation.md#assembly-identifier-class). |
+| `AssemblyIdentifierClassName` | `<project name minus NamespacePrefix, dots removed>Assembly` | Overrides the name of the generated assembly identifier marker class. |
 | `AutoIncludeUsings` | `true` | Controls SDK-added global usings for `NamespacePrefix` and `RootNamespace`. |
 | `NamespaceRemoveSuffix` | *(built-in list)* | Item type listing the suffixes stripped from `RootNamespace`. Remove an entry **after** the `Sdk.props` import to keep that suffix in the namespace, e.g. `<NamespaceRemoveSuffix Remove="Abstractions" />`. **Roslyn component names are not in the list** — `SourceGenerator`, `SourceGenerators`, `SourceGeneration`, `Generators`, `Analyzers`, `CodeFixers` and `CodeFixes` are part of a component's identity, and a generator, its analyzers and its code fixes are separate assemblies that each need their own namespace. Add one with `<NamespaceRemoveSuffix Include="Analyzers" />` if a repository really wants it collapsed. See [Namespace stripping](Assembly-Name-Generation.md#namespace-stripping). |
 
@@ -162,32 +164,15 @@ observe a partially written `.editorconfig` or `global.json`. Because every proj
 the same bootstrapping targets, a lost race between parallel projects is a no-op: an existing file is
 treated as success rather than a copy failure.
 
-## Agent folder
+## Sdk folder packaging
 
 | Property | Default | Description |
 | -- | -- | -- |
 | `PurviewAutoSdkPack` | `true` | When `true`, automatically packs the `Sdk/` folder contents into the NuGet package with the correct root-level paths. Disable this for MSBuild SDK projects. |
-| `EnableAgentFolderInPackage` | `true` | Mirrors the bundled `.agents/**` folder from the SDK NuGet package into the consuming repository's `.agents/` folder (or `$(AgentPackDestinationFolder)/`) before build. |
-| `AgentPackDestinationFolder` | `.agents` | Repo-relative destination folder that receives the mirrored agent folder contents when `EnableAgentFolderInPackage` is `true`. |
-| `PurviewAgentFolderSourcePath` | *(package-level `.agents`)* | Overrides the folder that provides the bundled `.agents` content. |
-| `PurviewAgentFolderCopyRetries` | `3` | Copy attempts per file before the failure is reported. |
-| `PurviewAgentFolderCopyRetryDelayMilliseconds` | `500` | Base delay between copy attempts. |
-| `PurviewAgentFolderCopyFailureAsError` | `true` | When `false`, a copy that still fails after every retry is reported as a warning and the build continues. |
-| `PurviewAgentSyncManifestPath` | `<repo root>/.purview/agent-sync.cache` | Overrides the change-detection manifest used to skip unchanged agent content. |
 
-The mirror is change-aware: content that already matches the manifest is skipped entirely, which keeps
-repeat builds free of file writes and file locks. Retry notices are demoted to low-importance messages
-(`MSB3026`); a copy that still fails after every retry is reported as an error that names the source,
-destination and OS error.
-
-To disable bundled agent folder copying in a consuming repo, set the opt-out property before
-importing the SDK:
-
-```xml
-<PropertyGroup>
-  <EnableAgentFolderInPackage>false</EnableAgentFolderInPackage>
-</PropertyGroup>
-```
+The SDK writes nothing into an agent directory. It used to mirror a package's `.agents/**` into the
+consuming repository; that is gone, because the skills CLI covers it. See
+[Agent Skills](Agent-Skills.md).
 
 ## Telemetry
 
@@ -229,10 +214,10 @@ read them through `build_property.<PropertyName>`:
 | `DisableSourceLink` | Disables automatic SourceLink integration. |
 | `ExcludePurviewTelemetry` | Opt-out for `Purview.Telemetry.SourceGenerator`. |
 | `ExcludeMSTelemetryExtension` | Opt-out for `Microsoft.Extensions.Telemetry.Abstractions`. |
-| `EnableAgentFolderInPackage` | When `true`, copies the bundled `.agents` folder into the consuming repository. |
-| `AgentPackDestinationFolder` | Repo-relative destination folder that receives copied `.agents` content. |
 | `PurviewAutoSdkPack` | When `true`, automatically packs the `Sdk/` folder contents into the NuGet package. |
 | `DisableGenerateAssemblyInfoClass` | Disables generated `AssemblyInfo` helper source. |
+| `DisableGenerateAssemblyIdentifierClass` | Disables the generated assembly identifier marker class. |
+| `AssemblyIdentifierClassName` | Name of the generated assembly identifier marker class. |
 | `EnableAssemblyNameGeneration` | When `true` (default), `AssemblyName` derives from `RootNamespace`. |
 | `DisableAutoInternalsVisibleTo` | Disables automatic `InternalsVisibleTo` generation. |
 | `AutoIncludeUsings` | Controls SDK-added global usings. |
@@ -258,7 +243,8 @@ read them through `build_property.<PropertyName>`:
 | `PurviewBuildSdkVersionForGlobalJson` | Version used for `msbuild-sdks.Purview.BuildSdk` when bootstrapping `global.json`. |
 | `DisableAutoCopySdkFiles` | When `true`, disables SDK auto-copy/bootstrap for repo files (`.editorconfig`, `global.json`). |
 | `CurrentYear` | Current year used in generated assembly metadata. |
-| `AutoGeneratedAssemblyInfoFile` | Relative path to generated AssemblyInfo source file. |
+| `AutoGeneratedAssemblyInfoFile` | File name of the generated AssemblyInfo source file (written under the intermediate `Properties/` folder). |
+| `AutoGeneratedAssemblyIdentifierFile` | File name of the generated assembly identifier source file (written under the intermediate `Properties/` folder). |
 
 Roslyn components additionally expose `LangVersion`, `Nullable`, `TreatWarningsAsErrors`,
 `EnforceExtendedAnalyzerRules`, `Deterministic`, `ContinuousIntegrationBuild`, and

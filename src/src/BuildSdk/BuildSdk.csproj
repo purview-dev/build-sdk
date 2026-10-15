@@ -13,6 +13,7 @@
 		<IncludeBuildOutput>false</IncludeBuildOutput>
 		<GenerateDocumentationFile>false</GenerateDocumentationFile>
 		<DisableGenerateAssemblyInfoClass>true</DisableGenerateAssemblyInfoClass>
+		<DisableGenerateAssemblyIdentifierClass>true</DisableGenerateAssemblyIdentifierClass>
 		<IsPackable>true</IsPackable>
 
 		<!-- No telemetry packages for this meta-project -->
@@ -29,6 +30,10 @@
 		<NoDefaultExcludes>true</NoDefaultExcludes>
 		<!-- No C# so no need to generate useful usings -->
 		<AutoIncludeUsings>false</AutoIncludeUsings>
+		<!-- Skills are not packed into any package. They live at the repository root in skills/
+		     and are published through the skills CLI, which clones the git repository:
+		     `npx skills add purview-dev/build-sdk`. ValidatePurviewSkills still runs before Pack,
+		     so a malformed skill fails here rather than reaching the CLI. -->
 	</PropertyGroup>
 
 	<ItemGroup>
@@ -58,12 +63,6 @@
 			Visible="true"
 		/>
 
-		<None
-			Include="Sdk/.agents/**/*"
-			Pack="true"
-			PackagePath=".agents/$([System.String]::Copy('%(RecursiveDir)').Replace(&quot;\&quot;, &quot;/&quot;))%(Filename)%(Extension)"
-			Visible="true"
-		/>
 		<None
 			Include="Sdk/.github/**/*"
 			Pack="true"
@@ -99,7 +98,7 @@
 			Pack="true"
 			PackagePath="Sdk/$([System.String]::Copy('%(RecursiveDir)').Replace(&quot;\&quot;, &quot;/&quot;))%(Filename)%(Extension)"
 			Visible="true"
-			Exclude="Sdk/.agents/**/*;Sdk/.github/**/*;Sdk/build/**/*;Sdk/buildTransitive/**/*;Sdk/buildMultiTargeting/**/*;Sdk/*.md;Sdk/*.png;Sdk/*.jpg;Sdk/*.jpeg;Sdk/*.gif;Sdk/*.svg"
+			Exclude="Sdk/.github/**/*;Sdk/build/**/*;Sdk/buildTransitive/**/*;Sdk/buildMultiTargeting/**/*;Sdk/*.md;Sdk/*.png;Sdk/*.jpg;Sdk/*.jpeg;Sdk/*.gif;Sdk/*.svg"
 		/>
 
 		<None Include="$(MSBuildThisFileDirectory)../../../README.md" Pack="true" PackagePath="/" />

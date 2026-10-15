@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<NamespacePrefix>Purview.Skills</NamespacePrefix>
+		<AutoIncludeUsings>false</AutoIncludeUsings>
+		<RootNamespace>Purview.Skills.Testing.UnitTests</RootNamespace>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="../../src/SkillsTesting/SkillsTesting.csproj" />
+	</ItemGroup>
+</Project>

@@ -51,210 +51,6 @@ sealed class SdkPackageConsumptionTests
 
 	[Test]
 	[NotInParallel]
-	public async Task PackedSdk_CopiesBundledAgentFoldersFromOtherReferencedPackages(
-		CancellationToken cancellationToken
-	)
-	{
-		var tempRoot = Path.Combine(Path.GetTempPath(), $"PurviewSdkAgentFolderRelay-{Guid.NewGuid():N}");
-		var feedDirectory = Path.Combine(tempRoot, "feed");
-		var consumerDirectory = Path.Combine(tempRoot, "consumer");
-		var consumerSrcDirectory = Path.Combine(consumerDirectory, "src");
-
-		Directory.CreateDirectory(feedDirectory);
-		Directory.CreateDirectory(consumerDirectory);
-		Directory.CreateDirectory(consumerSrcDirectory);
-
-		try
-		{
-			var sdkPackageVersion = await PackSdkAsync(feedDirectory, cancellationToken);
-			var otherPackageVersion = $"0.0.0-integration-test-{Guid.NewGuid():N}";
-
-			var (code, stdOut, stdErr) = await RunProcessAsync(
-				"dotnet",
-				"new sln -n Proof",
-				consumerDirectory,
-				cancellationToken
-			);
-			await Assert.That(code).IsEqualTo(0).Because(TestHelpers.GenerateError(stdOut, stdErr));
-
-			(code, stdOut, stdErr) = await RunProcessAsync("git", "init", consumerDirectory, cancellationToken);
-			await Assert.That(code).IsEqualTo(0).Because(TestHelpers.GenerateError(stdOut, stdErr));
-
-			(code, stdOut, stdErr) = await RunProcessAsync(
-				"dotnet",
-				$"new classlib -n Proof.OtherPackage -o \"{Path.Combine(consumerSrcDirectory, "Proof.OtherPackage")}\" -f net10.0",
-				consumerDirectory,
-				cancellationToken
-			);
-			await Assert.That(code).IsEqualTo(0).Because(TestHelpers.GenerateError(stdOut, stdErr));
-
-			(code, stdOut, stdErr) = await RunProcessAsync(
-				"dotnet",
-				$"new classlib -n Proof.LibTest -o \"{Path.Combine(consumerSrcDirectory, "Proof.LibTest")}\" -f net10.0",
-				consumerDirectory,
-				cancellationToken
-			);
-			await Assert.That(code).IsEqualTo(0).Because(TestHelpers.GenerateError(stdOut, stdErr));
-
-			var solutionPath = Directory
-				.GetFiles(consumerDirectory, "Proof.sln*", SearchOption.TopDirectoryOnly)
-				.First();
-
-			foreach (var projectName in new[] { "Proof.OtherPackage", "Proof.LibTest" })
-			{
-				(code, stdOut, stdErr) = await RunProcessAsync(
-					"dotnet",
-					$"sln \"{solutionPath}\" add \"{Path.Combine(consumerSrcDirectory, projectName, $"{projectName}.csproj")}\"",
-					consumerDirectory,
-					cancellationToken
-				);
-				await Assert.That(code).IsEqualTo(0).Because(TestHelpers.GenerateError(stdOut, stdErr));
-			}
-
-			await File.WriteAllTextAsync(
-				Path.Combine(consumerDirectory, "package.json"), /*lang=json,strict*/
-				"""{"name": "proof-consumer", "version": "1.0.0"}""",
-				cancellationToken
-			);
-
-			await File.WriteAllTextAsync(
-				Path.Combine(consumerDirectory, "Directory.Packages.props"),
-				$"""
-				<Project>
-					<PropertyGroup>
-						<CentralPackageFloatingVersionsEnabled>true</CentralPackageFloatingVersionsEnabled>
-					</PropertyGroup>
-					<ItemGroup>
-						<PackageVersion Include="Microsoft.SourceLink.GitHub" Version="*" />
-						<PackageVersion Include="Purview.Telemetry.SourceGenerator" Version="*" />
-						<PackageVersion Include="Microsoft.Extensions.Telemetry.Abstractions" Version="*" />					<PackageVersion Include="TUnit" Version="*" />
-					<PackageVersion Include="TUnit.Mocks" Version="*" />
-					<PackageVersion Include="Bogus" Version="*" />						<PackageVersion Include="Proof.OtherPackage" Version="{otherPackageVersion}" />
-					</ItemGroup>
-				</Project>
-				""",
-				cancellationToken
-			);
-
-			var nugetConfigPath = Path.Combine(consumerDirectory, "NuGet.Config");
-			await File.WriteAllTextAsync(
-				nugetConfigPath,
-				$"""
-				<?xml version="1.0" encoding="utf-8"?>
-				<configuration>
-					<packageSources>
-						<clear />
-						<add key="local" value="{feedDirectory.Replace('\\', '/')}" />
-						<add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
-					</packageSources>
-					<packageSourceMapping>
-						<clear />
-						<packageSource key="local">
-							<package pattern="Purview.BuildSdk" />
-							<package pattern="Proof.OtherPackage" />
-						</packageSource>
-						<packageSource key="nuget.org">
-							<package pattern="*" />
-						</packageSource>
-					</packageSourceMapping>
-				</configuration>
-				""",
-				cancellationToken
-			);
-
-			await File.WriteAllTextAsync(
-				Path.Combine(consumerSrcDirectory, "Directory.Build.props"),
-				$"""
-				<Project>
-					<PropertyGroup>
-						<NamespacePrefix>Proof</NamespacePrefix>
-					</PropertyGroup>
-					<Import Sdk="Purview.BuildSdk" Project="Sdk.props" Version="{sdkPackageVersion}" />
-				</Project>
-				""",
-				cancellationToken
-			);
-
-			await File.WriteAllTextAsync(
-				Path.Combine(consumerSrcDirectory, "Directory.Build.targets"),
-				$"""
-				<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
-					<Import Sdk="Purview.BuildSdk" Project="Sdk.targets" Version="{sdkPackageVersion}" />
-				</Project>
-				""",
-				cancellationToken
-			);
-
-			var otherPackageDirectory = Path.Combine(consumerSrcDirectory, "Proof.OtherPackage");
-			await File.WriteAllTextAsync(
-				Path.Combine(otherPackageDirectory, "Proof.OtherPackage.csproj"),
-				"""
-				<Project Sdk="Microsoft.NET.Sdk">
-					<PropertyGroup>
-						<TargetFramework>net10.0</TargetFramework>
-						<IsPackable>true</IsPackable>
-					</PropertyGroup>
-				</Project>
-				""",
-				cancellationToken
-			);
-
-			var otherPackageAgentDirectory = Path.Combine(otherPackageDirectory, "Sdk", ".agents", "agents");
-			Directory.CreateDirectory(otherPackageAgentDirectory);
-			await File.WriteAllTextAsync(
-				Path.Combine(otherPackageAgentDirectory, "other-package-agent.md"),
-				"# Other package agent\n",
-				cancellationToken
-			);
-
-			(code, stdOut, stdErr) = await RunProcessAsync(
-				"dotnet",
-				$"pack \"{Path.Combine(otherPackageDirectory, "Proof.OtherPackage.csproj")}\" -c Release -o \"{feedDirectory}\" "
-					+ $"-p:RestoreConfigFile=\"{nugetConfigPath}\" -p:PackageVersion={otherPackageVersion} -p:Version={otherPackageVersion} -p:NoWarn=NU1010",
-				consumerDirectory,
-				cancellationToken
-			);
-			await Assert.That(code).IsEqualTo(0).Because(TestHelpers.GenerateError(stdOut, stdErr));
-
-			var libTestProjectPath = Path.Combine(consumerSrcDirectory, "Proof.LibTest", "Proof.LibTest.csproj");
-			var libTestProjectContent = await File.ReadAllTextAsync(libTestProjectPath, cancellationToken);
-			libTestProjectContent = libTestProjectContent.Replace(
-				"</Project>",
-				"""
-					<ItemGroup>
-						<PackageReference Include="Proof.OtherPackage" />
-					</ItemGroup>
-				</Project>
-				""",
-				StringComparison.Ordinal
-			);
-			await File.WriteAllTextAsync(libTestProjectPath, libTestProjectContent, cancellationToken);
-
-			(code, stdOut, stdErr) = await RunProcessAsync(
-				"dotnet",
-				$"build \"{libTestProjectPath}\" -nologo -p:RestoreConfigFile=\"{nugetConfigPath}\" -p:CentralPackageFloatingVersionsEnabled=true -p:NoWarn=NU1010",
-				consumerDirectory,
-				cancellationToken
-			);
-			await Assert.That(code).IsEqualTo(0).Because(TestHelpers.GenerateError(stdOut, stdErr));
-
-			var relayedAgentPath = Path.Combine(consumerDirectory, ".agents", "agents", "other-package-agent.md");
-			await Assert
-				.That(File.Exists(relayedAgentPath))
-				.IsTrue()
-				.Because(
-					$"Agent bundled by the referenced Proof.OtherPackage package was not relayed to {relayedAgentPath}."
-				);
-		}
-		finally
-		{
-			if (Directory.Exists(tempRoot))
-				Directory.Delete(tempRoot, recursive: true);
-		}
-	}
-
-	[Test]
-	[NotInParallel]
 	public async Task PackedSdk_ShipsAnalyzers_AndExposesThemToConsumerProject(CancellationToken cancellationToken)
 	{
 		var tempRoot = Path.Combine(Path.GetTempPath(), $"PurviewSdkAnalyzerDelivery-{Guid.NewGuid():N}");
@@ -777,34 +573,16 @@ sealed class SdkPackageConsumptionTests
 	{
 		var nugetConfigPath = Path.Combine(consumerDirectory, "NuGet.Config");
 
-		var bundledSkillPath = Path.Combine(
-			consumerDirectory,
-			".agents",
-			"skills",
-			"sdk-configuration-reference",
-			"SKILL.md"
-		);
+		// The SDK writes nothing into an agent directory any more. A package carries
+		// '.agents/skills/' as metadata - it is how the SDK maps a package to its skills and the
+		// commit it was built from - but nothing copies it out, and nothing else is shipped under
+		// '.agents/' at all. Installing is the skills CLI's job and nothing else's, so a real
+		// end-to-end consumption must leave the consumer's '.agents/' untouched.
+		var consumerAgentsFolder = Path.Combine(consumerDirectory, ".agents");
 		await Assert
-			.That(File.Exists(bundledSkillPath))
-			.IsTrue()
-			.Because($"Bundled skill not found at {bundledSkillPath}.");
-
-		var bundledAgentPath = Path.Combine(consumerDirectory, ".agents", "agents", "sdk-consumer-setup.md");
-		await Assert
-			.That(File.Exists(bundledAgentPath))
-			.IsTrue()
-			.Because($"Bundled agent not found at {bundledAgentPath}.");
-
-		var bundledPromptPath = Path.Combine(
-			consumerDirectory,
-			".agents",
-			"prompts",
-			"sdk-diagnose-agent-folder-copy.md"
-		);
-		await Assert
-			.That(File.Exists(bundledPromptPath))
-			.IsTrue()
-			.Because($"Bundled prompt not found at {bundledPromptPath}.");
+			.That(Directory.Exists(consumerAgentsFolder))
+			.IsFalse()
+			.Because($"A build created '{consumerAgentsFolder}'; only the skills CLI may write there.");
 
 		var (code, stdOut, stdErr) = await RunProcessAsync(
 			"dotnet",
@@ -879,47 +657,6 @@ sealed class SdkPackageConsumptionTests
 			.Because(
 				$"Repository GlobalJson file at path {repositoryGlobalJsonPath} does not contain the expected content."
 			);
-
-		(code, stdOut, stdErr) = await RunProcessAsync(
-			"dotnet",
-			$"build \"{Path.Combine("src", "Proof.LibTest", "Proof.LibTest.csproj")}\" -nologo -p:RestoreConfigFile=\"{nugetConfigPath}\" -p:AgentPackDestinationFolder=.custom-agents",
-			consumerDirectory,
-			cancellationToken
-		);
-		await Assert.That(code).IsEqualTo(0).Because(TestHelpers.GenerateError(stdOut, stdErr));
-
-		var customDestinationSkillPath = Path.Combine(
-			consumerDirectory,
-			".custom-agents",
-			"skills",
-			"sdk-configuration-reference",
-			"SKILL.md"
-		);
-		await Assert.That(File.Exists(customDestinationSkillPath)).IsTrue();
-		var customDestinationGitIgnorePath = Path.Combine(
-			consumerDirectory,
-			".custom-agents",
-			"skills",
-			"sdk-configuration-reference",
-			".gitignore"
-		);
-		await Assert.That(File.Exists(customDestinationGitIgnorePath)).IsTrue();
-
-		var customDestinationAgentPath = Path.Combine(
-			consumerDirectory,
-			".custom-agents",
-			"agents",
-			"sdk-consumer-setup.md"
-		);
-		await Assert.That(File.Exists(customDestinationAgentPath)).IsTrue();
-
-		var customDestinationPromptPath = Path.Combine(
-			consumerDirectory,
-			".custom-agents",
-			"prompts",
-			"sdk-diagnose-agent-folder-copy.md"
-		);
-		await Assert.That(File.Exists(customDestinationPromptPath)).IsTrue();
 	}
 
 	static async Task<(int Code, string StdOut, string StdErr)> RunProcessAsync(

@@ -6,14 +6,12 @@
 		"TestFilter": "/*/*/*/*[Category=Unit]/"
 	},
 	"PackValidation": {
-		// Explicit because Purview.Build 0.5.3 defaults RequiredCompilerFlags to empty. Earlier
-		// versions forced this check on and could not be configured off, so these packages have
-		// always been validated against it; declaring it keeps that behaviour.
-		"RequiredCompilerFlags": ["optimization=release"],
+		"RequiredCompilerFlags": [
+			"optimization=release"
+		],
 		"RequireSymbolPackage": false,
 		"RequiredContent": {
 			"purview.buildsdk": [
-				".agents/**/*",
 				"analyzers/dotnet/cs/Purview.BuildSdk.Analyzers.dll",
 				"analyzers/dotnet/cs/Purview.BuildSdk.CodeFixers.dll",
 				"purview-logo-light.png",
@@ -24,6 +22,17 @@
 				"Sdk/Sdk.props",
 				"Sdk/Sdk.targets",
 				"Sdk/Targets/VersionDetection.targets"
+			],
+			"purview.architecture.testing": [
+				"README.md",
+				"lib/net10.0/Purview.Architecture.Testing.dll",
+				"lib/net10.0/Purview.Architecture.Testing.xml",
+				"content/architecture-policy.schema.json"
+			],
+			"purview.skills.testing": [
+				"README.md",
+				"lib/$(TFM)/Purview.Skills.Testing.dll",
+				"lib/$(TFM)/Purview.Skills.Testing.xml"
 			]
 		}
 	},

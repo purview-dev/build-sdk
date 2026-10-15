@@ -46,7 +46,7 @@
 		<!-- 10-12 -->
 		<NamespaceRemoveSuffix Include="Abstractions" />
 		<NamespaceRemoveSuffix Include="ClientShared" />
-		<NamespaceRemoveSuffix Include="Persistence" />
+		<!-- <NamespaceRemoveSuffix Include="Persistence" /> -->
 		<NamespaceRemoveSuffix Include="DataAccess" />
 		<NamespaceRemoveSuffix Include="Extensions" />
 
@@ -56,7 +56,7 @@
 		<NamespaceRemoveSuffix Include="Utilities" />
 
 		<!-- 6-7 -->
-		<NamespaceRemoveSuffix Include="AppHost" />
+		<!-- <NamespaceRemoveSuffix Include="AppHost" /> -->
 		<NamespaceRemoveSuffix Include="Helpers" />
 		<NamespaceRemoveSuffix Include="Library" />
 		<NamespaceRemoveSuffix Include="Common" />
@@ -66,7 +66,7 @@
 		<NamespaceRemoveSuffix Include="Infra" />
 		<NamespaceRemoveSuffix Include="Utils" />
 		<NamespaceRemoveSuffix Include="Core" />
-		<NamespaceRemoveSuffix Include="Data" />
+		<!-- <NamespaceRemoveSuffix Include="Data" /> -->
 		<NamespaceRemoveSuffix Include="Host" />
 		<NamespaceRemoveSuffix Include="Util" />
 		<NamespaceRemoveSuffix Include="Lib" />
@@ -147,6 +147,8 @@
 			>false</ExcludeMSTelemetryExtension>
 		<DisableGenerateAssemblyInfoClass Condition="'$(DisableGenerateAssemblyInfoClass)' == ''"
 			>false</DisableGenerateAssemblyInfoClass>
+		<DisableGenerateAssemblyIdentifierClass Condition="'$(DisableGenerateAssemblyIdentifierClass)' == ''"
+			>false</DisableGenerateAssemblyIdentifierClass>
 		<EnableAssemblyNameGeneration Condition="'$(EnableAssemblyNameGeneration)' == ''"
 			>true</EnableAssemblyNameGeneration>
 		<DisableAutoInternalsVisibleTo Condition="'$(DisableAutoInternalsVisibleTo)' == ''"
@@ -344,30 +346,50 @@
 		<CompilerVisibleProperty Include="ExcludeMSTelemetryExtension">
 			<Description>Opt-out flag that removes Microsoft.Extensions.Telemetry.Abstractions.</Description>
 		</CompilerVisibleProperty>
-		<CompilerVisibleProperty Include="EnableAgentFolderInPackage">
-			<Description>When true, copies the bundled .agents folder from the SDK NuGet package into the consuming repository. Defaults to true.</Description>
+
+		<CompilerVisibleProperty Include="PurviewSkillsSourceFolder">
+			<Description>Repository folder holding authored agent skills. Defaults to the repository-root skills/ folder.</Description>
 		</CompilerVisibleProperty>
-		<CompilerVisibleProperty Include="AgentPackDestinationFolder">
-			<Description>Repo-relative destination folder that receives copied .agents content. Defaults to .agents.</Description>
+		<CompilerVisibleProperty Include="PurviewSkillsAgents">
+			<Description>Comma-separated agents that InstallPurviewSkills installs to. Defaults to '*' (every agent the skills CLI detects).</Description>
 		</CompilerVisibleProperty>
-		<CompilerVisibleProperty Include="PurviewAgentSyncManifestPath">
-			<Description>Overrides the change-detection manifest used to skip unchanged .agents syncs. Defaults to the repository .purview/agent-sync.cache file.</Description>
+		<CompilerVisibleProperty Include="PurviewSkillsCommand">
+			<Description>Overrides how the skills CLI is invoked. Empty detects 'skills' then 'npx' on PATH.</Description>
 		</CompilerVisibleProperty>
-		<CompilerVisibleProperty Include="PurviewAgentFolderCopyRetries">
-			<Description>Number of copy attempts used when syncing bundled .agents content into the consuming repository. Defaults to 3.</Description>
+		<CompilerVisibleProperty Include="PurviewSkillsSource">
+			<Description>Installs from an explicit git source (owner/repo, optionally '#ref') instead of from referenced packages.</Description>
 		</CompilerVisibleProperty>
-		<CompilerVisibleProperty Include="PurviewAgentFolderCopyRetryDelayMilliseconds">
-			<Description>Delay in milliseconds between .agents copy retry attempts. Defaults to 500.</Description>
+		<CompilerVisibleProperty Include="EnablePurviewSkillRecommendations">
+			<Description>When true, an ordinary build reports missing or version-drifted agent skills. Offline, never installs, never fails the build. Defaults to true.</Description>
 		</CompilerVisibleProperty>
-		<CompilerVisibleProperty Include="PurviewAgentFolderCopyFailureAsError">
-			<Description>When true, an .agents sync that still fails after every retry is reported as an error instead of a warning. Defaults to true.</Description>
+		<CompilerVisibleProperty Include="PurviewSkillRecommendationsInCI">
+			<Description>When true, skill recommendations are reported on CI builds as well. Defaults to false.</Description>
+		</CompilerVisibleProperty>
+		<CompilerVisibleProperty Include="PurviewSkillRecommendationStampPath">
+			<Description>Overrides the stamp used to report each distinct skill state once per repository. Defaults to the repository .purview/skill-recommendations.cache file.</Description>
+		</CompilerVisibleProperty>
+		<CompilerVisibleProperty Include="PurviewSkillsLockFile">
+			<Description>Overrides where the skills CLI's skills-lock.json is read from. Defaults to the repository root.</Description>
+		</CompilerVisibleProperty>
+		<CompilerVisibleProperty Include="PurviewSkillsInstallRoot">
+			<Description>Overrides the repository root every skill target runs from. Empty resolves it from PurviewRepositoryRootMarkers.</Description>
+		</CompilerVisibleProperty>
+		<CompilerVisibleProperty Include="PurviewRepositoryRootMarkers">
+			<Description>Ordered markers that identify a repository root, most authoritative first. The first is definitive and searched to the top; the rest resolve nearest-first. A trailing slash marks a directory.</Description>
+		</CompilerVisibleProperty>
+		<CompilerVisibleProperty Include="PurviewSkillsRunner">
+			<Description>Package runner used to launch the skills CLI (npx, bunx, bun, pnpm, yarn, deno, skills, or any other). Defaults to npx.</Description>
+		</CompilerVisibleProperty>
+		<CompilerVisibleProperty Include="PurviewSkillsRunnerCandidates">
+			<Description>Runners probed on PATH after PurviewSkillsRunner. Defaults to npx;bunx;bun;pnpm;yarn;deno.</Description>
+		</CompilerVisibleProperty>
+		<CompilerVisibleProperty Include="PurviewSkillsPackage">
+			<Description>Package spec the executed launcher pins to. Defaults to skills@1.</Description>
 		</CompilerVisibleProperty>
 		<CompilerVisibleProperty Include="PurviewRepoBootstrapMode">
 			<Description>Controls repo-level file bootstrapping (IfMissing, Always, WarnOnDrift or Never). Defaults to IfMissing.</Description>
 		</CompilerVisibleProperty>
-		<CompilerVisibleProperty Include="PurviewAgentFolderSourcePath">
-			<Description>Source folder that provides the bundled .agents content mirrored into the consuming repository. Defaults to the package-level .agents folder beside Sdk/.</Description>
-		</CompilerVisibleProperty>
+
 		<CompilerVisibleProperty Include="PurviewRepoBootstrapCopyRetries">
 			<Description>Number of copy attempts used when bootstrapping repo-level files such as .editorconfig and global.json. Defaults to 3.</Description>
 		</CompilerVisibleProperty>
@@ -385,6 +407,9 @@
 		</CompilerVisibleProperty>
 		<CompilerVisibleProperty Include="DisableGenerateAssemblyInfoClass">
 			<Description>Disables generation of the AssemblyInfo helper class in intermediate output.</Description>
+		</CompilerVisibleProperty>
+		<CompilerVisibleProperty Include="DisableGenerateAssemblyIdentifierClass">
+			<Description>Disables generation of the assembly identifier marker class used by architecture tests.</Description>
 		</CompilerVisibleProperty>
 		<CompilerVisibleProperty Include="EnableAssemblyNameGeneration">
 			<Description>When true (default), the SDK derives AssemblyName and PackageId from RootNamespace (or from the full logical project name when suffix-stripping removed a segment, e.g. Shared/ServiceDefaults). Set to false to fall back to the standard .NET behaviour (project name).</Description>
@@ -456,7 +481,13 @@
 			<Description>Current year value used by generated assembly metadata.</Description>
 		</CompilerVisibleProperty>
 		<CompilerVisibleProperty Include="AutoGeneratedAssemblyInfoFile">
-			<Description>Relative path to the SDK-generated AssemblyInfo source file.</Description>
+			<Description>File name of the SDK-generated AssemblyInfo source file, written under the intermediate output Properties folder.</Description>
+		</CompilerVisibleProperty>
+		<CompilerVisibleProperty Include="AutoGeneratedAssemblyIdentifierFile">
+			<Description>File name of the SDK-generated assembly identifier source file, written under the intermediate output Properties folder.</Description>
+		</CompilerVisibleProperty>
+		<CompilerVisibleProperty Include="AssemblyIdentifierClassName">
+			<Description>Name of the generated assembly identifier marker class. Derived from the project name with the namespace prefix stripped, suffixed with Assembly.</Description>
 		</CompilerVisibleProperty>
 		<CompilerVisibleProperty Include="IsCLIProject">
 			<Description>True when the project is a CLI project.</Description>
@@ -682,12 +713,7 @@
 			>$([System.IO.Path]::GetFullPath('$(_PurviewDiscoveredEditorConfigFilePath)'))</_PurviewDiscoveredEditorConfigFullPath>
 		<!-- Also bootstrap a physical repo-level .editorconfig for tools (for example CSharpier) that don't read @(EditorConfigFiles). -->
 		<DisableAutoCopySdkFiles Condition="'$(DisableAutoCopySdkFiles)' == ''">false</DisableAutoCopySdkFiles>
-		<!-- Where the bundled .agents content is mirrored from. The package packs Sdk/.agents
-		     into the package root, so the content sits beside this Sdk/ folder. The default is
-		     defined here (not in Props/Defaults.props) because $(MSBuildThisFileDirectory) must
-		     resolve relative to Sdk/, not Sdk/Props/. -->
-		<PurviewAgentFolderSourcePath Condition="'$(PurviewAgentFolderSourcePath)' == ''"
-			>$([MSBuild]::NormalizePath('$(MSBuildThisFileDirectory)', '..', '.agents'))</PurviewAgentFolderSourcePath>
+
 		<BootstrapEditorConfigToRepoRoot Condition="'$(BootstrapEditorConfigToRepoRoot)' == ''"
 			>true</BootstrapEditorConfigToRepoRoot>
 		<RepositoryEditorConfigFilePath
@@ -722,8 +748,17 @@
 		<CurrentYear>$([System.DateTime]::Now.Year)</CurrentYear>
 		<Version Condition="'$(Version)' == ''">0.0.1</Version>
 		<PackageVersion Condition="'$(PackageVersion)' == ''">$(Version)</PackageVersion>
-		<!-- Path for the auto-generated assembly info class -->
-		<AutoGeneratedAssemblyInfoFile>$(IntermediateOutputPath)/Properties/GeneratedAssemblyInfo.cs</AutoGeneratedAssemblyInfoFile>
+		<!--
+			File names for the auto-generated assembly info and identifier classes. Both are bare
+			file names: the generating targets compose the intermediate Properties directory around
+			them. AutoGeneratedAssemblyInfoFile used to carry that directory itself, which the target
+			then prepended a second time - the file landed in a doubled
+			obj/<config>/<tfm>/Properties/obj/<config>/<tfm>/Properties path.
+		-->
+		<AutoGeneratedAssemblyInfoFile Condition="'$(AutoGeneratedAssemblyInfoFile)' == ''"
+			>GeneratedAssemblyInfo.cs</AutoGeneratedAssemblyInfoFile>
+		<AutoGeneratedAssemblyIdentifierFile Condition="'$(AutoGeneratedAssemblyIdentifierFile)' == ''"
+			>GeneratedAssemblyIdentifier.cs</AutoGeneratedAssemblyIdentifierFile>
 	</PropertyGroup>
 
 	<PropertyGroup
@@ -918,7 +953,37 @@
 	     ===================================================================== -->
 	<PropertyGroup Label="Automatic Sdk Folder Packaging">
 		<PurviewAutoSdkPack Condition="'$(PurviewAutoSdkPack)' == ''">true</PurviewAutoSdkPack>
-		<TargetsForTfmSpecificContentInPackage>$(TargetsForTfmSpecificContentInPackage);IncludeLinkedSdkFiles;IncludeSdkDotAgentsGitIgnoreFiles;IncludeRepoReadmeInPackage</TargetsForTfmSpecificContentInPackage>
+		<TargetsForTfmSpecificContentInPackage>$(TargetsForTfmSpecificContentInPackage);IncludeLinkedSdkFiles;IncludeRepoReadmeInPackage</TargetsForTfmSpecificContentInPackage>
+	</PropertyGroup>
+
+	<!-- =====================================================================
+	     REPOSITORY SKILLS FOLDER
+	     Skills are authored at the repository root in 'skills/<name>/SKILL.md',
+	     because that is the only location the skills CLI (`npx skills`)
+	     discovers when it clones a git repository.
+
+	     Nothing is packed into the NuGet package. The SDK contributes no
+	     '.agents/**' content at all - a package carries .NET artifacts, and
+	     skills are delivered by the CLI from git. ValidatePurviewSkills still
+	     runs at pack time so a malformed skill fails in the repository that
+	     owns it, rather than reaching the CLI.
+
+	     PurviewSkillsSourceFolder is resolved at evaluation time (rather than
+	     in a target) so every skill target sees it, using the same AGENTS.md
+	     repo-root marker the other repository-scoped features use.
+	     ===================================================================== -->
+	<PropertyGroup Label="Repository Skills Folder">
+		<!-- Recorded before defaulting, so the target-time resolution can tell a value the user set
+		     from one this SDK guessed. An explicit value outranks the marker walk; a guessed one
+		     does not, because the marker walk is the better guess. -->
+		<_PurviewSkillsRepoRootWasSpecified Condition="'$(PurviewSkillsRepoRoot)' != ''"
+			>true</_PurviewSkillsRepoRootWasSpecified>
+		<PurviewSkillsRepoRoot Condition="'$(PurviewSkillsRepoRoot)' == '' AND '$(RepoRoot)' != ''"
+			>$(RepoRoot)</PurviewSkillsRepoRoot>
+		<PurviewSkillsRepoRoot Condition="'$(PurviewSkillsRepoRoot)' == ''"
+			>$([MSBuild]::GetDirectoryNameOfFileAbove('$(MSBuildProjectDirectory)', 'AGENTS.md'))</PurviewSkillsRepoRoot>
+		<PurviewSkillsSourceFolder Condition="'$(PurviewSkillsSourceFolder)' == '' AND '$(PurviewSkillsRepoRoot)' != ''"
+			>$([MSBuild]::NormalizeDirectory('$(PurviewSkillsRepoRoot)', 'skills'))</PurviewSkillsSourceFolder>
 	</PropertyGroup>
 
 	<PropertyGroup Label="Analyzer Closure and Project-Reference Assets">
@@ -954,9 +1019,6 @@
 	</PropertyGroup>
 
 	<ItemGroup Label="Automatic Sdk Folder Packaging" Condition="'$(PurviewAutoSdkPack)' == 'true'">
-		<None Include="Sdk/.agents/**/*" Pack="true" Visible="true">
-			<PackagePath>.agents/$([System.String]::Copy('%(RecursiveDir)').Replace(&quot;\&quot;, &quot;/&quot;))%(Filename)%(Extension)</PackagePath>
-		</None>
 		<None Include="Sdk/.github/**/*" Pack="true" Visible="true">
 			<PackagePath>.github/$([System.String]::Copy('%(RecursiveDir)').Replace(&quot;\&quot;, &quot;/&quot;))%(Filename)%(Extension)</PackagePath>
 		</None>
@@ -976,7 +1038,7 @@
 			Include="Sdk/**/*"
 			Pack="true"
 			Visible="true"
-			Exclude="Sdk/.agents/**/*;Sdk/.github/**/*;Sdk/build/**/*;Sdk/buildTransitive/**/*;Sdk/buildMultiTargeting/**/*;Sdk/*.md;Sdk/*.png;Sdk/*.jpg;Sdk/*.jpeg;Sdk/*.gif;Sdk/*.svg"
+			Exclude="Sdk/.github/**/*;Sdk/build/**/*;Sdk/buildTransitive/**/*;Sdk/buildMultiTargeting/**/*;Sdk/*.md;Sdk/*.png;Sdk/*.jpg;Sdk/*.jpeg;Sdk/*.gif;Sdk/*.svg"
 		>
 			<PackagePath>Sdk/$([System.String]::Copy('%(RecursiveDir)').Replace(&quot;\&quot;, &quot;/&quot;))%(Filename)%(Extension)</PackagePath>
 		</None>
@@ -1034,15 +1096,16 @@
 	</PropertyGroup>
 
 	<!-- =====================================================================
-	     REPOSITORY README
-	     When the repo-root README exists and PackageReadmeFile has not been
-	     explicitly configured, register it as the package readme. The file itself
-	     is added to the package by the IncludeRepoReadmeInPackage target during
-	     pack (which guards against duplicates).
+	     PACKAGE README
+	     Registers a README as the package readme when PackageReadmeFile has not
+	     been configured explicitly. A project's own README.md is preferred over
+	     the repository root one - a repository producing several packages has a
+	     different story to tell in each. The file itself is added to the package
+	     by IncludeRepoReadmeInPackage during pack (which guards duplicates).
 	     ===================================================================== -->
 	<PropertyGroup
-		Label="Repository Readme Defaults"
-		Condition="'$(IsPackable)' == 'true' AND '$(PackageReadmeFile)' == '' AND '$(RepoRoot)' != '' AND Exists('$(RepoRoot)/README.md')"
+		Label="Package Readme Defaults"
+		Condition="'$(IsPackable)' == 'true' AND '$(PackageReadmeFile)' == '' AND (Exists('$(MSBuildProjectDirectory)/README.md') OR ('$(RepoRoot)' != '' AND Exists('$(RepoRoot)/README.md')))"
 	>
 		<PackageReadmeFile>README.md</PackageReadmeFile>
 	</PropertyGroup>
@@ -1125,6 +1188,7 @@
 		Condition="'$(IsTestProject)' == 'true' OR '$(IsSharedTestingProject)' == 'true'"
 	>
 		<DisableGenerateAssemblyInfoClass>true</DisableGenerateAssemblyInfoClass>
+		<DisableGenerateAssemblyIdentifierClass>true</DisableGenerateAssemblyIdentifierClass>
 	</PropertyGroup>
 
 	<ItemGroup

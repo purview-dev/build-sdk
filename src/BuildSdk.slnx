@@ -5,17 +5,22 @@
 		<File Path="../global.json" />
 		<File Path="../nuget.config" />
 		<File Path="../package.json" />
+		<File Path="../.config/purview-build.json" />
 		<File Path="Directory.Build.props" />
 		<File Path="Directory.Build.targets" />
 	</Folder>
 	<Folder Name="/src/">
 		<Project Path="src/Analyzers/Analyzers.csproj" />
 		<Project Path="src/CodeFixers/CodeFixers.csproj" />
+		<Project Path="src/ArchitectureTesting/ArchitectureTesting.csproj" />
 		<Project Path="src/BuildSdk/BuildSdk.csproj" />
+		<Project Path="src/SkillsTesting/SkillsTesting.csproj" />
 	</Folder>
 	<Folder Name="/tests/">
 		<Project Path="tests/Analyzers.IntegrationTests/Analyzers.IntegrationTests.csproj" />
 		<Project Path="tests/Analyzers.UnitTests/Analyzers.UnitTests.csproj" />
+		<Project Path="tests/ArchitectureTesting.UnitTests/ArchitectureTesting.UnitTests.csproj" />
 		<Project Path="tests/BuildSdk.IntegrationTests/BuildSdk.IntegrationTests.csproj" />
+		<Project Path="tests/SkillsTesting.UnitTests/SkillsTesting.UnitTests.csproj" />
 	</Folder>
 </Solution>
