@@ -192,6 +192,11 @@ ignores the stamp and always answers.
 | `PurviewSkillRecommendationStampPath` | `<repo root>/.purview/skill-recommendations.cache` | Overrides the deduplication stamp. |
 | `PurviewSkillsLockFile` | `<repo root>/skills-lock.json` | Overrides where the CLI's lockfile is read from. |
 | `PurviewSkillsAgents` | `*` | Agents named in the recommended install command. |
+| `PurviewSkillsRunner` | `npx` | Package runner used to launch the CLI. |
+| `PurviewSkillsRunnerCandidates` | `npx;bunx;bun;pnpm;yarn;deno` | Probed in order after `PurviewSkillsRunner`. |
+| `PurviewSkillsPackage` | `skills@1` | Package spec the executed launcher pins to. |
+| `PurviewSkillsInstallRoot` | *(resolved)* | Overrides the repository root every skill target runs from. |
+| `PurviewRepositoryRootMarkers` | `.git/;.github/;.gitattributes;LICENSE.md;AGENTS.md;.agents/;CLAUDE.md;.claude/;package.json` | Ordered markers that identify a repository root; the first is definitive. |
 
 ## Version compatibility
 
@@ -266,21 +271,160 @@ caller owns the ref in that case; append `#<ref>` to pin it:
 dotnet msbuild <project> -t:InstallPurviewSkills -p:PurviewSkillsSource=purview-dev/engineering-playbook
 ```
 
+### Package runners
+
+The CLI is published to npm, and every package runner spells "run this npm package" its own way.
+`PurviewSkillsRunner` picks one; it defaults to **`npx`**, because npx ships with Node itself and is
+therefore the one runner any machine with Node at all already has.
+
+| `PurviewSkillsRunner` | Executed | Recommended in diagnostics |
+| -- | -- | -- |
+| `npx` *(default)* | `npx -y skills@1` | `npx skills …` |
+| `bunx` | `bunx skills@1` | `bunx skills …` |
+| `bun` | `bun x skills@1` | `bun x skills …` |
+| `pnpm` | `pnpm dlx skills@1` | `pnpm dlx skills …` |
+| `yarn` | `yarn dlx skills@1` | `yarn dlx skills …` |
+| `deno` | `deno run -A npm:skills@1` | `deno run -A npm:skills …` |
+| `skills` | `skills` | `skills …` |
+
+A runner this SDK has never heard of still works: it falls through to `<runner> skills@1`, the form
+most new runners adopt.
+
+```xml
+<PropertyGroup>
+  <PurviewSkillsRunner>pnpm</PurviewSkillsRunner>
+</PropertyGroup>
+```
+
+`yarn dlx` needs Yarn 2+; Yarn 1 has no `dlx`. The executed launcher pins the CLI to a major so a
+breaking release cannot change what `InstallPurviewSkills` does — `PurviewSkillsPackage` (default
+`skills@1`) overrides the pin. Recommendation text deliberately drops it: that is a command for a
+person to run, and `npx skills add` is the form they know.
+
+### Installing in the repository that authors the skills
+
+A repository that *authors* skills has no `PackageReference` to itself, and pinning to a git commit
+would be wrong anyway: an edit to `skills/<name>/SKILL.md` would not reach an agent until it was
+pushed and reinstalled. Install from the working tree instead:
+
+```bash
+dotnet msbuild <project> -t:InstallPurviewSkills -p:PurviewSkillsSource=.
+```
+
+The CLI records that portably — `"source": "."`, `"sourceType": "local"` — so the resulting
+`skills-lock.json` survives a clone and can be committed. `Purview.BuildSdk` uses exactly this for
+its own skills; see `just skills-install`.
+
+What the CLI writes should be gitignored, since all of it is reproducible from `skills/` plus the
+lockfile:
+
+| Path | Written by | Tracked |
+| -- | -- | -- |
+| `skills/<name>/` | authored by hand | yes |
+| `skills-lock.json` | the CLI | yes |
+| `.agents/skills/<name>/` | the CLI's "universal" location | no |
+| `.claude/skills/`, `agent/skills/`, … | per-agent links into it | no |
+
+> **The CLI's universal location is `.agents/skills/`.** Ignore that specifically rather than the
+> whole of `.agents/`, so any authored `.agents/agents/` and `.agents/prompts/` content stays
+> tracked.
+
+### One installer
+
+Skills have exactly one installer: **the skills CLI**. The `.agents` mirror does not copy them.
+
+A package still ships `.agents/skills/<name>/`, but as *metadata* — it is what
+`ResolvePurviewSkillSources` reads to map a package to its skills and to the commit it was built
+from. It is not content to be copied into the consuming repository.
+
+That split exists because the CLI's universal install location is `.agents/skills/` — exactly where
+the mirror used to write. Two writers on the same paths meant the mirror would overwrite a pinned
+install on the next build, silently undoing it, while `PRSKL0011` compared a lockfile ref against
+content the mirror had already replaced.
+
+| Source | Destination | Who writes it |
+| -- | -- | -- |
+| package `.agents/agents/**` | `<dest>/agents/**` | the mirror |
+| package `.agents/prompts/**` | `<dest>/prompts/**` | the mirror |
+| package `.agents/skills/**` | *(not copied)* | — metadata only |
+| git `skills/<name>/` | `.agents/skills/`, `.claude/skills/`, … | the skills CLI |
+
+Because the mirror no longer owns them, skills are absent from the generated
+`<destination>/.gitignore`; a repository ignores its installed skills itself. `PurviewMirrorPackagedSkills=true`
+restores the old copy-everything behaviour for a repository that has not moved to the CLI, so an SDK
+upgrade is not a forced migration.
+
 ### Detecting the CLI
 
-The CLI is Node tooling, so it is not guaranteed on a machine that can build .NET.
-`DetectPurviewSkillsCli` probes `PATH` for `skills` first, then `npx`, honouring `PATHEXT` on
-Windows where both are `.cmd` shims.
+Installation probes `PATH` rather than assuming the configured runner is present, honouring
+`PATHEXT` on Windows where these are `.cmd` shims. The order is:
 
-- `skills` on `PATH` is used as-is — no download, works offline.
-- Otherwise `npx -y skills@1`, pinned to a major so a future breaking release cannot change what the
-  target does.
-- Neither found is `PRSKL0004`, naming the fix (install Node, or `npm install -g skills`) rather
-  than surfacing a raw `'npx' is not recognized`.
+1. `skills` — used as-is if it is already on `PATH`. No download, works offline.
+2. `$(PurviewSkillsRunner)` — the configured preference.
+3. `$(PurviewSkillsRunnerCandidates)` — `npx;bunx;bun;pnpm;yarn;deno` by default.
+
+So a machine with bun but no Node still installs, rather than reporting that nothing was found. The
+runner that is actually found wins over the configured preference, because it is the one that can
+really run. `PATH` is read directly rather than by spawning a version check: it is deterministic,
+costs no process, and cannot hang on a cold download.
+
+- Nothing found is `PRSKL0004`, naming the fix rather than surfacing a raw `'npx' is not recognized`.
 - `PurviewSkillsCommand` overrides the launcher entirely and skips detection.
 
-`ListPurviewSkills` and `RecommendPurviewSkills` **never** error on a missing CLI. Resolving,
+`ListPurviewSkills` and `RecommendPurviewSkills` **never** error on a missing runner. Resolving,
 evaluating and reporting need no Node tooling at all.
+
+### Always from the repository root
+
+`skills-lock.json` and the agent directories belong to the repository, not to a project, and a
+solution has many projects and exactly one of each of those. So every skill target runs the CLI
+**from the repository root, always**. The root is resolved by this chain:
+
+1. `PurviewSkillsInstallRoot` — an explicit override
+2. `PurviewSkillsRepoRoot` — when the *user* set it
+3. the **marker walk** (below)
+4. `PurviewSkillsRepoRoot` / `RepoRoot` as the SDK guessed them
+5. `GITHUB_WORKSPACE`, `BUILD_SOURCESDIRECTORY` or `CI_PROJECT_DIR`
+6. the git source root SourceLink reports
+
+There is deliberately **no fall back to the project directory**: that would scatter a lockfile and an
+agent directory through the tree, one per project, which is the thing being prevented. If the root
+cannot be resolved, `InstallPurviewSkills` reports `PRSKL0003` and names `PurviewSkillsInstallRoot`
+rather than guessing; recommendations simply stay silent, because a build never fails over advice.
+
+#### The marker walk
+
+`PurviewRepositoryRootMarkers` lists what identifies a repository root, most authoritative first:
+
+```text
+.git/ ; .github/ ; .gitattributes ; LICENSE.md ; AGENTS.md ; .agents/ ; CLAUDE.md ; .claude/ ; package.json
+```
+
+A trailing slash marks a directory — and still matches a *file* of that name, because `.git` is a
+directory in a clone but a file in a worktree or submodule. MSBuild's own
+`GetDirectoryNameOfFileAbove` matches files only, which is why this is a task rather than an
+intrinsic: it finds nothing for `.git/`, `.github/`, `.agents/` or `.claude/`.
+
+Resolution runs in two passes, because neither pure priority nor pure proximity is right alone:
+
+1. **The first marker in the list is definitive** and is searched all the way up. `.git/` *is* the
+   repository root by definition, so a project inside a monorepo package resolves to the repository
+   rather than to the nearer folder holding a `package.json`.
+2. **Otherwise the nearest ancestor** holding any marker wins, with list order breaking ties inside
+   that one directory.
+
+Pass 2 is nearest-first on purpose. Searching every remaining marker to the top would let a stray
+`.claude/` in a developer's home directory outrank the `package.json` at the real repository root.
+For the same reason the home directory and everything above it are **never** candidates — a
+repository root is never your home directory. A repository *inside* your home directory is
+unaffected, because it sits below it.
+
+| Project at `/repo/sub/src/proj` | Resolves to |
+| -- | -- |
+| `/repo/.git/` + `/repo/sub/package.json` | `/repo` — the definitive marker wins from a distance |
+| `/repo/.github/` + `/repo/sub/package.json` | `/repo/sub` — nearest wins once `.git/` is absent |
+| `/repo/LICENSE.md` + `/repo/package.json` | `/repo`, reported as `LICENSE.md` (higher in the list) |
+| no marker below the home directory | unresolved — `PRSKL0003`, never `~` |
 
 ## One-off use
 
@@ -336,7 +480,8 @@ Verified against the `skills` CLI v1.
 | -- | -- |
 | `PRSKL0001` | `project.assets.json` is missing; run `dotnet restore` first |
 | `PRSKL0002` | A package ships skills but carries no pinnable git identity |
-| `PRSKL0004` | Neither `skills` nor `npx` was found on `PATH` |
+| `PRSKL0003` | The repository root could not be resolved, so there is nowhere correct to install |
+| `PRSKL0004` | No package runner was found on `PATH` |
 | `PRSKL0005` | An authored skill is malformed |
 | `PRSKL0010` | Skills a referenced package ships are not installed |
 | `PRSKL0011` | Installed skills are pinned to a different ref than the referenced package |

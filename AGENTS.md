@@ -6,11 +6,36 @@ Guidance for AI coding agents working in this repository.
 
 Use `.agents/` as the default location for **generic agentic information** shared across agent runtimes.
 
-- `.agents/skills/` — canonical, cross-agent skills
-- `.agents/agents/` — canonical, cross-agent agent workflow specs
-- `.agents/prompts/` — canonical, cross-agent prompt specs
+- `.agents/agents/` — canonical, cross-agent agent workflow specs (authored, tracked)
+- `.agents/prompts/` — canonical, cross-agent prompt specs (authored, tracked)
+- `.agents/skills/` — **not authored.** Written by the skills CLI and gitignored; see below.
 
 Use `.github/` customization files only as VS Code/Copilot wrappers or registration points when required by tooling.
+
+## This repository's own skills are installed, not mirrored
+
+Skills are authored at the repository root in `skills/<name>/SKILL.md`, and this repository installs its own through the skills CLI — the same mode it ships to consumers. Run it after adding, renaming or editing a skill:
+
+```bash
+just skills-install     # dotnet msbuild ... -t:InstallPurviewSkills -p:PurviewSkillsSource=.
+```
+
+The source is `.`, not a pinned git ref, because this repository *authors* these skills: installing from the working tree is what makes an edit visible to an agent without a push-and-reinstall round trip. The CLI records that portably as `"source": "."` / `"sourceType": "local"` in `skills-lock.json`, which **is committed** — it is the record of what should be installed, and `npx skills experimental_install` restores it in a fresh clone.
+
+Everything the CLI writes is gitignored, because all of it is reproducible from `skills/` plus the lockfile:
+
+| Path | Who writes it | Tracked |
+| -- | -- | -- |
+| `skills/<name>/` | authored by hand | yes |
+| `skills-lock.json` | the CLI | yes |
+| `.agents/skills/<name>/` | the CLI (its "universal" location, shared by most agents) | no |
+| `.claude/skills/`, `agent/skills/` | the CLI (per-agent links into the universal location) | no |
+
+Only `.agents/skills/` is ignored here, not the whole of `.agents/`, because `.agents/agents/` and `.agents/prompts/` are authored content.
+
+**Skills have exactly one installer, and it is the skills CLI.** The `.agents` mirror does not copy them (`PurviewMirrorPackagedSkills`, default `false`). A package still ships `.agents/skills/<name>/`, but as *metadata* — it is what `ResolvePurviewSkillSources` reads to map a package to its skills and commit, not content to copy. The CLI's universal install location is that same folder, so two writers would mean the mirror silently overwrites a pinned install on the next build while `PRSKL0011` compares a lockfile ref against content the mirror already replaced. `SyncPurviewRepositoryFiles` takes `ExcludeRelativeFolders` for this; both mirror targets pass `skills`.
+
+Link to a skill by its **authored** path (`./skills/<name>/SKILL.md`). A link into `.agents/skills/` points at a gitignored file and is broken in a fresh clone; `RepositorySkillsSelfTests` fails the build if one reappears.
 
 ## Purpose
 
@@ -20,9 +45,11 @@ For full product behaviour and configuration, read [`README.md`](./README.md). K
 
 Repo-specific sub-agent definitions and prompts live under `src/src/BuildSdk/Sdk/.agents/` and are packed into the NuGet package as `.agents/**` by the standard `PurviewAutoSdkPack` `Sdk/` packaging logic.
 
-**Skills are different: they are authored at the repository root in `skills/<name>/SKILL.md`.** They have two audiences reached by two routes — a consuming .NET repository, which receives them mirrored into `.agents/` from the NuGet package, and the skills CLI (`npx skills`), which clones the *git* repository. The CLI only discovers skills at a root `skills/` folder, and the mirrored `.agents/` folder is gitignored in every consuming repository, so it is absent from a clone. One authored copy at the root serves both: `IncludePurviewSkillsInPackage` packs it into the package's `.agents/skills/`, so the existing mirror is unchanged.
+**Skills are different: they are authored at the repository root in `skills/<name>/SKILL.md`** (see above). They have two audiences reached by two routes — a consuming .NET repository, which receives them mirrored into `.agents/` from the NuGet package, and the skills CLI (`npx skills`), which clones the *git* repository. The CLI only discovers skills at a root `skills/` folder, and the mirrored `.agents/` folder is gitignored in every consuming repository, so it is absent from a clone. One authored copy at the root serves both: `IncludePurviewSkillsInPackage` packs it into the package's `.agents/skills/`, so the existing mirror is unchanged.
 
-Add a new skill under `skills/`, not under `Sdk/.agents/skills/`. `PurviewPackRepositorySkills` (set on `BuildSdk.csproj`) is what opts a project into packing them; it defaults to `false` so a repository with several packable projects does not ship the same skills in every package.
+Add a new skill under `skills/`, not under `Sdk/.agents/skills/`, then run `just skills-install`. `PurviewPackRepositorySkills` (set on `BuildSdk.csproj`) is what opts a project into packing them; it defaults to `false` so a repository with several packable projects does not ship the same skills in every package.
+
+`Sdk/.agents/` holds only `agents/` and `prompts/` — there is no `Sdk/.agents/skills/` any more, so nothing regenerates a `.gitignore` under `.agents/skills/`.
 
 ## AgentPack folder and downstream impact
 
@@ -70,16 +97,27 @@ That makes version compatibility exact by construction: the resolved ref is the 
 
 Installation itself is delegated to the skills CLI (`npx skills`) rather than reimplemented, because the CLI owns the agent-specific destinations and their discovery conventions — which differ per agent and change independently of this SDK — and owns `skills-lock.json`, so a repository can restore the same set later with `npx skills experimental_install`. `PurviewSkillsAgents` (default `*`) narrows the target agents.
 
-### Detecting the CLI
+### Package runners and the repository root
 
-The CLI is Node tooling, so it is not guaranteed on a machine that can build .NET. `DetectPurviewSkillsCli` (inline task) probes `PATH` for `skills` first, then `npx`, honouring `PATHEXT` on Windows where both are `.cmd` shims. `PATH` is read directly rather than by spawning a version check: it is deterministic, costs no process, and cannot hang on a cold `npx` download.
+Two invariants govern how the CLI is launched, and both are load-bearing.
 
-- `skills` on `PATH` is used as-is — no download, works offline.
-- Otherwise `npx -y skills@1`, pinned to a major so a future breaking CLI release cannot change what the target does.
-- Neither found is `PRSKL0004`, naming the fix (install Node, or `npm install -g skills`) instead of surfacing a raw `'npx' is not recognized`.
-- `PurviewSkillsCommand` overrides the launcher entirely and skips detection.
+**Any package runner, defaulting to npx.** The CLI is published to npm and each runner spells "run this npm package" differently. `PurviewSkillsRunner` (default `npx`, because npx ships with Node itself) selects one; the mapping lives in the `PurviewSkillsRunnerLauncher` item group in `Sdk/Sdk.targets`, which carries an `Exec` value (version-pinned, for `InstallPurviewSkills`) and a `Display` value (unpinned, for recommendation text) per runner. A runner with no entry falls through to `<runner> $(PurviewSkillsPackage)`, so an unknown runner still works. Each invocation form was verified against the real tool — `npx -y`, `bunx`, `bun x`, `pnpm dlx`, `yarn dlx` (Yarn 2+ only), `deno run -A npm:` — because a wrong form is a command that simply does not run.
 
-`ListPurviewSkills` reports CLI availability but **never** errors on its absence — resolving and reporting needs no Node tooling at all.
+`DetectPurviewSkillsCli` (inline task) probes `PATH` for `skills` first, then `$(PurviewSkillsRunner)`, then `$(PurviewSkillsRunnerCandidates)`, honouring `PATHEXT` on Windows where these are `.cmd` shims. `PATH` is read directly rather than by spawning a version check: deterministic, no process, cannot hang on a cold download. The runner actually found wins over the configured preference. Nothing found is `PRSKL0004`; `PurviewSkillsCommand` overrides the launcher entirely and skips detection.
+
+**Always the repository root.** `skills-lock.json` and the agent directories belong to the repository, not to a project, so `ResolvePurviewSkillsRepositoryRoot` resolves one root and every skill target runs from it: `PurviewSkillsInstallRoot` → a user-set `PurviewSkillsRepoRoot` → the marker walk → `PurviewSkillsRepoRoot`/`RepoRoot` as guessed → CI workspace variables → SourceLink's git `SourceRoot`. There is deliberately **no project-directory fallback** — that would scatter a lockfile and an agent directory through the tree, one per project. An unresolved root is `PRSKL0003` on install (naming `PurviewSkillsInstallRoot`), and silence for recommendations, because a build never fails over advice.
+
+The marker walk is `FindPurviewRepositoryRoot` (inline task), driven by `PurviewRepositoryRootMarkers` — `.git/;.github/;.gitattributes;LICENSE.md;AGENTS.md;.agents/;CLAUDE.md;.claude/;package.json`. Three things about it are load-bearing and easy to break:
+
+- **It cannot be an MSBuild intrinsic.** `GetDirectoryNameOfFileAbove` matches *files only* and returns nothing for `.git/`, `.github/`, `.agents/` or `.claude/` — four of the nine markers. Verified, not assumed.
+- **Two passes.** The first marker in the list is definitive and is searched all the way up (`.git/` *is* the repository root, so a monorepo sub-package does not win). Every other marker uses nearest-ancestor-wins, with list order breaking ties inside one directory. Searching them all to the top would let a stray `.claude/` in a developer's home directory outrank the real root.
+- **The home directory and everything above it are never candidates.** Without that bound, a project outside any repository resolves to `~` and installs into it. A repository below the home directory is unaffected.
+
+The marker walk outranks the evaluation-time `PurviewSkillsRepoRoot` guess (which only knows `RepoRoot` and an `AGENTS.md` walk-up), because an `AGENTS.md` can legitimately sit in a subdirectory. `_PurviewSkillsRepoRootWasSpecified` is captured in `Sdk.props` before defaulting so a value the *user* set still wins.
+
+`ListPurviewSkills` reports runner availability but **never** errors on its absence — resolving and reporting needs no Node tooling at all.
+
+Note that a target's `Condition` is evaluated *before* its `DependsOnTargets` run, so a property a dependency computes is still empty there. That is why the unresolved-root guard sits on the `EvaluatePurviewSkillState` task rather than on `RecommendPurviewSkills` — and equally why the build hook's CI/design-time gating works at all.
 
 ### Validating skills
 
@@ -117,7 +155,9 @@ Four things keep it quiet, and all of them are load-bearing:
 
 Orphan detection is **owner-scoped on purpose**: a lockfile cannot record who asked for an entry, so only an entry under an owner the project references — but from a repository it no longer references — is reported. A skill from any other owner is the developer's own and is never mentioned.
 
-Tests live in `src/tests/BuildSdk.IntegrationTests/PurviewSkillRecommendationTests.cs`, with the shared on-disk fixtures (fake restored package, assets file, lockfile) in `SkillPackageFixtures.cs`. Note that `BuildingProject` is only `true` when the `Build` target actually runs, so tests driving the build hook by name must supply it; `AnOrdinaryBuild_ReportsSkillState` covers the genuine end-to-end path.
+Tests live in `src/tests/BuildSdk.IntegrationTests/PurviewSkillRecommendationTests.cs`, with the shared on-disk fixtures (fake restored package, assets file, lockfile) in `SkillPackageFixtures.cs`. Runner mapping and repository-root resolution are tested in `PurviewSkillInstallCommandTests.cs`.
+
+Two harness facts to know when adding tests here. `BuildingProject` is only `true` when the `Build` target actually runs, so tests driving the build hook by name must supply it — `AnOrdinaryBuild_ReportsSkillState` covers the genuine end-to-end path. And the throwaway solution is not a git repository and has no `AGENTS.md`, so the repository root does not resolve on its own: write an `AGENTS.md` beside the solution, or pass `-p:PurviewSkillsInstallRoot`. Never assert runner behaviour by letting a test actually invoke `npx`/`pnpm dlx` — that downloads from the network and is not a unit of this SDK.
 
 ### Installing from an explicit source
 
@@ -224,9 +264,9 @@ requirement, not a preference:
 
 For filtering syntax and troubleshooting, see:
 
-- [`tunit-test-runner` skill](./.agents/skills/tunit-test-runner/SKILL.md)
-- [`dotnet-tunit` skill](./.agents/skills/dotnet-tunit/SKILL.md)
-- [`tunit-filtering` skill](./.agents/skills/tunit-filtering/SKILL.md)
+- [`tunit-test-runner` skill](./skills/tunit-test-runner/SKILL.md)
+- [`dotnet-tunit` skill](./skills/dotnet-tunit/SKILL.md)
+- [`tunit-filtering` skill](./skills/tunit-filtering/SKILL.md)
 
 ### Integration harness for complex validation
 
@@ -257,8 +297,8 @@ Supporting files:
 
 - Versioning is driven by `package.json`
 - Use existing commit conventions:
-  - [`git-conventional-commits` skill](./.agents/skills/git-conventional-commits/SKILL.md)
-  - [`lefthook-integration` skill](./.agents/skills/lefthook-integration/SKILL.md)
+  - [`git-conventional-commits` skill](./skills/git-conventional-commits/SKILL.md)
+  - [`lefthook-integration` skill](./skills/lefthook-integration/SKILL.md)
 
 ## Practical guardrails for agents
 

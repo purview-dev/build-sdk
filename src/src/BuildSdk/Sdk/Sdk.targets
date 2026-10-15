@@ -753,6 +753,7 @@
 			<StampPath ParameterType="System.String" Required="false" />
 			<RespectStamp ParameterType="System.Boolean" Required="false" />
 			<Agents ParameterType="System.String" Required="false" />
+			<CommandPrefix ParameterType="System.String" Required="false" />
 			<RepositoryRoot ParameterType="System.String" Required="false" />
 			<MirrorFolderName ParameterType="System.String" Required="false" />
 			<AgentSkillDirectoriesFound ParameterType="System.Boolean" Output="true" />
@@ -778,6 +779,8 @@
 					var sources = SkillSources ?? new ITaskItem[0];
 					var unpinnable = UnresolvableSkillSources ?? new ITaskItem[0];
 					var agents = string.IsNullOrEmpty(Agents) ? "*" : Agents;
+					// How the repository launches the CLI - 'npx skills', 'pnpm dlx skills', and so on.
+					var cli = string.IsNullOrEmpty(CommandPrefix) ? "npx skills" : CommandPrefix;
 
 					// ---- Read the CLI's lockfile -------------------------------------------------
 					// Entries are flat objects, so one regex over the 'skills' object is enough. A
@@ -948,7 +951,7 @@
 						// The install command names each skill explicitly and repeats the flag: the CLI
 						// matches nothing when given one comma-separated value.
 						var commandFor = new Func<List<string>, string>(selected =>
-							"npx skills add \"" + sourceWithRef + "\" --skill \""
+							cli + " add \"" + sourceWithRef + "\" --skill \""
 								+ string.Join("\" --skill \"", selected) + "\" --agent \"" + agents + "\" -y");
 
 						var addItem = new Func<List<ITaskItem>, List<string>, ITaskItem>((bucket, selected) =>
@@ -1025,7 +1028,7 @@
 						created.SetMetadata("Skill", entry.Key);
 						created.SetMetadata("Source", installedSource);
 						created.SetMetadata("Ref", lockedRef[entry.Key]);
-						created.SetMetadata("Command", "npx skills remove \"" + entry.Key + "\"");
+						created.SetMetadata("Command", cli + " remove \"" + entry.Key + "\"");
 						orphaned.Add(created);
 					}
 
@@ -1403,6 +1406,7 @@
 			<RetryDelayMilliseconds ParameterType="System.Int32" Required="false" />
 			<TreatFailureAsError ParameterType="System.Boolean" Required="false" />
 			<DisableMirroredFileTrackingCheck ParameterType="System.Boolean" Required="false" />
+			<ExcludeRelativeFolders ParameterType="System.String" Required="false" />
 			<UpToDate ParameterType="System.Boolean" Output="true" />
 			<CopiedCount ParameterType="System.Int32" Output="true" />
 			<SkippedCount ParameterType="System.Int32" Output="true" />
@@ -1919,6 +1923,16 @@
 							}
 						}
 
+						// Folders this mirror does not own, relative to each source root. Skills are the
+						// case this exists for: the skills CLI installs them, so a package ships them
+						// as metadata about what it offers rather than as content to copy.
+						var excludedFolders = (ExcludeRelativeFolders ?? string.Empty)
+							.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries)
+							.Select(folder => NormalizeSlashes(folder.Trim()).Trim('/'))
+							.Where(folder => folder.Length > 0)
+							.Select(folder => folder + "/")
+							.ToArray();
+
 						var groups = new HashSet<string>(StringComparer.Ordinal);
 						var assets = new List<ITaskItem>();
 						foreach (var source in sources)
@@ -1937,6 +1951,9 @@
 								foreach (var file in Directory.GetFiles(root, "*", SearchOption.AllDirectories))
 								{
 									var relative = GetRelativePath(root, file);
+									if (excludedFolders.Any(folder => relative.StartsWith(folder, pathComparison)))
+										continue;
+
 									var asset = new TaskItem(file);
 									asset.SetMetadata("PurviewGroup", group);
 									asset.SetMetadata("PurviewRelativePath", relative);
@@ -2443,17 +2460,34 @@
 		<ItemGroup>
 			<_PurviewAgentSourceRoot Include="@(SourceRoot -> WithMetadataValue('SourceControl', 'git'))" />
 		</ItemGroup>
+
 		<PropertyGroup>
 			<_PurviewAgentFolderRepoRoot Condition="'$(RepoRoot)' != ''">$(RepoRoot)</_PurviewAgentFolderRepoRoot>
-			<_PurviewAgentFolderAgentsMd Condition="'$(_PurviewAgentFolderRepoRoot)' == ''"
-				>$([MSBuild]::GetPathOfFileAbove('AGENTS.md', '$(MSBuildProjectDirectory)'))</_PurviewAgentFolderAgentsMd>
-			<_PurviewAgentFolderRepoRoot
-				Condition="'$(_PurviewAgentFolderRepoRoot)' == '' AND '$(_PurviewAgentFolderAgentsMd)' != ''"
-				>$([System.IO.Path]::GetDirectoryName('$(_PurviewAgentFolderAgentsMd)'))\</_PurviewAgentFolderRepoRoot>
+		</PropertyGroup>
+
+		<!-- The same marker walk the skill targets use, so the mirror and the skills CLI can never
+		     disagree about where the repository is. Before this, the mirror knew only RepoRoot and an
+		     AGENTS.md walk-up, which finds nothing in a repository that has neither - and resolves to
+		     a subdirectory in one whose AGENTS.md is not at the root. -->
+		<FindPurviewRepositoryRoot
+			Condition="'$(_PurviewAgentFolderRepoRoot)' == '' AND '$(PurviewRepositoryRootMarkers)' != ''"
+			StartDirectory="$(MSBuildProjectDirectory)"
+			Markers="$(PurviewRepositoryRootMarkers)"
+		>
+			<Output TaskParameter="RepositoryRoot" PropertyName="_PurviewAgentFolderRepoRoot" />
+			<Output TaskParameter="MatchedMarker" PropertyName="_PurviewAgentFolderRepoRootMarker" />
+		</FindPurviewRepositoryRoot>
+
+		<PropertyGroup>
 			<_PurviewAgentFolderRepoRoot Condition="'$(_PurviewAgentFolderRepoRoot)' == ''"
 				>@(_PurviewAgentSourceRoot)</_PurviewAgentFolderRepoRoot>
 			<_PurviewAgentFolderDestinationRoot Condition="'$(_PurviewAgentFolderRepoRoot)' != ''"
 				>$([MSBuild]::NormalizePath('$(_PurviewAgentFolderRepoRoot)', '$(AgentPackDestinationFolder)'))</_PurviewAgentFolderDestinationRoot>
+			<!-- Skills are installed by the skills CLI and by nothing else, so the mirror leaves that
+			     folder alone. A package still ships '.agents/skills/' as metadata, which is what
+			     ResolvePurviewSkillSources reads to map a package to its skills and commit. -->
+			<_PurviewAgentFolderExcludedFolders Condition="'$(PurviewMirrorPackagedSkills)' != 'true'"
+				>skills</_PurviewAgentFolderExcludedFolders>
 		</PropertyGroup>
 	</Target>
 
@@ -2492,6 +2526,7 @@
 			RetryDelayMilliseconds="$(PurviewAgentFolderCopyRetryDelayMilliseconds)"
 			TreatFailureAsError="$(PurviewAgentFolderCopyFailureAsError)"
 			DisableMirroredFileTrackingCheck="$(DisableMirroredFileTrackingCheck)"
+			ExcludeRelativeFolders="$(_PurviewAgentFolderExcludedFolders)"
 			Condition="'@(_PurviewAgentFolderSyncSource)' != '' AND '$(_PurviewAgentFolderDestinationRoot)' != ''"
 		>
 			<Output TaskParameter="UpToDate" PropertyName="_PurviewAgentFolderUpToDate" />
@@ -2532,9 +2567,300 @@
 			RetryDelayMilliseconds="$(PurviewAgentFolderCopyRetryDelayMilliseconds)"
 			TreatFailureAsError="$(PurviewAgentFolderCopyFailureAsError)"
 			DisableMirroredFileTrackingCheck="$(DisableMirroredFileTrackingCheck)"
+			ExcludeRelativeFolders="$(_PurviewAgentFolderExcludedFolders)"
 			Condition="'@(_PurviewPackagedAgentFolderSyncSource)' != ''"
 		/>
 	</Target>
+
+	<!-- =====================================================================
+	     FIND THE REPOSITORY ROOT
+	     Walks up from a project looking for the markers that identify a
+	     repository root. An inline task rather than MSBuild's intrinsic
+	     because GetDirectoryNameOfFileAbove matches *files only* - it returns
+	     nothing for '.git/', '.github/', '.agents/' or '.claude/', which are
+	     four of the markers that matter most.
+
+     Two passes, because neither pure priority nor pure proximity is right
+	     on its own:
+
+	       1. The *first* marker in the list is definitive, and is searched
+	          all the way up. '.git/' is the repository root by definition, so
+	          a project inside a monorepo package resolves to the repository
+	          rather than to the nearer folder holding a 'package.json'.
+	       2. Otherwise the nearest ancestor holding any marker wins, with
+	          list order breaking ties within that one directory.
+
+	     Pass 2 is nearest-first on purpose. Searching each remaining marker
+	     to the top would let a stray '.claude/' in a developer's home
+	     directory outrank the 'package.json' at the actual repository root,
+	     and quietly scatter a lockfile and an agent directory outside the
+	     repository. Only the definitive marker is allowed to reach that far.
+
+	     PurviewRepositoryRootMarkers overrides the list, and its first entry
+	     is whatever that list makes definitive.
+	     ===================================================================== -->
+	<UsingTask
+		TaskName="FindPurviewRepositoryRoot"
+		TaskFactory="RoslynCodeTaskFactory"
+		AssemblyFile="$([System.IO.Path]::Combine('$(MSBuildToolsPath)', 'Microsoft.Build.Tasks.Core.dll'))"
+	>
+		<ParameterGroup>
+			<StartDirectory ParameterType="System.String" Required="true" />
+			<Markers ParameterType="System.String" Required="true" />
+			<RepositoryRoot ParameterType="System.String" Output="true" />
+			<MatchedMarker ParameterType="System.String" Output="true" />
+		</ParameterGroup>
+		<Task>
+			<Using Namespace="System.IO" />
+			<Using Namespace="System.Linq" />
+			<Code Type="Fragment" Language="cs">
+				<![CDATA[
+					RepositoryRoot = string.Empty;
+					MatchedMarker = string.Empty;
+
+					if (!string.IsNullOrEmpty(StartDirectory) && Directory.Exists(StartDirectory))
+					{
+						// The ancestor chain is built once and reused for every marker, because each
+						// marker is searched over the whole chain before the next one is considered.
+						//
+						// The home directory and everything above it are excluded as candidates. A
+						// repository root is never your home directory, and a '.claude/' or '.github/'
+						// commonly sits there - without this bound a project outside any repository
+						// would resolve to '~' and scatter a lockfile and an agent directory into it.
+						// A repository *inside* the home directory is unaffected: it is below it.
+						var excluded = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+						try
+						{
+							var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+							if (!string.IsNullOrEmpty(home))
+							{
+								for (var directory = new DirectoryInfo(Path.GetFullPath(home));
+									directory != null;
+									directory = directory.Parent)
+								{
+									excluded.Add(directory.FullName.TrimEnd('/', '\\'));
+								}
+							}
+						}
+						catch (ArgumentException) { }
+						catch (PathTooLongException) { }
+
+						var ancestors = new List<string>();
+						try
+						{
+							for (var directory = new DirectoryInfo(Path.GetFullPath(StartDirectory));
+								directory != null;
+								directory = directory.Parent)
+							{
+								if (!excluded.Contains(directory.FullName.TrimEnd('/', '\\')))
+									ancestors.Add(directory.FullName);
+							}
+						}
+						catch (ArgumentException) { }
+						catch (PathTooLongException) { }
+						catch (IOException) { }
+
+						// A trailing slash means "directory". It still matches a file of that name,
+						// because '.git' is a directory in a clone but a file in a worktree or a
+						// submodule, and both identify a repository root.
+						var markers = Markers
+							.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries)
+							.Select(entry => entry.Trim())
+							.Where(entry => entry.TrimEnd('/', '\\').Length > 0)
+							.Select(entry => new KeyValuePair<string, bool>(
+								entry,
+								entry.EndsWith("/", StringComparison.Ordinal) || entry.EndsWith("\\", StringComparison.Ordinal)
+							))
+							.ToArray();
+
+						var matches = new Func<string, KeyValuePair<string, bool>, bool>((directory, marker) =>
+						{
+							string candidate;
+							try { candidate = Path.Combine(directory, marker.Key.TrimEnd('/', '\\')); }
+							catch (ArgumentException) { return false; }
+
+							return marker.Value
+								? (Directory.Exists(candidate) || File.Exists(candidate))
+								: File.Exists(candidate);
+						});
+
+						// Pass 1: the definitive marker, searched all the way up.
+						if (markers.Length > 0)
+						{
+							foreach (var ancestor in ancestors)
+							{
+								if (!matches(ancestor, markers[0]))
+									continue;
+
+								RepositoryRoot = ancestor;
+								MatchedMarker = markers[0].Key;
+								break;
+							}
+						}
+
+						// Pass 2: nearest ancestor holding any remaining marker, list order breaking
+						// ties inside that one directory.
+						if (RepositoryRoot.Length == 0)
+						{
+							foreach (var ancestor in ancestors)
+							{
+								foreach (var marker in markers)
+								{
+									if (!matches(ancestor, marker))
+										continue;
+
+									RepositoryRoot = ancestor;
+									MatchedMarker = marker.Key;
+									break;
+								}
+
+								if (RepositoryRoot.Length > 0)
+									break;
+							}
+						}
+					}
+				]]>
+			</Code>
+		</Task>
+	</UsingTask>
+
+	<!-- =====================================================================
+	     SKILLS REPOSITORY ROOT
+	     Everything the skills CLI writes - 'skills-lock.json' and the agent
+	     directories - belongs to the repository, not to a project. A solution
+	     has many projects and exactly one of each of those, so every skill
+	     target runs from the repository root, always.
+
+	     Resolution order:
+
+	       1. PurviewSkillsInstallRoot      - an explicit override.
+	       2. PurviewSkillsRepoRoot         - only when the *user* set it.
+	       3. the PurviewRepositoryRootMarkers walk.
+	       4. PurviewSkillsRepoRoot/RepoRoot as this SDK guessed them.
+	       5. the CI workspace variables.
+	       6. the git source root SourceLink reports.
+
+	     The marker walk deliberately outranks the evaluation-time guess at
+	     PurviewSkillsRepoRoot, which only knows RepoRoot and an AGENTS.md
+	     walk-up. An AGENTS.md can legitimately sit in a subdirectory, and
+	     resolving to it would put a lockfile and an agent directory somewhere
+	     that is not the repository. A value the user set explicitly is a
+	     different matter and still wins.
+
+	     There is deliberately no fall back to the project directory. Running
+	     from a project folder would scatter a lockfile and an agent directory
+	     through the tree, one per project, which is exactly the thing being
+	     prevented - so an unresolved root is reported instead.
+	     ===================================================================== -->
+	<Target
+		Name="ResolvePurviewSkillsRepositoryRoot"
+		DependsOnTargets="InitializeSourceControlInformation"
+		Label="Resolves the repository root every skill target runs from."
+	>
+		<ItemGroup>
+			<_PurviewSkillsSourceRoot Include="@(SourceRoot -> WithMetadataValue('SourceControl', 'git'))" />
+		</ItemGroup>
+
+		<PropertyGroup>
+			<_PurviewSkillsRepositoryRoot Condition="'$(PurviewSkillsInstallRoot)' != ''"
+				>$(PurviewSkillsInstallRoot)</_PurviewSkillsRepositoryRoot>
+			<_PurviewSkillsRepositoryRoot
+				Condition="'$(_PurviewSkillsRepositoryRoot)' == '' AND '$(_PurviewSkillsRepoRootWasSpecified)' == 'true'"
+				>$(PurviewSkillsRepoRoot)</_PurviewSkillsRepositoryRoot>
+		</PropertyGroup>
+
+		<FindPurviewRepositoryRoot
+			Condition="'$(_PurviewSkillsRepositoryRoot)' == '' AND '$(PurviewRepositoryRootMarkers)' != ''"
+			StartDirectory="$(MSBuildProjectDirectory)"
+			Markers="$(PurviewRepositoryRootMarkers)"
+		>
+			<Output TaskParameter="RepositoryRoot" PropertyName="_PurviewSkillsRepositoryRoot" />
+			<Output TaskParameter="MatchedMarker" PropertyName="_PurviewSkillsRepositoryRootMarker" />
+		</FindPurviewRepositoryRoot>
+
+		<Message
+			Importance="Low"
+			Condition="'$(_PurviewSkillsRepositoryRootMarker)' != ''"
+			Text="Purview Skills: repository root '$(_PurviewSkillsRepositoryRoot)' found by marker '$(_PurviewSkillsRepositoryRootMarker)'."
+		/>
+
+		<PropertyGroup>
+			<!-- Below the marker walk: these are guesses, and a marker is the better one. -->
+			<_PurviewSkillsRepositoryRoot
+				Condition="'$(_PurviewSkillsRepositoryRoot)' == '' AND '$(PurviewSkillsRepoRoot)' != ''"
+				>$(PurviewSkillsRepoRoot)</_PurviewSkillsRepositoryRoot>
+			<_PurviewSkillsRepositoryRoot Condition="'$(_PurviewSkillsRepositoryRoot)' == '' AND '$(RepoRoot)' != ''"
+				>$(RepoRoot)</_PurviewSkillsRepositoryRoot>
+
+			<!-- A CI agent often checks out without the markers above being reachable from the
+			     project, but always says where the workspace is. -->
+			<_PurviewSkillsRepositoryRoot
+				Condition="'$(_PurviewSkillsRepositoryRoot)' == '' AND '$(GITHUB_WORKSPACE)' != '' AND Exists('$(GITHUB_WORKSPACE)')"
+				>$(GITHUB_WORKSPACE)</_PurviewSkillsRepositoryRoot>
+			<_PurviewSkillsRepositoryRoot
+				Condition="'$(_PurviewSkillsRepositoryRoot)' == '' AND '$(BUILD_SOURCESDIRECTORY)' != '' AND Exists('$(BUILD_SOURCESDIRECTORY)')"
+				>$(BUILD_SOURCESDIRECTORY)</_PurviewSkillsRepositoryRoot>
+			<_PurviewSkillsRepositoryRoot
+				Condition="'$(_PurviewSkillsRepositoryRoot)' == '' AND '$(CI_PROJECT_DIR)' != '' AND Exists('$(CI_PROJECT_DIR)')"
+				>$(CI_PROJECT_DIR)</_PurviewSkillsRepositoryRoot>
+
+			<_PurviewSkillsRepositoryRoot Condition="'$(_PurviewSkillsRepositoryRoot)' == ''"
+				>@(_PurviewSkillsSourceRoot)</_PurviewSkillsRepositoryRoot>
+		</PropertyGroup>
+	</Target>
+
+	<!-- =====================================================================
+	     SKILLS CLI LAUNCHER
+	     The CLI is published to npm, and a repository standardises on one
+	     package runner. Each runner spells "run this npm package" its own way,
+	     so the SDK maps a runner name to a launcher rather than assuming npx:
+
+	       npx    npx -y skills@1          (ships with Node; the default)
+	       bunx   bunx skills@1
+	       bun    bun x skills@1
+	       pnpm   pnpm dlx skills@1
+	       yarn   yarn dlx skills@1        (Yarn 2+; Yarn 1 has no 'dlx')
+	       deno   deno run -A npm:skills@1
+	       skills skills                   (already on PATH; no download)
+
+	     A runner this SDK does not know is still usable: it falls through to
+	     '<runner> <package>', which is the form most new runners adopt.
+
+	     Two launchers are produced on purpose. The executed one pins the CLI
+	     to a major so a breaking release cannot change what the install target
+	     does; the displayed one drops the pin, because a recommendation is a
+	     command for a person to run and 'npx skills add' is the form they know.
+	     ===================================================================== -->
+	<ItemGroup>
+		<PurviewSkillsRunnerLauncher Include="skills">
+			<Exec>skills</Exec>
+			<Display>skills</Display>
+		</PurviewSkillsRunnerLauncher>
+		<PurviewSkillsRunnerLauncher Include="npx">
+			<Exec>npx -y $(PurviewSkillsPackage)</Exec>
+			<Display>npx skills</Display>
+		</PurviewSkillsRunnerLauncher>
+		<PurviewSkillsRunnerLauncher Include="bunx">
+			<Exec>bunx $(PurviewSkillsPackage)</Exec>
+			<Display>bunx skills</Display>
+		</PurviewSkillsRunnerLauncher>
+		<PurviewSkillsRunnerLauncher Include="bun">
+			<Exec>bun x $(PurviewSkillsPackage)</Exec>
+			<Display>bun x skills</Display>
+		</PurviewSkillsRunnerLauncher>
+		<PurviewSkillsRunnerLauncher Include="pnpm">
+			<Exec>pnpm dlx $(PurviewSkillsPackage)</Exec>
+			<Display>pnpm dlx skills</Display>
+		</PurviewSkillsRunnerLauncher>
+		<PurviewSkillsRunnerLauncher Include="yarn">
+			<Exec>yarn dlx $(PurviewSkillsPackage)</Exec>
+			<Display>yarn dlx skills</Display>
+		</PurviewSkillsRunnerLauncher>
+		<PurviewSkillsRunnerLauncher Include="deno">
+			<Exec>deno run -A npm:$(PurviewSkillsPackage)</Exec>
+			<Display>deno run -A npm:skills</Display>
+		</PurviewSkillsRunnerLauncher>
+	</ItemGroup>
 
 	<!-- =====================================================================
 	     EXPLICIT SKILL INSTALLATION
@@ -2576,7 +2902,7 @@
 
 	<Target
 		Name="ListPurviewSkills"
-		DependsOnTargets="ResolvePurviewSkillsTarget"
+		DependsOnTargets="ResolvePurviewSkillsRepositoryRoot;ResolvePurviewSkillsTarget"
 		Label="Lists the skills shipped by every restored package, without installing anything."
 	>
 		<Message
@@ -2599,7 +2925,10 @@
 
 		<!-- Report whether installing would work, so the answer is known before committing to it.
 		     This target installs nothing, so a missing CLI is reported here, never an error. -->
-		<DetectPurviewSkillsCli CommandNames="skills;npx" Condition="'$(PurviewSkillsCommand)' == ''">
+		<DetectPurviewSkillsCli
+			CommandNames="skills;$(PurviewSkillsRunner);$(PurviewSkillsRunnerCandidates)"
+			Condition="'$(PurviewSkillsCommand)' == ''"
+		>
 			<Output TaskParameter="FoundCommand" PropertyName="_PurviewSkillsCliCommand" />
 			<Output TaskParameter="FoundPath" PropertyName="_PurviewSkillsCliPath" />
 		</DetectPurviewSkillsCli>
@@ -2611,23 +2940,21 @@
 		<Message
 			Importance="High"
 			Condition="'$(PurviewSkillsCommand)' == '' AND '$(_PurviewSkillsCliPath)' == ''"
-			Text="Skills CLI: not found on PATH. Installing needs Node.js (for npx) or 'npm install -g skills'."
+			Text="Skills CLI: no runner found on PATH. Installing needs one of 'skills', '$(PurviewSkillsRunner)' or '$(PurviewSkillsRunnerCandidates)'."
+		/>
+		<Message
+			Importance="High"
+			Condition="'$(_PurviewSkillsRepositoryRoot)' != ''"
+			Text="Skills are installed from the repository root: $(_PurviewSkillsRepositoryRoot)"
 		/>
 	</Target>
 
 	<Target
 		Name="InstallPurviewSkills"
-		DependsOnTargets="ResolvePurviewSkillsTarget"
+		DependsOnTargets="ResolvePurviewSkillsRepositoryRoot;ResolvePurviewSkillsTarget"
 		Label="Installs the skills shipped by restored packages into the agent directories, via the skills CLI."
 	>
 		<PropertyGroup>
-			<!-- Resolved against the repository root so the lockfile and the agent directories are
-			     written once per repository rather than once per project. -->
-			<PurviewSkillsInstallRoot
-				Condition="'$(PurviewSkillsInstallRoot)' == '' AND '$(PurviewSkillsRepoRoot)' != ''"
-				>$(PurviewSkillsRepoRoot)</PurviewSkillsInstallRoot>
-			<PurviewSkillsInstallRoot Condition="'$(PurviewSkillsInstallRoot)' == ''"
-				>$(MSBuildProjectDirectory)</PurviewSkillsInstallRoot>
 			<!-- '*' installs to every agent the CLI detects. Narrow it with
 			     -p:PurviewSkillsAgents=claude-code,codex for a single agent. -->
 			<PurviewSkillsAgents Condition="'$(PurviewSkillsAgents)' == ''">*</PurviewSkillsAgents>
@@ -2655,23 +2982,28 @@
 			Text="No restored package ships installable agent skills. Run -t:ListPurviewSkills for detail."
 		/>
 
-		<!-- Detect before invoking, so a missing CLI is an actionable message rather than a shell
+		<!-- Detect before invoking, so a missing runner is an actionable message rather than a shell
 		     error. Only when there is actually something to install: resolving nothing must not
-		     require Node to be present. -->
+		     require Node to be present.
+
+		     'skills' on PATH is tried first because it needs no download at all, then the configured
+		     runner, then the remaining candidates - so a machine with bun but no Node still installs
+		     rather than reporting that nothing was found. -->
 		<DetectPurviewSkillsCli
-			CommandNames="skills;npx"
+			CommandNames="skills;$(PurviewSkillsRunner);$(PurviewSkillsRunnerCandidates)"
 			Condition="'@(PurviewSkillSource)' != '' AND '$(PurviewSkillsCommand)' == ''"
 		>
 			<Output TaskParameter="FoundCommand" PropertyName="_PurviewSkillsCliCommand" />
 			<Output TaskParameter="FoundPath" PropertyName="_PurviewSkillsCliPath" />
 		</DetectPurviewSkillsCli>
 
-		<PropertyGroup Condition="'$(PurviewSkillsCommand)' == ''">
-			<!-- A CLI already on PATH is used as-is; npx pins a known-good major so a future
-			     breaking release of the CLI cannot change what this target does. -->
-			<PurviewSkillsCommand Condition="'$(_PurviewSkillsCliCommand)' == 'skills'">skills</PurviewSkillsCommand>
-			<PurviewSkillsCommand Condition="'$(_PurviewSkillsCliCommand)' == 'npx'"
-				>npx -y skills@1</PurviewSkillsCommand>
+		<!-- The runner that was actually found wins over the configured preference: it is the one
+		     this machine can really run. A runner with no entry in the map falls through to
+		     '<runner> <package>', so a runner this SDK has never heard of is still honoured. -->
+		<PropertyGroup Condition="'$(PurviewSkillsCommand)' == '' AND '$(_PurviewSkillsCliCommand)' != ''">
+			<PurviewSkillsCommand>@(PurviewSkillsRunnerLauncher->WithMetadataValue('Identity', '$(_PurviewSkillsCliCommand)')->'%(Exec)')</PurviewSkillsCommand>
+			<PurviewSkillsCommand Condition="'$(PurviewSkillsCommand)' == ''"
+				>$(_PurviewSkillsCliCommand) $(PurviewSkillsPackage)</PurviewSkillsCommand>
 		</PropertyGroup>
 
 		<Message
@@ -2683,7 +3015,7 @@
 		<Error
 			Code="PRSKL0004"
 			Condition="'@(PurviewSkillSource)' != '' AND '$(PurviewSkillsCommand)' == ''"
-			Text="Cannot install agent skills: neither 'skills' nor 'npx' was found on PATH. Install Node.js (which provides npx), or install the CLI globally with 'npm install -g skills', then re-run this target. To resolve and report skills without installing, use -t:ListPurviewSkills, which needs no Node tooling. To use a different launcher, set -p:PurviewSkillsCommand=&lt;command&gt;."
+			Text="Cannot install agent skills: none of 'skills', '$(PurviewSkillsRunner)' or '$(PurviewSkillsRunnerCandidates)' was found on PATH. Install Node.js (which provides npx), or any of bun, pnpm, yarn or deno, or install the CLI globally with 'npm install -g skills', then re-run this target. To resolve and report skills without installing, use -t:ListPurviewSkills, which needs no Node tooling. To choose a runner, set -p:PurviewSkillsRunner=&lt;npx|bunx|pnpm|yarn|deno&gt;; to override the launcher entirely, set -p:PurviewSkillsCommand=&lt;command&gt;."
 		/>
 
 		<!-- One invocation per package. '-y' keeps it non-interactive, and re-running is idempotent:
@@ -2694,10 +3026,19 @@
 		     The skill flag must be *repeated*: the CLI does not split a comma-separated value, it
 		     matches nothing and reports "No matching skills found". So the ';' separating the
 		     resolved names is rewritten into a further skill flag. -->
+		<!-- The lockfile and the agent directories belong to the repository, so the CLI always runs
+		     from the repository root. Installing from a project folder would scatter one of each
+		     through the tree, so an unresolved root is reported rather than guessed at. -->
+		<Error
+			Code="PRSKL0003"
+			Condition="'@(PurviewSkillSource)' != '' AND '$(_PurviewSkillsRepositoryRoot)' == ''"
+			Text="Cannot install agent skills: the repository root could not be resolved. The skills CLI writes skills-lock.json and the agent directories, and both belong to the repository rather than to a project, so this target will not fall back to the project folder. Set -p:PurviewSkillsInstallRoot=&lt;path&gt; (or RepoRoot), or add an AGENTS.md at the repository root."
+		/>
+
 		<Exec
-			Condition="'@(PurviewSkillSource)' != ''"
+			Condition="'@(PurviewSkillSource)' != '' AND '$(_PurviewSkillsRepositoryRoot)' != ''"
 			Command="$(PurviewSkillsCommand) add &quot;%(PurviewSkillSource.SourceWithRef)&quot; --skill &quot;$([System.String]::Copy('%(PurviewSkillSource.Skills)').Replace(';', '&quot; --skill &quot;'))&quot; --agent &quot;$(PurviewSkillsAgents)&quot; -y"
-			WorkingDirectory="$(PurviewSkillsInstallRoot)"
+			WorkingDirectory="$(_PurviewSkillsRepositoryRoot)"
 			ContinueOnError="$(PurviewSkillsContinueOnError)"
 			StandardOutputImportance="High"
 		/>
@@ -2733,23 +3074,32 @@
 	     ===================================================================== -->
 	<Target
 		Name="_ResolvePurviewSkillRecommendationPaths"
+		DependsOnTargets="ResolvePurviewSkillsRepositoryRoot"
 		Label="Resolves the repository-level lockfile and stamp paths skill recommendations read."
 	>
 		<PropertyGroup>
-			<_PurviewSkillRecommendationRoot
-				Condition="'$(_PurviewSkillRecommendationRoot)' == '' AND '$(PurviewSkillsRepoRoot)' != ''"
-				>$(PurviewSkillsRepoRoot)</_PurviewSkillRecommendationRoot>
+			<!-- Everything read here is repository-scoped, so there is no project-directory fallback:
+			     an unresolved root means the recommendation pass simply says nothing, because a build
+			     is never a place to fail over optional advice. -->
 			<_PurviewSkillRecommendationRoot Condition="'$(_PurviewSkillRecommendationRoot)' == ''"
-				>$(MSBuildProjectDirectory)</_PurviewSkillRecommendationRoot>
+				>$(_PurviewSkillsRepositoryRoot)</_PurviewSkillRecommendationRoot>
 			<!-- Where the CLI writes it for a project-scope install: beside the repository root. -->
-			<PurviewSkillsLockFile Condition="'$(PurviewSkillsLockFile)' == ''"
+			<PurviewSkillsLockFile
+				Condition="'$(PurviewSkillsLockFile)' == '' AND '$(_PurviewSkillRecommendationRoot)' != ''"
 				>$([MSBuild]::NormalizePath('$(_PurviewSkillRecommendationRoot)', 'skills-lock.json'))</PurviewSkillsLockFile>
-			<PurviewSkillRecommendationStampPath Condition="'$(PurviewSkillRecommendationStampPath)' == ''"
+			<PurviewSkillRecommendationStampPath
+				Condition="'$(PurviewSkillRecommendationStampPath)' == '' AND '$(_PurviewSkillRecommendationRoot)' != ''"
 				>$([MSBuild]::NormalizePath('$(_PurviewSkillRecommendationRoot)', '.purview', 'skill-recommendations.cache'))</PurviewSkillRecommendationStampPath>
 			<!-- The explicit target always reports; only the build hook honours the stamp. -->
 			<_PurviewSkillRespectStamp Condition="'$(_PurviewSkillRespectStamp)' == ''"
 				>false</_PurviewSkillRespectStamp>
 			<PurviewSkillsAgents Condition="'$(PurviewSkillsAgents)' == ''">*</PurviewSkillsAgents>
+			<!-- Recommendation text is written against the *configured* runner, not a detected one:
+			     advice costs no PATH probe, and the command a developer copies should be the one
+			     their repository standardised on. -->
+			<_PurviewSkillsCommandDisplay>@(PurviewSkillsRunnerLauncher->WithMetadataValue('Identity', '$(PurviewSkillsRunner)')->'%(Display)')</_PurviewSkillsCommandDisplay>
+			<_PurviewSkillsCommandDisplay Condition="'$(_PurviewSkillsCommandDisplay)' == ''"
+				>$(PurviewSkillsRunner) skills</_PurviewSkillsCommandDisplay>
 		</PropertyGroup>
 	</Target>
 
@@ -2759,7 +3109,12 @@
 		Condition="'$(DefaultTargetFramework)' == '' OR '$(TargetFramework)' == '$(DefaultTargetFramework)'"
 		Label="Reports which Purview skills are missing, drifted or unverifiable, and how to fix each."
 	>
+		<!-- The unresolved-root guard is on the task, not on the target: a target's Condition is
+		     evaluated before its DependsOnTargets run, so a property one of them computes is still
+		     empty there. An unresolved root simply reports nothing - a build never fails over advice. -->
 		<EvaluatePurviewSkillState
+			Condition="'$(_PurviewSkillRecommendationRoot)' != ''"
+			CommandPrefix="$(_PurviewSkillsCommandDisplay)"
 			SkillSources="@(PurviewSkillSource)"
 			UnresolvableSkillSources="@(PurviewUnresolvableSkillSource)"
 			LockFilePath="$(PurviewSkillsLockFile)"
@@ -2795,14 +3150,14 @@
 		<Warning
 			Code="PRSKL0011"
 			Condition="'$(_PurviewSkillStateChanged)' == 'true' AND '@(PurviewDriftedSkill)' != ''"
-			Text="Purview Skills: %(PurviewDriftedSkill.PackageId) %(PurviewDriftedSkill.PackageVersion) was built from commit %(PurviewDriftedSkill.RepositoryCommit), but these skills are installed from a different ref: %(PurviewDriftedSkill.InstalledRefs). They may describe a different version of the library than the one referenced. Install the matching skills with: %(PurviewDriftedSkill.Command). Prefer this over 'npx skills update', which installs the newest published skill regardless of which package version this project references."
+			Text="Purview Skills: %(PurviewDriftedSkill.PackageId) %(PurviewDriftedSkill.PackageVersion) was built from commit %(PurviewDriftedSkill.RepositoryCommit), but these skills are installed from a different ref: %(PurviewDriftedSkill.InstalledRefs). They may describe a different version of the library than the one referenced. Install the matching skills with: %(PurviewDriftedSkill.Command). Prefer this over '$(_PurviewSkillsCommandDisplay) update', which installs the newest published skill regardless of which package version this project references."
 		/>
 
 		<!-- Not actionable by the consumer in the common case, so it never becomes a warning. -->
 		<Message
 			Importance="High"
 			Condition="'$(_PurviewSkillStateChanged)' == 'true' AND '@(PurviewUnverifiableSkill)' != ''"
-			Text="PRSKL0012: Purview Skills: compatibility of %(PurviewUnverifiableSkill.SkillCount) skill(s) from %(PurviewUnverifiableSkill.PackageId) %(PurviewUnverifiableSkill.PackageVersion) cannot be verified because %(PurviewUnverifiableSkill.Reason). Inspect what is installed with: npx skills list"
+			Text="PRSKL0012: Purview Skills: compatibility of %(PurviewUnverifiableSkill.SkillCount) skill(s) from %(PurviewUnverifiableSkill.PackageId) %(PurviewUnverifiableSkill.PackageVersion) cannot be verified because %(PurviewUnverifiableSkill.Reason). Inspect what is installed with: $(_PurviewSkillsCommandDisplay) list"
 		/>
 
 		<!-- Owner-scoped, so a skill the developer installed themselves is never named. -->
@@ -2818,7 +3173,7 @@
 		<Message
 			Importance="High"
 			Condition="'$(_PurviewSkillStateChanged)' == 'true' AND '$(_PurviewSkillsLockFileFound)' == 'true' AND '$(_PurviewAgentSkillDirectoriesFound)' != 'true'"
-			Text="PRSKL0014: Purview Skills: '$(PurviewSkillsLockFile)' lists installed skills, but no agent skill directory exists in this repository. Restore them with: npx skills experimental_install (experimental; 'npx skills add' is the supported fallback)."
+			Text="PRSKL0014: Purview Skills: '$(PurviewSkillsLockFile)' lists installed skills, but no agent skill directory exists in this repository. Restore them with: $(_PurviewSkillsCommandDisplay) experimental_install (experimental; '$(_PurviewSkillsCommandDisplay) add' is the supported fallback)."
 		/>
 	</Target>
 

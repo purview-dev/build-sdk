@@ -15,6 +15,14 @@ folder by default so compatible coding agents can discover repository-aware guid
   or SourceLink source roots.
 - The sync is also performed for bundled `.agents` folders shipped by **any** restored NuGet package
   that used `PurviewAutoSdkPack` (read from `project.assets.json`), not just this SDK.
+- **`.agents/skills/**` is deliberately not mirrored.** Skills have exactly one installer — the
+  skills CLI — and its universal install location is that same folder. A package still ships
+  `.agents/skills/` as metadata describing which skills it offers and at which commit, but copying
+  it here as well would put two writers on the same paths and let the mirror overwrite a pinned
+  install. Set `PurviewMirrorPackagedSkills=true` to restore the old behaviour. See
+  [Agent Skills](Agent-Skills.md).
+- The destination root is resolved with the shared `PurviewRepositoryRootMarkers` walk, the same one
+  the skill targets use, so the mirror and the CLI can never disagree about where the repository is.
 - Unchanged content is skipped using a repository manifest (`.purview/agent-sync.cache` by default), so
   repeat builds do not touch any file. The manifest records a per-file size/timestamp fingerprint plus a
   content hash, which is what makes an in-place package republish (same version, new content) re-sync.
@@ -34,6 +42,8 @@ folder by default so compatible coding agents can discover repository-aware guid
 | `PurviewAgentFolderCopyRetryDelayMilliseconds` | `500` | Base delay between attempts (a small increment is added per attempt). |
 | `PurviewAgentFolderCopyFailureAsError` | `true` | When `false`, a copy that still fails after every retry is reported as a warning and the build continues. |
 | `PurviewAgentSyncManifestPath` | `<repo root>/.purview/agent-sync.cache` | Overrides the change-detection manifest location. |
+| `PurviewMirrorPackagedSkills` | `false` | When `true`, the mirror also copies `.agents/skills/**`. Off by default: the skills CLI is the only installer of skills. |
+| `PurviewRepositoryRootMarkers` | `.git/;.github/;…` | Ordered markers used to resolve the destination root. See [Agent Skills](Agent-Skills.md). |
 | `PurviewSuppressCopyRetryWarnings` | `true` | Demotes MSB3026 copy retry notices to messages. Set to `false` to see every retry attempt. |
 
 ## Opting out

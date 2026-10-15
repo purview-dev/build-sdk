@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "skills": {
+    "dotnet-tunit": {
+      "source": ".",
+      "sourceType": "local",
+      "computedHash": "70733bcedf267e3b2f89b254267dfbc6aa67b2e7f8a94f0af7afda35d3e569f4"
+    },
+    "git-conventional-commits": {
+      "source": ".",
+      "sourceType": "local",
+      "computedHash": "ffefaf69e4541f6a135991e83ef56867d5d77e7fb1b77505a973354f42331ba0"
+    },
+    "lefthook-integration": {
+      "source": ".",
+      "sourceType": "local",
+      "computedHash": "d34044db6a914d6b8a840edff40b0e33f0088c9d0165f693a1221505d5afe328"
+    },
+    "project-placement-defaults": {
+      "source": ".",
+      "sourceType": "local",
+      "computedHash": "5269589d464c8118c7ced04bdc7a5b6df711aba706ce34b0cc85f71145231ae1"
+    },
+    "sdk-configuration-reference": {
+      "source": ".",
+      "sourceType": "local",
+      "computedHash": "e858d158ea8c35b87a659e6a03d719cbbacee471def8d580a58e218da8931592"
+    },
+    "sdk-engineering-principles": {
+      "source": ".",
+      "sourceType": "local",
+      "computedHash": "52d2ee7f43b4a695235cb3f35e4eb9c20b254df746e4cd6d434bfb73c1565785"
+    },
+    "sdk-project-behavior-and-detection": {
+      "source": ".",
+      "sourceType": "local",
+      "computedHash": "55098e007b2fe2327520286b1498b294d356a79124f2bbd167e492010e03b294"
+    },
+    "tunit-filtering": {
+      "source": ".",
+      "sourceType": "local",
+      "computedHash": "7d83b50f4bb17da819387f9c155978d863eaa457c11821c29931b164ef0d1024"
+    },
+    "tunit-test-runner": {
+      "source": ".",
+      "sourceType": "local",
+      "computedHash": "899793ab9bf2e433a9ec60a6d9db10d6a9433ae626ff6396bb527073bf2b74b3"
+    }
+  }
+}

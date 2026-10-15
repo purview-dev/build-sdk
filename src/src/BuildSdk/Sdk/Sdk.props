@@ -394,6 +394,24 @@
 		<CompilerVisibleProperty Include="PurviewSkillsLockFile">
 			<Description>Overrides where the skills CLI's skills-lock.json is read from. Defaults to the repository root.</Description>
 		</CompilerVisibleProperty>
+		<CompilerVisibleProperty Include="PurviewSkillsInstallRoot">
+			<Description>Overrides the repository root every skill target runs from. Empty resolves it from PurviewRepositoryRootMarkers.</Description>
+		</CompilerVisibleProperty>
+		<CompilerVisibleProperty Include="PurviewMirrorPackagedSkills">
+			<Description>When true, the .agents mirror also copies skills/ from packages. Defaults to false; the skills CLI is the only installer of skills.</Description>
+		</CompilerVisibleProperty>
+		<CompilerVisibleProperty Include="PurviewRepositoryRootMarkers">
+			<Description>Ordered markers that identify a repository root, most authoritative first. The first is definitive and searched to the top; the rest resolve nearest-first. A trailing slash marks a directory.</Description>
+		</CompilerVisibleProperty>
+		<CompilerVisibleProperty Include="PurviewSkillsRunner">
+			<Description>Package runner used to launch the skills CLI (npx, bunx, bun, pnpm, yarn, deno, skills, or any other). Defaults to npx.</Description>
+		</CompilerVisibleProperty>
+		<CompilerVisibleProperty Include="PurviewSkillsRunnerCandidates">
+			<Description>Runners probed on PATH after PurviewSkillsRunner. Defaults to npx;bunx;bun;pnpm;yarn;deno.</Description>
+		</CompilerVisibleProperty>
+		<CompilerVisibleProperty Include="PurviewSkillsPackage">
+			<Description>Package spec the executed launcher pins to. Defaults to skills@1.</Description>
+		</CompilerVisibleProperty>
 		<CompilerVisibleProperty Include="PurviewRepoBootstrapMode">
 			<Description>Controls repo-level file bootstrapping (IfMissing, Always, WarnOnDrift or Never). Defaults to IfMissing.</Description>
 		</CompilerVisibleProperty>
@@ -992,6 +1010,11 @@
 	     same AGENTS.md repo-root marker the agent-folder targets use.
 	     ===================================================================== -->
 	<PropertyGroup Label="Repository Skills Folder">
+		<!-- Recorded before defaulting, so the target-time resolution can tell a value the user set
+		     from one this SDK guessed. An explicit value outranks the marker walk; a guessed one
+		     does not, because the marker walk is the better guess. -->
+		<_PurviewSkillsRepoRootWasSpecified Condition="'$(PurviewSkillsRepoRoot)' != ''"
+			>true</_PurviewSkillsRepoRootWasSpecified>
 		<PurviewSkillsRepoRoot Condition="'$(PurviewSkillsRepoRoot)' == '' AND '$(RepoRoot)' != ''"
 			>$(RepoRoot)</PurviewSkillsRepoRoot>
 		<PurviewSkillsRepoRoot Condition="'$(PurviewSkillsRepoRoot)' == ''"

@@ -458,16 +458,19 @@ sealed class PurviewSkillRecommendationTests
 			cancellationToken: cancellationToken
 		);
 
-		// The hook resolves the repository root the same way the rest of the SDK does, so the lockfile
-		// goes wherever that lands rather than wherever this test guesses.
-		var repositoryRoot = await harness.GetPropertyAsync("PurviewSkillsRepoRoot", cancellationToken);
-		if (string.IsNullOrEmpty(repositoryRoot))
-			repositoryRoot = harness.ProjectDirectory;
+		// An AGENTS.md beside the solution is what makes the throwaway tree look like a repository:
+		// the hook resolves its root by the same walk-up the rest of the SDK uses, and refuses to
+		// fall back to the project folder.
+		await File.WriteAllTextAsync(
+			Path.Combine(harness.SolutionDirectory, "AGENTS.md"),
+			"# Test repository\n",
+			cancellationToken
+		);
 
 		// A committed lockfile with nothing restored beside it needs no skill-shipping package to
 		// detect, which makes it the one state a genuine end-to-end build can be checked against.
 		SkillPackageFixtures.WriteLockFile(
-			Path.Combine(repositoryRoot, "skills-lock.json"),
+			Path.Combine(harness.SolutionDirectory, "skills-lock.json"),
 			("purview-alpha", Source, SkillPackageFixtures.DefaultCommit)
 		);
 

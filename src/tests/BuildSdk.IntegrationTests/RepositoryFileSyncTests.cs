@@ -37,9 +37,6 @@ sealed class RepositoryFileSyncTests
 			.That(await File.ReadAllTextAsync(DestinationPath(h, "agents", "guide.md"), cancellationToken))
 			.IsEqualTo("# Guide\n");
 		await Assert
-			.That(await File.ReadAllTextAsync(DestinationPath(h, "skills", "demo", "SKILL.md"), cancellationToken))
-			.IsEqualTo("# Skill\n");
-		await Assert
 			.That(
 				await File.ReadAllTextAsync(
 					DestinationPath(h, "prompts", "nested", "deep", "prompt.md"),
@@ -47,6 +44,14 @@ sealed class RepositoryFileSyncTests
 				)
 			)
 			.IsEqualTo("# Prompt\n");
+
+		// Skills have exactly one installer, and it is the skills CLI. A package ships
+		// '.agents/skills/' as metadata about what it offers; copying it here as well would put two
+		// writers on the same paths, and the mirror would overwrite a pinned install on next build.
+		await Assert
+			.That(File.Exists(DestinationPath(h, "skills", "demo", "SKILL.md")))
+			.IsFalse()
+			.Because("the mirror does not install skills");
 
 		var manifestPath = ManifestPath(h);
 		await Assert.That(File.Exists(manifestPath)).IsTrue();
@@ -56,7 +61,8 @@ sealed class RepositoryFileSyncTests
 		await Assert.That(manifest).Contains("group|sdk:");
 		await Assert
 			.That(manifest.Split('\n').Count(line => line.StartsWith("file|", StringComparison.Ordinal)))
-			.IsEqualTo(3);
+			.IsEqualTo(2);
+		await Assert.That(manifest).DoesNotContain("skills/demo");
 
 		// The manifest folder must stay invisible to Git without consumer configuration.
 		await Assert
@@ -67,6 +73,32 @@ sealed class RepositoryFileSyncTests
 				)
 			)
 			.Contains("*");
+	}
+
+	[Test]
+	public async Task AgentFolderSync_MirroringSkills_IsOptIn(CancellationToken cancellationToken)
+	{
+		// The old copy-everything behaviour is still reachable for a repository that has not moved to
+		// the skills CLI, so an upgrade is not a forced migration.
+		using var h = await CreateHarnessAsync(
+			extraProps: "<PurviewMirrorPackagedSkills>true</PurviewMirrorPackagedSkills>",
+			cancellationToken: cancellationToken
+		);
+		await CreateAgentSourceFilesAsync(h, cancellationToken);
+
+		var (success, output, errors) = await h.BuildAsync(restore: true, verbose: true, cancellationToken);
+
+		await Assert.That(success).IsTrue().Because(TestHelpers.GenerateError(output, errors));
+		await Assert
+			.That(await File.ReadAllTextAsync(DestinationPath(h, "skills", "demo", "SKILL.md"), cancellationToken))
+			.IsEqualTo("# Skill\n");
+		await Assert
+			.That(
+				(await File.ReadAllTextAsync(ManifestPath(h), cancellationToken))
+					.Split('\n')
+					.Count(line => line.StartsWith("file|", StringComparison.Ordinal))
+			)
+			.IsEqualTo(3);
 	}
 
 	/// <summary>
@@ -95,10 +127,10 @@ sealed class RepositoryFileSyncTests
 		// The self-ignoring entry is asserted separately below.
 		var entries = lines.Where(static line => line.StartsWith('/') && line != "/.gitignore").ToArray();
 
-		// Every mirrored file, at whatever depth, listed by path - never a bare '*'.
-		await Assert
-			.That(entries)
-			.IsEquivalentTo(["/agents/guide.md", "/prompts/nested/deep/prompt.md", "/skills/demo/SKILL.md"]);
+		// Every mirrored file, at whatever depth, listed by path - never a bare '*'. Skills are
+		// absent because the mirror no longer installs them; the skills CLI owns that folder, and a
+		// repository ignores it itself.
+		await Assert.That(entries).IsEquivalentTo(["/agents/guide.md", "/prompts/nested/deep/prompt.md"]);
 		// Generated, so it ignores itself: committing it, or leaving it untracked without the entry,
 		// would show up as a repository modification - the thing this exists to prevent.
 		await Assert.That(lines).Contains("/.gitignore");
@@ -279,14 +311,14 @@ sealed class RepositoryFileSyncTests
 		);
 		await Assert.That(firstSuccess).IsTrue().Because(TestHelpers.GenerateError(firstOutput, firstErrors));
 
-		var mirroredFile = DestinationPath(h, "skills", "demo", "SKILL.md");
+		var mirroredFile = DestinationPath(h, "agents", "guide.md");
 		File.Delete(mirroredFile);
 
 		var (success, output, errors) = await h.BuildAsync(restore: false, verbose: true, cancellationToken);
 
 		await Assert.That(success).IsTrue().Because(TestHelpers.GenerateError(output, errors));
 		await Assert.That(File.Exists(mirroredFile)).IsTrue();
-		await Assert.That(await File.ReadAllTextAsync(mirroredFile, cancellationToken)).IsEqualTo("# Skill\n");
+		await Assert.That(await File.ReadAllTextAsync(mirroredFile, cancellationToken)).IsEqualTo("# Guide\n");
 	}
 
 	[Test]

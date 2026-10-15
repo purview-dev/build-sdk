@@ -93,6 +93,33 @@
 		<!-- Overrides where skills-lock.json is read from. Empty resolves to the repository root,
 		     which is where the CLI writes it for a project-scope install. -->
 		<PurviewSkillsLockFile Condition="'$(PurviewSkillsLockFile)' == ''"></PurviewSkillsLockFile>
+		<!-- The skills CLI is published to npm, and a repository standardises on one package runner.
+		     npx is the default because it ships with Node itself, so it is the one runner a machine
+		     that has Node at all is guaranteed to have. -->
+		<PurviewSkillsRunner Condition="'$(PurviewSkillsRunner)' == ''">npx</PurviewSkillsRunner>
+		<!-- Probed in order after PurviewSkillsRunner, so a machine without the preferred runner
+		     still installs rather than reporting that nothing was found. A 'skills' already on PATH
+		     is always tried first: it needs no download and works offline. -->
+		<PurviewSkillsRunnerCandidates Condition="'$(PurviewSkillsRunnerCandidates)' == ''"
+			>npx;bunx;bun;pnpm;yarn;deno</PurviewSkillsRunnerCandidates>
+		<!-- Pinned to a major so a future breaking release of the CLI cannot change what the install
+		     target does. Recommendation text deliberately omits the pin: it is a command for a human
+		     to run, not a reproducible invocation. -->
+		<PurviewSkillsPackage Condition="'$(PurviewSkillsPackage)' == ''">skills@1</PurviewSkillsPackage>
+		<!-- Markers that identify a repository root, most authoritative first. Each is searched all
+		     the way up from the project before the next is tried, so '.git/' wins over a nearer
+		     'package.json' - a monorepo package is not the repository. A trailing slash marks a
+		     directory (and still matches a file of that name, because '.git' is a file in a worktree
+		     or submodule); anything else must be a file. -->
+		<!-- Skills have exactly one installer: the skills CLI. A package still ships
+		     '.agents/skills/' so the SDK can tell which skills it offers and at which commit, but
+		     that folder is metadata, not content to copy - the mirror writing it as well would put
+		     two writers on the same paths, and the mirror would silently overwrite a pinned install
+		     on the next build. Set false to restore the old copy-everything behaviour. -->
+		<PurviewMirrorPackagedSkills Condition="'$(PurviewMirrorPackagedSkills)' == ''"
+			>false</PurviewMirrorPackagedSkills>
+		<PurviewRepositoryRootMarkers Condition="'$(PurviewRepositoryRootMarkers)' == ''"
+			>.git/;.github/;.gitattributes;LICENSE.md;AGENTS.md;.agents/;CLAUDE.md;.claude/;package.json</PurviewRepositoryRootMarkers>
 		<PurviewRepoBootstrapCopyFailureAsError Condition="'$(PurviewRepoBootstrapCopyFailureAsError)' == ''"
 			>true</PurviewRepoBootstrapCopyFailureAsError>
 		<PurviewRepoBootstrapCopyRetries Condition="'$(PurviewRepoBootstrapCopyRetries)' == ''"

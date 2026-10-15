@@ -777,6 +777,11 @@ sealed class SdkPackageConsumptionTests
 	{
 		var nugetConfigPath = Path.Combine(consumerDirectory, "NuGet.Config");
 
+		// Skills have exactly one installer, the skills CLI, so a real end-to-end package
+		// consumption must not drop them into the consumer's '.agents/skills/'. The package still
+		// ships that folder - it is how the SDK maps a package to its skills and commit - but it is
+		// metadata, not content to copy. Two writers on the same paths would let the mirror
+		// overwrite a pinned install on the next build.
 		var bundledSkillPath = Path.Combine(
 			consumerDirectory,
 			".agents",
@@ -786,8 +791,8 @@ sealed class SdkPackageConsumptionTests
 		);
 		await Assert
 			.That(File.Exists(bundledSkillPath))
-			.IsTrue()
-			.Because($"Bundled skill not found at {bundledSkillPath}.");
+			.IsFalse()
+			.Because($"The mirror must not install skills, but one appeared at {bundledSkillPath}.");
 
 		var bundledAgentPath = Path.Combine(consumerDirectory, ".agents", "agents", "sdk-consumer-setup.md");
 		await Assert
@@ -888,6 +893,8 @@ sealed class SdkPackageConsumptionTests
 		);
 		await Assert.That(code).IsEqualTo(0).Because(TestHelpers.GenerateError(stdOut, stdErr));
 
+		// A redirected destination redirects what the mirror owns - and skills are not that, at any
+		// destination.
 		var customDestinationSkillPath = Path.Combine(
 			consumerDirectory,
 			".custom-agents",
@@ -895,15 +902,7 @@ sealed class SdkPackageConsumptionTests
 			"sdk-configuration-reference",
 			"SKILL.md"
 		);
-		await Assert.That(File.Exists(customDestinationSkillPath)).IsTrue();
-		var customDestinationGitIgnorePath = Path.Combine(
-			consumerDirectory,
-			".custom-agents",
-			"skills",
-			"sdk-configuration-reference",
-			".gitignore"
-		);
-		await Assert.That(File.Exists(customDestinationGitIgnorePath)).IsTrue();
+		await Assert.That(File.Exists(customDestinationSkillPath)).IsFalse();
 
 		var customDestinationAgentPath = Path.Combine(
 			consumerDirectory,
