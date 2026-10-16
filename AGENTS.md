@@ -167,7 +167,7 @@ Tests live in `src/tests/BuildSdk.IntegrationTests/PurviewSkillValidationTests.c
 
 ## Purview.Skills.Testing
 
-`src/src/SkillsTesting/` ships a second package: the Agent Skills conformance rule set, shaped exactly like the architecture rule engine (which now lives in its own repository, [`purview-dev/architests`](https://github.com/purview-dev/architests)) and for the same reason — the rules are defined once rather than reimplemented in every repository that authors skills.
+`src/src/SkillsTesting/` ships a second package: the Agent Skills conformance rule set. It is shaped for the same reason as every rule engine: the rules are defined once rather than reimplemented in every repository that authors skills.
 
 Three layers, deliberately separated:
 
@@ -229,16 +229,6 @@ dotnet msbuild <project> -t:InstallPurviewSkills -p:PurviewSkillsSource=purview-
 The caller owns the ref in that case — append `#<ref>` to pin it. This path needs no restore, so `PRSKL0001` does not apply.
 
 Tests live in `src/tests/BuildSdk.IntegrationTests/PurviewSkillResolutionTests.cs`, including the guarantee that an ordinary restore-and-build writes no lockfile and creates no agent directory.
-
-## Purview.Architecture.Testing has moved
-
-The architecture rule engine (`Purview.Architecture.Testing`) used to live at `src/src/ArchitectureTesting/`, with its policy schema at the repository root and its skill in `skills/`. It now lives in its own repository, [`purview-dev/architests`](https://github.com/purview-dev/architests), which owns the package, the `architecture-policy.schema.json` schema, the tests and the `purview-architests` skill.
-
-This repository no longer packs `Purview.Architecture.Testing`, and `.config/purview-build.json` no longer validates it. Install the skill from its new home:
-
-```bash
-npx skills add purview-dev/architests
-```
 
 ## Repository map
 
