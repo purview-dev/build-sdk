@@ -13,8 +13,6 @@
 		<PackageVersion Include="Microsoft.Testing.Platform.MSBuild" Version="*" />
 		<PackageVersion Include="TUnit" Version="*" />
 		<PackageVersion Include="TUnit.Core" Version="*" />
-		<!-- Validates architecture-policy.json against the schema embedded in Purview.Architecture.Testing. -->
-		<PackageVersion Include="JsonSchema.Net" Version="9.4.0" />
 		<PackageVersion Include="TUnit.Assertions" Version="*" />
 		<PackageVersion Include="TUnit.Aspire" Version="*" />
 		<PackageVersion Include="xunit.v3" Version="*" />
