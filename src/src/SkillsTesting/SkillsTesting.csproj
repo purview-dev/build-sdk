@@ -15,9 +15,7 @@
 		<!--
 			The package name is Purview.Skills.Testing, not Purview.BuildSdk.SkillsTesting: it is
 			consumed by repositories that have no relationship to this SDK beyond building with it.
-			Setting RootNamespace keeps IDE0130's folder check aligned with that choice. Mirrors
-			Purview.Architecture.Testing, which is packaged the same way in its own repository
-			(purview-dev/architests) for the same reason.
+			Setting RootNamespace keeps IDE0130's folder check aligned with that choice.
 		-->
 		<RootNamespace>Purview.Skills.Testing</RootNamespace>
 		<AssemblyName>Purview.Skills.Testing</AssemblyName>
