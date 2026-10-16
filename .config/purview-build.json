@@ -23,12 +23,6 @@
 				"Sdk/Sdk.targets",
 				"Sdk/Targets/VersionDetection.targets"
 			],
-			"purview.architecture.testing": [
-				"README.md",
-				"lib/net10.0/Purview.Architecture.Testing.dll",
-				"lib/net10.0/Purview.Architecture.Testing.xml",
-				"content/architecture-policy.schema.json"
-			],
 			"purview.skills.testing": [
 				"README.md",
 				"lib/$(TFM)/Purview.Skills.Testing.dll",

@@ -25,7 +25,7 @@ This distinction is the one most easily got wrong, and getting it wrong produces
 
 ### `skills/` is published, not installed
 
-Every skill in `skills/` describes a product this repository ships — `Purview.BuildSdk`, `Purview.Architecture.Testing`, `Purview.Skills.Testing` — and exists so **another** repository can install it:
+Every skill in `skills/` describes a product this repository ships — `Purview.BuildSdk` or `Purview.Skills.Testing` — and exists so **another** repository can install it:
 
 ```bash
 npx skills add purview-dev/build-sdk
@@ -74,7 +74,6 @@ The authored set, and what each one answers:
 | [`purview-buildsdk-project-layout`](./skills/purview-buildsdk-project-layout/SKILL.md) | where does a project go, and what is it called |
 | [`purview-buildsdk-project-detection`](./skills/purview-buildsdk-project-detection/SKILL.md) | why did the SDK do that automatically |
 | [`purview-buildsdk-testing`](./skills/purview-buildsdk-testing/SKILL.md) | writing TUnit tests, and running them under MTP |
-| [`purview-buildsdk-architecture-tests`](./skills/purview-buildsdk-architecture-tests/SKILL.md) | adopting and debugging `Purview.Architecture.Testing` |
 | [`purview-buildsdk-skill-tests`](./skills/purview-buildsdk-skill-tests/SKILL.md) | authoring a skill, and validating it with `Purview.Skills.Testing` |
 | [`purview-buildsdk-skill-installation`](./skills/purview-buildsdk-skill-installation/SKILL.md) | installing the skills a package ships, and the `PRSKL*` diagnostics |
 | [`purview-buildsdk-repository-review`](./skills/purview-buildsdk-repository-review/SKILL.md) | auditing a repository against the SDK's conventions |
@@ -168,7 +167,7 @@ Tests live in `src/tests/BuildSdk.IntegrationTests/PurviewSkillValidationTests.c
 
 ## Purview.Skills.Testing
 
-`src/src/SkillsTesting/` ships a third package: the Agent Skills conformance rule set, shaped exactly like `Purview.Architecture.Testing` and for the same reason — the rules are defined once rather than reimplemented in every repository that authors skills.
+`src/src/SkillsTesting/` ships a second package: the Agent Skills conformance rule set, shaped exactly like the architecture rule engine (which now lives in its own repository, [`purview-dev/architests`](https://github.com/purview-dev/architests)) and for the same reason — the rules are defined once rather than reimplemented in every repository that authors skills.
 
 Three layers, deliberately separated:
 
@@ -231,34 +230,24 @@ The caller owns the ref in that case — append `#<ref>` to pin it. This path ne
 
 Tests live in `src/tests/BuildSdk.IntegrationTests/PurviewSkillResolutionTests.cs`, including the guarantee that an ordinary restore-and-build writes no lockfile and creates no agent directory.
 
-## Purview.Architecture.Testing
+## Purview.Architecture.Testing has moved
 
-`src/src/ArchitectureTesting/` ships a second package: the architecture rule engine other repositories consume, so the policy is defined once rather than copied into every repo's test project.
+The architecture rule engine (`Purview.Architecture.Testing`) used to live at `src/src/ArchitectureTesting/`, with its policy schema at the repository root and its skill in `skills/`. It now lives in its own repository, [`purview-dev/architests`](https://github.com/purview-dev/architests), which owns the package, the `architecture-policy.schema.json` schema, the tests and the `purview-architests` skill.
 
-Three layers, deliberately separated:
+This repository no longer packs `Purview.Architecture.Testing`, and `.config/purview-build.json` no longer validates it. Install the skill from its new home:
 
-- **`ArchitecturePolicy` / `ProjectGraph`** — read `.config/architecture-policy.json` and the `.csproj` graph. No MSBuild or test-framework types.
-- **`ArchitecturePolicyEvaluator`** — the rules, returning typed `ArchitectureViolation` lists per rule. Takes an in-memory graph, so a rule is tested as a three-project fixture rather than a repository on disk (`ArchitectureTesting.UnitTests`).
-- **`PurviewArchitectureTests`** — a TUnit base class wrapping the evaluator, one `[Test]` per rule.
-
-A consuming repository adds a policy file and `[InheritsTests] public sealed class ArchitectureTests : PurviewArchitectureTests;`.
-
-**`[InheritsTests]` is load-bearing.** TUnit does not walk base types during discovery, so without it the class compiles, the run is green and nothing is enforced. `InheritedBaseClassTests` exists to prove discovery works — it is the test that would catch that regression, and it runs against a temporary fixture repository because this repo's own projects (an MSBuild SDK and Roslyn components) are not described by the responsibility catalogue.
-
-The policy JSON Schema lives at the repository root (`architecture-policy.schema.json`), embedded as a resource for offline validation and published at its raw GitHub URL for editors — the same arrangement `Purview.Build` uses for `purview-build.json`.
-
-This project sets `RootNamespace`, `AssemblyName` and `AutoIncludeUsings=false`, because the package namespace deliberately sits outside the repository's `Purview.BuildSdk` prefix; without that the SDK emits a `global using` for a namespace this assembly does not contain.
+```bash
+npx skills add purview-dev/architests
+```
 
 ## Repository map
 
-- `src/src/ArchitectureTesting/` — packable architecture rule engine (`Purview.Architecture.Testing`)
 - `src/src/SkillsTesting/` — packable agent-skill rule engine (`Purview.Skills.Testing`)
 - `src/src/BuildSdk/` — packable MSBuild SDK package (`Purview.BuildSdk`)
 - `src/src/Analyzers/` — Roslyn analyzer/source-generator assembly
 - `src/src/CodeFixers/` — Roslyn code-fix assembly (`Purview.BuildSdk.CodeFixers`)
 - `src/tests/Analyzers.UnitTests/` — analyzer-focused unit tests
 - `src/tests/Analyzers.IntegrationTests/` — analyzer integration tests (Roslyn end-to-end analyzer/suppressor/code-fix behavior)
-- `src/tests/ArchitectureTesting.UnitTests/` — architecture rule tests, against in-memory and fixture graphs
 - `src/tests/SkillsTesting.UnitTests/` — skill rule tests, against fixture skills folders
 - `src/tests/BuildSdk.IntegrationTests/` — integration harness validating SDK behaviour
 - `skills/` — the agent skills this repository authors and publishes
@@ -273,8 +262,6 @@ When adding or changing tests in this repository:
 - Keep **analyzer integration tests** (behavior spanning analyzer diagnostics, suppressors, and code fixes)
   in `src/tests/Analyzers.IntegrationTests/`.
 - Keep **SDK integration harness tests** in `src/tests/BuildSdk.IntegrationTests/`.
-- Keep **architecture rule tests** in `src/tests/ArchitectureTesting.UnitTests/`, against in-memory
-  or fixture graphs.
 - Keep **skill rule tests** in `src/tests/SkillsTesting.UnitTests/`, against fixture skills folders.
 - Keep tests that assert something about **this repository** — its own skills, its own arrangement —
   in `src/tests/BuildSdk.IntegrationTests/`, not in the rule-engine unit test projects. A rule
@@ -286,7 +273,6 @@ Namespace expectations:
 - `Analyzers.IntegrationTests` sources use
   `Purview.BuildSdk.Analyzers`
 - `BuildSdk.IntegrationTests` sources use `Purview.BuildSdk`
-- `ArchitectureTesting.UnitTests` sources use `Purview.Architecture.Testing.UnitTests`
 - `SkillsTesting.UnitTests` sources use `Purview.Skills.Testing.UnitTests`
 
 Do not mix analyzer unit/integration tests in the same project unless explicitly requested.

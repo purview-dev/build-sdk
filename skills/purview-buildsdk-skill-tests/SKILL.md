@@ -108,7 +108,8 @@ Overrides: `RepositoryRoot` (default: the SDK's repository-root marker walk),
 `SkillsFolderName` (default `skills`), and `SkipRule(string)`.
 
 The evaluator takes a `SkillCatalogue`, so a rule can be exercised against a fixture folder rather
-than a real repository — the same three-layer shape as `purview-buildsdk-architecture-tests`.
+than a real repository — the same three-layer shape as the architecture rule engine in
+[`purview-dev/architests`](https://github.com/purview-dev/architests).
 
 ### At pack time — `ValidatePurviewSkills`
 
