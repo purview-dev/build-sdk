@@ -23,6 +23,8 @@
 			>true</BootstrapEditorConfigToRepoRoot>
 		<BootstrapGlobalJsonToRepoRoot Condition="'$(BootstrapGlobalJsonToRepoRoot)' == ''"
 			>true</BootstrapGlobalJsonToRepoRoot>
+		<CentralPackageTransitivePinningEnabled Condition="'$(CentralPackageTransitivePinningEnabled)' == ''"
+			>true</CentralPackageTransitivePinningEnabled>
 		<CollectCoverage Condition="'$(CollectCoverage)' == ''">false</CollectCoverage>
 		<ContinuousIntegrationBuild Condition="'$(ContinuousIntegrationBuild)' == ''">false</ContinuousIntegrationBuild>
 		<CurrentYear Condition="'$(CurrentYear)' == ''"></CurrentYear>
