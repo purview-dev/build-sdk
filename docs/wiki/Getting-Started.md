@@ -14,7 +14,7 @@ Add `Purview.BuildSdk` to the `msbuild-sdks` section so MSBuild can resolve the 
     "runner": "Microsoft.Testing.Platform"
   },
   "msbuild-sdks": {
-    "Purview.BuildSdk": "1.0.0"
+    "Purview.BuildSdk": "1.1.0"
   }
 }
 ```
@@ -49,8 +49,10 @@ Add `Purview.BuildSdk` to the `msbuild-sdks` section so MSBuild can resolve the 
 
 ## 4. Copy `Directory.Packages.props` to the repo root
 
-Copy `templates/Directory.Packages.props` from this package to your repo root. All package versions
-default to `*` (latest at restore). Pin any package by replacing `*` with a specific version.
+Copy [`templates/Directory.Packages.props`](https://github.com/purview-dev/build-sdk/blob/main/templates/Directory.Packages.props)
+from the repository to your repo root. The templates are not packed into the NuGet package — they are
+starting points held in git, so take them from there. All package versions default to `*` (latest at
+restore). Pin any package by replacing `*` with a specific version.
 
 > **Note:** `ManagePackageVersionsCentrally=true` is set by the SDK. You **must** have a
 > `Directory.Packages.props` at your repo root for CPM to work, even if it only contains the packages

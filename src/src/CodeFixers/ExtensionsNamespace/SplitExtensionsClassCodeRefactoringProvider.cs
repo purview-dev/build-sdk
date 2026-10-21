@@ -6,8 +6,8 @@ using Microsoft.CodeAnalysis.CodeRefactorings;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.FindSymbols;
+using Microsoft.CodeAnalysis.Formatting;
 using Microsoft.CodeAnalysis.Rename;
-using Microsoft.CodeAnalysis.Text;
 
 namespace Purview.BuildSdk.CodeFixers.ExtensionsNamespace;
 
@@ -192,7 +192,17 @@ public sealed class SplitExtensionsClassCodeRefactoringProvider : CodeRefactorin
 			var @namespace = receiver.ContainingNamespace.ToDisplayString();
 			var typeName = StripInterfacePrefix(receiver.Name) + "Extensions";
 			var folderPath = ComputeConventionalFolders(@namespace);
-			var methodDeclarations = methods.Select(GetMethodSyntax).ToImmutableArray();
+			// A method with no resolvable declaration is skipped rather than failing the refactoring.
+			var methodDeclarations = methods
+				.Select(GetMethodSyntax)
+				.Where(static declaration => declaration is not null)
+				.Select(static declaration => declaration!)
+				.ToImmutableArray();
+
+			if (methodDeclarations.Length == 0)
+			{
+				continue;
+			}
 
 			var existingType = compilation?.GetTypeByMetadataName(
 				@namespace.Length == 0 ? typeName : @namespace + "." + typeName
@@ -263,11 +273,13 @@ public sealed class SplitExtensionsClassCodeRefactoringProvider : CodeRefactorin
 				classDeclaration
 			);
 
-			newSolution = newSolution.AddDocument(
-				DocumentId.CreateNewId(document.Project.Id),
+			newSolution = await AddFormattedDocumentAsync(
+				newSolution,
+				document.Project.Id,
 				typeName + ".cs",
-				SourceText.From(newCompilationUnit.ToFullString()),
-				folderPath
+				newCompilationUnit,
+				folderPath,
+				cancellationToken
 			);
 		}
 
@@ -383,11 +395,13 @@ public sealed class SplitExtensionsClassCodeRefactoringProvider : CodeRefactorin
 			renamedClass
 		);
 
-		var newSolution = renamedSolution.AddDocument(
-			DocumentId.CreateNewId(document.Project.Id),
+		var newSolution = await AddFormattedDocumentAsync(
+			renamedSolution,
+			document.Project.Id,
 			newTypeName + ".cs",
-			SourceText.From(newCompilationUnit.ToFullString()),
-			folderPath
+			newCompilationUnit,
+			folderPath,
+			cancellationToken
 		);
 		newSolution = RemoveOriginalClassOrDocument(newSolution, document.Id, renamedCompilationUnit, renamedClass);
 
@@ -683,7 +697,44 @@ public sealed class SplitExtensionsClassCodeRefactoringProvider : CodeRefactorin
 							.WithMembers(SyntaxFactory.SingletonList<MemberDeclarationSyntax>(classDeclaration))
 					);
 
-		return newCompilationUnit.NormalizeWhitespace();
+		// Annotated rather than NormalizeWhitespace()'d. NormalizeWhitespace imposes Roslyn's own defaults -
+		// four spaces and Allman braces - which ignores the .editorconfig this SDK ships and installs into
+		// every consuming repository, so a brand-new file would fail that repository's own formatting check
+		// the moment it was created. The annotation marks the generated syntax for AddFormattedDocumentAsync
+		// to format against the document's real options.
+		return newCompilationUnit.WithAdditionalAnnotations(Formatter.Annotation);
+	}
+
+	/// <summary>
+	/// Adds a generated compilation unit as a new document and formats it against that document's own
+	/// options, so the result honours the consuming repository's <c>.editorconfig</c>.
+	/// </summary>
+	/// <remarks>
+	/// The document is added as a <em>syntax root</em> rather than as text. Adding it as text would discard
+	/// the formatter annotations with the syntax tree that carried them, which is what forces the
+	/// alternative of baking Roslyn's default formatting in with <c>NormalizeWhitespace</c>.
+	/// </remarks>
+	static async Task<Solution> AddFormattedDocumentAsync(
+		Solution solution,
+		ProjectId projectId,
+		string fileName,
+		CompilationUnitSyntax compilationUnit,
+		IEnumerable<string> folders,
+		CancellationToken cancellationToken
+	)
+	{
+		var documentId = DocumentId.CreateNewId(projectId);
+		var withDocument = solution.AddDocument(documentId, fileName, compilationUnit, folders);
+
+		var added = withDocument.GetDocument(documentId);
+		if (added is null)
+		{
+			return withDocument;
+		}
+
+		var formatted = await Formatter.FormatAsync(added, Formatter.Annotation, null, cancellationToken);
+
+		return formatted.Project.Solution;
 	}
 
 	static string[] ComputeConventionalFolders(string @namespace) =>
@@ -712,15 +763,17 @@ public sealed class SplitExtensionsClassCodeRefactoringProvider : CodeRefactorin
 		return solution.WithDocumentSyntaxRoot(documentId, updatedRoot, PreservationMode.PreserveIdentity);
 	}
 
-	static MethodDeclarationSyntax GetMethodSyntax(IMethodSymbol method)
-	{
-		var reference = method.DeclaringSyntaxReferences.FirstOrDefault();
-		if (reference?.GetSyntax() is MethodDeclarationSyntax syntax)
-			return syntax;
-
-		// If the method is declared in source but we can't get its syntax, something is wrong.
-		throw new InvalidOperationException($"Unable to resolve the declaration of '{method.Name}'.");
-	}
+	/// <summary>
+	/// Resolves a method symbol back to its declaration, or <see langword="null"/> when it has none.
+	/// </summary>
+	/// <remarks>
+	/// A symbol without a source declaration - one from metadata, or from a partial compilation the IDE is
+	/// still building - is a reason to leave that method where it is, not a reason to fail. Throwing here
+	/// would take down the light-bulb for the whole refactoring with an exception the developer can neither
+	/// read nor act on; the caller skips the method instead.
+	/// </remarks>
+	internal static MethodDeclarationSyntax? GetMethodSyntax(IMethodSymbol method) =>
+		method.DeclaringSyntaxReferences.FirstOrDefault()?.GetSyntax() as MethodDeclarationSyntax;
 
 	static string StripInterfacePrefix(string name) =>
 		name.Length > 1 && name[0] == 'I' && char.IsUpper(name[1]) ? name.Substring(1) : name;

@@ -53,6 +53,7 @@ partial class ProjectHarness : IDisposable
 		string? extraItems = null,
 		IDictionary<string, string>? extraEnv = null,
 		string? preImportProps = null,
+		bool seedRepositoryBootstrapFiles = true,
 		CancellationToken cancellationToken = default
 	)
 	{
@@ -60,6 +61,9 @@ partial class ProjectHarness : IDisposable
 			.WithSdk(sdk)
 			.WithTargetFramework(targetFramework)
 			.WithNamespacePrefix(namespacePrefix);
+
+		if (!seedRepositoryBootstrapFiles)
+			builder.WithoutRepositoryBootstrapSeed();
 
 		if (withDockerfile)
 			builder.WithDockerfile();
@@ -96,10 +100,69 @@ partial class ProjectHarness : IDisposable
 			.BuildAsync(cancellationToken);
 	}
 
+	/// <summary>
+	/// The <c>.editorconfig</c> the SDK bootstraps from, resolved the same way <c>Sdk.props</c> resolves
+	/// <c>EditorConfigFilePath</c> when the SDK is imported from source: the packed copy if it exists,
+	/// otherwise the repository's own.
+	/// </summary>
+	static string SourceEditorConfigPath
+	{
+		get
+		{
+			var packaged = Path.Combine(SdkPaths.SdkDirectory, ".editorconfig");
+
+			return File.Exists(packaged)
+				? packaged
+				: Path.GetFullPath(Path.Combine(SdkPaths.SdkDirectory, "..", "..", "..", "..", ".editorconfig"));
+		}
+	}
+
+	/// <summary>
+	/// Seeds the files the SDK's repository bootstrap would otherwise create on the first build.
+	/// </summary>
+	/// <remarks>
+	/// A throwaway solution starts empty, so without this every build gives the bootstrap real work and it
+	/// compiles and runs its <c>RoslynCodeTaskFactory</c> task — roughly 0.7s per build, for a side effect
+	/// almost no test is looking at. Seeding the destination with the exact source content makes the
+	/// bootstrap's own "nothing to do" check succeed, which is the same state a real repository is in on
+	/// every build after its first.
+	///
+	/// The tests that cover the bootstrap opt out with
+	/// <see cref="ProjectHarnessBuilder.WithoutRepositoryBootstrapSeed"/>.
+	/// </remarks>
+	async Task SeedRepositoryBootstrapFilesAsync(CancellationToken cancellationToken)
+	{
+		var editorConfigPath = Path.Combine(SolutionDirectory, ".editorconfig");
+		if (!File.Exists(editorConfigPath) && File.Exists(SourceEditorConfigPath))
+		{
+			File.Copy(SourceEditorConfigPath, editorConfigPath);
+		}
+
+		var globalJsonPath = Path.Combine(SolutionDirectory, "global.json");
+		if (!File.Exists(globalJsonPath))
+		{
+			// Content is irrelevant to the bootstrap, which only checks that the file is there; this is
+			// the shape it would have written. No msbuild-sdks entry, because nothing in a throwaway
+			// project resolves an SDK by package and an unresolvable entry would fail the build.
+			await File.WriteAllTextAsync(
+				globalJsonPath,
+				"""
+				{
+					"test": {
+						"runner": "Microsoft.Testing.Platform"
+					}
+				}
+				""",
+				cancellationToken
+			);
+		}
+	}
+
 	internal async Task WriteBoilerplateAsync(
 		string namespacePrefix,
 		string projectName,
 		string? preImportProps,
+		bool seedRepositoryBootstrapFiles,
 		CancellationToken cancellationToken
 	)
 	{
@@ -161,6 +224,11 @@ partial class ProjectHarness : IDisposable
 				""",
 				cancellationToken
 			);
+		}
+
+		if (seedRepositoryBootstrapFiles)
+		{
+			await SeedRepositoryBootstrapFilesAsync(cancellationToken);
 		}
 	}
 

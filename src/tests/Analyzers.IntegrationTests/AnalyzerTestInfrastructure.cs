@@ -17,9 +17,20 @@ static class AnalyzerTestInfrastructure
 	public static ImmutableArray<MetadataReference> BuildBclReferences() =>
 		[.. TrustedAssemblies.Select(p => MetadataReference.CreateFromFile(p))];
 
-	public static CSharpCompilation CreateCompilation(string source, string filePath)
+	/// <param name="languageVersion">
+	/// The language version to parse with. Defaults to the parser's own default; pass
+	/// <see cref="LanguageVersion.Preview"/> for source that uses a preview feature, such as a
+	/// <c>union</c> declaration.
+	/// </param>
+	public static CSharpCompilation CreateCompilation(
+		string source,
+		string filePath,
+		LanguageVersion? languageVersion = null
+	)
 	{
-		var syntaxTree = CSharpSyntaxTree.ParseText(source, path: NormalizeFakePath(filePath));
+		var parseOptions = languageVersion is { } version ? new CSharpParseOptions(version) : null;
+		var syntaxTree = CSharpSyntaxTree.ParseText(source, parseOptions, path: NormalizeFakePath(filePath));
+
 		return CSharpCompilation.Create(
 			"TestAssembly",
 			[syntaxTree],

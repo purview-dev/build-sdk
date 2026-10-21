@@ -1233,6 +1233,12 @@
 			<Lines ParameterType="Microsoft.Build.Framework.ITaskItem[]" Required="false" />
 			<OverwriteExisting ParameterType="System.Boolean" Required="false" />
 			<VerifyExistingContent ParameterType="System.Boolean" Required="false" />
+			<!--
+				When set, a destination whose first non-empty line starts with this prefix is treated as a
+				file the SDK wrote, and is refreshed when that line no longer matches the source's. A
+				destination without the prefix is the developer's and is never overwritten.
+			-->
+			<VersionMarkerPrefix ParameterType="System.String" Required="false" />
 			<Retries ParameterType="System.Int32" Required="false" />
 			<RetryDelayMilliseconds ParameterType="System.Int32" Required="false" />
 			<TreatFailureAsError ParameterType="System.Boolean" Required="false" />
@@ -1415,6 +1421,34 @@
 						return !Log.HasLoggedErrors;
 					}
 
+					// The first non-empty line, trimmed. A marker on line one survives an editor that
+					// adds or strips a leading blank line.
+					string FirstLine(string path)
+					{
+						try
+						{
+							foreach (var line in File.ReadLines(path))
+							{
+								if (!string.IsNullOrWhiteSpace(line))
+								{
+									return line.Trim();
+								}
+							}
+						}
+						catch (IOException)
+						{
+							// Unreadable means "not recognisably ours", which is the safe answer.
+						}
+						catch (UnauthorizedAccessException)
+						{
+						}
+
+						return string.Empty;
+					}
+
+					bool IsManagedByMarker(string path, string prefix) =>
+						FirstLine(path).StartsWith(prefix, StringComparison.Ordinal);
+
 					var destinationFile = DestinationFile ?? string.Empty;
 					if (string.IsNullOrEmpty(destinationFile))
 					{
@@ -1424,7 +1458,36 @@
 
 					if (File.Exists(destinationFile))
 					{
-						if (!OverwriteExisting)
+						// A destination carrying the SDK's own version marker is a file the SDK wrote,
+						// so it is refreshed when the version moves on. A destination without the
+						// marker belongs to the developer and is never touched, whatever the version
+						// says - which is what makes deleting the marker line a supported way to take
+						// ownership of the file.
+						var managedUpdate =
+							!OverwriteExisting
+							&& !string.IsNullOrEmpty(VersionMarkerPrefix)
+							&& !string.IsNullOrEmpty(SourceFile)
+							&& File.Exists(SourceFile)
+							&& IsManagedByMarker(destinationFile, VersionMarkerPrefix)
+							&& !string.Equals(
+								FirstLine(destinationFile),
+								FirstLine(SourceFile),
+								StringComparison.Ordinal
+							);
+
+						if (managedUpdate)
+						{
+							Log.LogMessage(
+								MessageImportance.Normal,
+								"Updating '{0}' from '{1}': the SDK-managed version marker changed from '{2}' to '{3}'.",
+								destinationFile,
+								SourceFile,
+								FirstLine(destinationFile),
+								FirstLine(SourceFile)
+							);
+						}
+
+						if (!OverwriteExisting && !managedUpdate)
 						{
 							// Bootstraps are user-owned: an existing file is never touched, which
 							// turns a lost race between parallel projects into a no-op.
@@ -1601,6 +1664,13 @@
 	>
 		<PropertyGroup>
 			<_DirectoryBuildPropsDirectory>$([System.IO.Path]::GetDirectoryName('$(DirectoryBuildPropsPath)'))</_DirectoryBuildPropsDirectory>
+			<!--
+				Only a .editorconfig the SDK wrote carries this marker, and only such a file is refreshed
+				when the SDK version changes. Leaving the prefix empty turns the refresh off entirely and
+				restores the original behaviour: an existing file is never touched.
+			-->
+			<_PurviewEditorConfigVersionMarkerPrefix Condition="'$(PurviewEditorConfigAutoUpdate)' != 'false'"
+				>$(PurviewEditorConfigVersionMarker)</_PurviewEditorConfigVersionMarkerPrefix>
 		</PropertyGroup>
 		<Exec
 			Command="git -C &quot;$(_DirectoryBuildPropsDirectory)&quot; rev-parse --show-toplevel"
@@ -1609,7 +1679,7 @@
 			IgnoreStandardErrorWarningFormat="true"
 			StandardErrorImportance="low"
 			StandardOutputImportance="low"
-			Condition="'$(RepositoryEditorConfigFilePath)' == '' AND '$(_DirectoryBuildPropsDirectory)' != ''"
+			Condition="'$(PurviewRepositoryRootStrategy)' == 'Git' AND '$(RepositoryEditorConfigFilePath)' == '' AND '$(_DirectoryBuildPropsDirectory)' != ''"
 		>
 			<Output TaskParameter="ConsoleOutput" PropertyName="_GitRepositoryRoot" />
 		</Exec>
@@ -1651,15 +1721,52 @@
 				Condition="'$(RepositoryEditorConfigFilePath)' == '' AND '$(_EffectiveRepositoryEditorConfigFilePath)' != ''"
 				>$(_EffectiveRepositoryEditorConfigFilePath)</RepositoryEditorConfigFilePath>
 		</PropertyGroup>
+		<!--
+			Decide whether there is anything to do *before* invoking SyncPurviewRepositoryFiles, because
+			invoking it at all is the expensive part: it is a RoslynCodeTaskFactory task, which MSBuild
+			compiles on first use. Measured at roughly 680ms per build, and it was paid on every build of
+			every project even when the task went on to decide the file was already correct.
+
+			Everything below is MSBuild property functions, so the common case (file present and current)
+			now costs two file reads instead of a task compilation.
+		-->
+		<PropertyGroup>
+			<_PurviewEditorConfigDestinationExists Condition="'$(_EffectiveRepositoryEditorConfigFilePath)' != ''"
+				>$([System.IO.File]::Exists('$(_EffectiveRepositoryEditorConfigFilePath)'))</_PurviewEditorConfigDestinationExists>
+			<_PurviewEditorConfigDestinationFirstLine
+				Condition="'$(_PurviewEditorConfigDestinationExists)' == 'true' AND '$(_PurviewEditorConfigVersionMarkerPrefix)' != ''"
+				>$([System.Text.RegularExpressions.Regex]::Match($([System.IO.File]::ReadAllText('$(_EffectiveRepositoryEditorConfigFilePath)')), `^[^\r\n]*`).Value)</_PurviewEditorConfigDestinationFirstLine>
+			<_PurviewEditorConfigSourceFirstLine Condition="'$(_PurviewEditorConfigDestinationFirstLine)' != ''"
+				>$([System.Text.RegularExpressions.Regex]::Match($([System.IO.File]::ReadAllText('$(EditorConfigFilePath)')), `^[^\r\n]*`).Value)</_PurviewEditorConfigSourceFirstLine>
+
+			<!-- Missing destination: the bootstrap's whole purpose. -->
+			<_PurviewEditorConfigNeedsSync Condition="'$(_PurviewEditorConfigDestinationExists)' != 'true'"
+				>true</_PurviewEditorConfigNeedsSync>
+			<!-- Always overwrites; WarnOnDrift has to compare the content to report drift. -->
+			<_PurviewEditorConfigNeedsSync
+				Condition="'$(PurviewRepoBootstrapMode)' == 'Always' OR '$(PurviewRepoBootstrapMode)' == 'WarnOnDrift'"
+				>true</_PurviewEditorConfigNeedsSync>
+			<!--
+				A managed file whose version marker has moved on. A destination without the marker is the
+				developer's and is deliberately not matched here, exactly as the task would not touch it.
+			-->
+			<_PurviewEditorConfigNeedsSync
+				Condition="
+					'$(_PurviewEditorConfigDestinationFirstLine)' != ''
+					AND $(_PurviewEditorConfigDestinationFirstLine.StartsWith('$(_PurviewEditorConfigVersionMarkerPrefix)'))
+					AND '$(_PurviewEditorConfigDestinationFirstLine)' != '$(_PurviewEditorConfigSourceFirstLine)'"
+				>true</_PurviewEditorConfigNeedsSync>
+		</PropertyGroup>
 		<SyncPurviewRepositoryFiles
 			DestinationFile="$(_EffectiveRepositoryEditorConfigFilePath)"
 			SourceFile="$(EditorConfigFilePath)"
 			OverwriteExisting="$(_PurviewRepoBootstrapOverwriteExisting)"
 			VerifyExistingContent="$(_PurviewRepoBootstrapVerifyExistingContent)"
+			VersionMarkerPrefix="$(_PurviewEditorConfigVersionMarkerPrefix)"
 			Retries="$(PurviewRepoBootstrapCopyRetries)"
 			RetryDelayMilliseconds="$(PurviewRepoBootstrapCopyRetryDelayMilliseconds)"
 			TreatFailureAsError="$(PurviewRepoBootstrapCopyFailureAsError)"
-			Condition="'$(_EffectiveRepositoryEditorConfigFilePath)' != ''"
+			Condition="'$(_EffectiveRepositoryEditorConfigFilePath)' != '' AND '$(_PurviewEditorConfigNeedsSync)' == 'true'"
 		/>
 	</Target>
 
@@ -2746,7 +2853,7 @@
 			IgnoreStandardErrorWarningFormat="true"
 			StandardErrorImportance="low"
 			StandardOutputImportance="low"
-			Condition="'$(RepositoryGlobalJsonFilePath)' == '' AND '$(_DirectoryBuildPropsDirectory)' != ''"
+			Condition="'$(PurviewRepositoryRootStrategy)' == 'Git' AND '$(RepositoryGlobalJsonFilePath)' == '' AND '$(_DirectoryBuildPropsDirectory)' != ''"
 		>
 			<Output TaskParameter="ConsoleOutput" PropertyName="_GitRepositoryRoot" />
 		</Exec>
@@ -2798,6 +2905,20 @@
 			<_RepositoryGlobalJsonLines Include="  }" />
 			<_RepositoryGlobalJsonLines Include="}" />
 		</ItemGroup>
+		<!--
+			Same reasoning as the .editorconfig bootstrap: invoking the task is what costs, because MSBuild
+			compiles it on first use. global.json carries no version marker, so an existing file is only
+			revisited when the mode asks for it.
+		-->
+		<PropertyGroup>
+			<_PurviewGlobalJsonDestinationExists Condition="'$(_EffectiveRepositoryGlobalJsonFilePath)' != ''"
+				>$([System.IO.File]::Exists('$(_EffectiveRepositoryGlobalJsonFilePath)'))</_PurviewGlobalJsonDestinationExists>
+			<_PurviewGlobalJsonNeedsSync Condition="'$(_PurviewGlobalJsonDestinationExists)' != 'true'"
+				>true</_PurviewGlobalJsonNeedsSync>
+			<_PurviewGlobalJsonNeedsSync
+				Condition="'$(PurviewRepoBootstrapMode)' == 'Always' OR '$(PurviewRepoBootstrapMode)' == 'WarnOnDrift'"
+				>true</_PurviewGlobalJsonNeedsSync>
+		</PropertyGroup>
 		<SyncPurviewRepositoryFiles
 			DestinationFile="$(_EffectiveRepositoryGlobalJsonFilePath)"
 			Lines="@(_RepositoryGlobalJsonLines)"
@@ -2806,7 +2927,7 @@
 			Retries="$(PurviewRepoBootstrapCopyRetries)"
 			RetryDelayMilliseconds="$(PurviewRepoBootstrapCopyRetryDelayMilliseconds)"
 			TreatFailureAsError="$(PurviewRepoBootstrapCopyFailureAsError)"
-			Condition="'$(_EffectiveRepositoryGlobalJsonFilePath)' != ''"
+			Condition="'$(_EffectiveRepositoryGlobalJsonFilePath)' != '' AND '$(_PurviewGlobalJsonNeedsSync)' == 'true'"
 		/>
 	</Target>
 

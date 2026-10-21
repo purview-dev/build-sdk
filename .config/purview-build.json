@@ -3,7 +3,7 @@
 		"Solution": "src/BuildSdk.slnx",
 		"TestRoot": "src/tests",
 		"TestPatterns": "*Tests.csproj",
-		"TestFilter": "/*/*/*/*[Category=Unit]/"
+		"TestFilter": "/*/*/*/*/"
 	},
 	"PackValidation": {
 		"RequiredCompilerFlags": [

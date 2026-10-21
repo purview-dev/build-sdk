@@ -53,16 +53,142 @@
 		/>
 	</ItemGroup>
 
+	<!-- =====================================================================
+	     EDITORCONFIG VERSION STAMP
+	     The packed .editorconfig opens with '# Purview.BuildSdk <version>', which is how the SDK later
+	     recognises a bootstrapped file as one it wrote and decides whether that copy is stale. The
+	     version is therefore part of the package's content, and is stamped in at pack time from
+	     $(Version) rather than being maintained by hand in the repository file - a hand-maintained
+	     marker is one bump away from telling every consumer their copy is current when it is a release
+	     behind.
+
+	     The stamp is written to obj/ and that copy is packed. The tracked .editorconfig is never
+	     rewritten by a build: mutating a tracked source file leaves a dirty working tree on CI and
+	     races when projects build in parallel.
+	     ===================================================================== -->
+	<PropertyGroup>
+		<_PurviewSourceEditorConfig>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)../../../.editorconfig'))</_PurviewSourceEditorConfig>
+	</PropertyGroup>
+
+	<UsingTask
+		TaskName="StampPurviewEditorConfigVersion"
+		TaskFactory="RoslynCodeTaskFactory"
+		AssemblyFile="$([System.IO.Path]::Combine('$(MSBuildToolsPath)', 'Microsoft.Build.Tasks.Core.dll'))"
+	>
+		<ParameterGroup>
+			<SourceFile ParameterType="System.String" Required="true" />
+			<DestinationFile ParameterType="System.String" Required="true" />
+			<MarkerPrefix ParameterType="System.String" Required="true" />
+			<Version ParameterType="System.String" Required="true" />
+		</ParameterGroup>
+		<Task>
+			<Using Namespace="System" />
+			<Using Namespace="System.IO" />
+			<Code Type="Fragment" Language="cs">
+				<![CDATA[
+				if (!File.Exists(SourceFile))
+				{
+					Log.LogError("The source .editorconfig '{0}' does not exist.", SourceFile);
+					return false;
+				}
+
+				var lines = File.ReadAllLines(SourceFile);
+				var stampedLine = MarkerPrefix + Version + " - managed file, do not edit";
+				var markerIndex = -1;
+
+				for (var i = 0; i < lines.Length; i++)
+				{
+					if (string.IsNullOrWhiteSpace(lines[i]))
+					{
+						continue;
+					}
+
+					// The marker has to be the first thing in the file: that is where the SDK looks for
+					// it, and where a developer opening the file will read it.
+					markerIndex = lines[i].TrimStart().StartsWith(MarkerPrefix, StringComparison.Ordinal) ? i : -1;
+					break;
+				}
+
+				if (markerIndex < 0)
+				{
+					Log.LogError(
+						"The source .editorconfig '{0}' does not open with the version marker '{1}'. The packed file would not be recognised as SDK-managed, and would never be updated in a consuming repository.",
+						SourceFile,
+						MarkerPrefix);
+					return false;
+				}
+
+				lines[markerIndex] = stampedLine;
+
+				var destinationDirectory = Path.GetDirectoryName(DestinationFile);
+				if (!string.IsNullOrEmpty(destinationDirectory))
+				{
+					Directory.CreateDirectory(destinationDirectory);
+				}
+
+				var stamped = string.Join("\n", lines) + "\n";
+
+				// Only write when the content actually changes, so packing twice does not keep
+				// invalidating anything downstream that tracks the file's timestamp.
+				if (!File.Exists(DestinationFile) || File.ReadAllText(DestinationFile) != stamped)
+				{
+					File.WriteAllText(DestinationFile, stamped);
+					Log.LogMessage(MessageImportance.Normal, "Stamped '{0}' into '{1}'.", stampedLine, DestinationFile);
+				}
+				]]>
+			</Code>
+		</Task>
+	</UsingTask>
+
+	<Target
+		Name="StampPurviewEditorConfigVersionTarget"
+		BeforeTargets="_GetPackageFiles;GenerateNuspec;AssignTargetPaths"
+		Label="Writes the packed .editorconfig with the version being built stamped onto its marker line."
+	>
+		<PropertyGroup>
+			<!-- PackageVersion is what names the package and what a consumer restores, so it is what the
+			     marker has to agree with. It and Version only differ when one is set explicitly. -->
+			<_PurviewEditorConfigStampVersion>$([System.String]::Copy('$(PackageVersion)').Trim())</_PurviewEditorConfigStampVersion>
+			<_PurviewEditorConfigStampVersion Condition="'$(_PurviewEditorConfigStampVersion)' == ''"
+				>$(Version)</_PurviewEditorConfigStampVersion>
+			<!--
+				Resolved here rather than in a top-level PropertyGroup: IntermediateOutputPath is set by the
+				SDK's own targets, so at evaluation time it is still empty and the stamp would be written
+				into the source tree next to the project - where it would also be picked up as a real
+				.editorconfig for everything beneath that folder.
+
+				Overridable so a test can drive the target to a scratch path.
+			-->
+			<_PurviewStampedEditorConfig Condition="'$(_PurviewStampedEditorConfig)' == ''"
+				>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)/$(IntermediateOutputPath)purview-editorconfig/.editorconfig'))</_PurviewStampedEditorConfig>
+		</PropertyGroup>
+		<!--
+			Deliberately no Inputs/Outputs. The version is as much an input as the file is, and an
+			incremental check keyed on the source alone silently reuses a stamp from a previous version -
+			which is precisely the stale marker this whole mechanism exists to prevent. The task is a
+			single file read and only writes when the content differs, so running it every pack is free.
+		-->
+		<StampPurviewEditorConfigVersion
+			SourceFile="$(_PurviewSourceEditorConfig)"
+			DestinationFile="$(_PurviewStampedEditorConfig)"
+			MarkerPrefix="$(PurviewEditorConfigVersionMarker)"
+			Version="$(_PurviewEditorConfigStampVersion)"
+		/>
+		<!-- Added here too, for the same reason the path is resolved here: the item has to name a path
+		     that is only known once the SDK's targets have run. -->
+		<ItemGroup>
+			<None
+				Include="$(_PurviewStampedEditorConfig)"
+				Pack="true"
+				PackagePath="Sdk/.editorconfig"
+				Visible="false"
+			/>
+		</ItemGroup>
+	</Target>
+
 	<!-- Pack the Sdk/ folder contents into the correct locations in the NuGet package.
 	     .editorconfig must be listed explicitly — NuGet excludes dotfiles by default. -->
 	<ItemGroup>
-		<None
-			Include="$(MSBuildThisFileDirectory)../../../.editorconfig"
-			Pack="true"
-			PackagePath="Sdk/.editorconfig"
-			Visible="true"
-		/>
-
 		<None
 			Include="Sdk/.github/**/*"
 			Pack="true"

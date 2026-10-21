@@ -52,12 +52,14 @@ repo root inherits everything automatically.
   default (`DisableAutoCopySdkFiles=true` to opt out). Existing files are never overwritten unless
   `PurviewRepoBootstrapMode` says otherwise, and a race between parallel projects is a no-op rather than a
   build failure.
-- **Bundled analyzers and code fixes** — `PDS0001`–`PDS0005` plus IDE code fixes for naming and
-  extensions-namespace conventions.
-- **Agent folder** — the package ships `.agents/**` content that is mirrored into the consuming
-  repository (change-aware, so unchanged files are never rewritten) so coding agents can discover
-  repository-aware guidance automatically. Copy retries are silent; a copy that still fails after every
-  retry is reported as an error.
+- **Bundled analyzers and code fixes** — three analyzers (`PDS0002`–`PDS0004`) and three suppressors
+  (`PDS0001`, `PDS0005`, `PDS0006`), plus IDE code fixes for naming and extensions-namespace conventions.
+- **Agent skills** — the SDK resolves which skills a restored package ships and the exact commit it was
+  built from, and reports what is missing or has drifted (`PRSKL0010`–`PRSKL0014`) during an ordinary
+  build. Installing them is a separate, explicit step (`dotnet msbuild -t:InstallPurviewSkills`) that
+  delegates to the skills CLI. The SDK itself writes nothing into an agent directory: the build-time
+  `.agents/**` mirror was removed outright, because the CLI owns those paths and two writers on one set
+  of paths meant the mirror silently overwriting a pinned install.
 
 ## Requirements
 

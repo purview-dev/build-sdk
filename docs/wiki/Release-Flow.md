@@ -41,7 +41,7 @@ The pipeline configuration lives in `purview-build.json`:
     "Solution": "src/BuildSdk.slnx",
     "TestRoot": "src/tests",
     "TestPatterns": "*Tests.csproj",
-    "TestFilter": "/*/*/*/*[Category=Unit]/"
+    "TestFilter": "/*/*/*/*/"
   },
   "PackValidation": {
     "RequireSymbolPackage": false
