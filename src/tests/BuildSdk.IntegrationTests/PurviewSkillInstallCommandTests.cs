@@ -360,7 +360,7 @@ sealed class PurviewSkillInstallCommandTests
 		Directory.CreateDirectory(Path.Combine(harness.SolutionDirectory, ".git"));
 		await File.WriteAllTextAsync(
 			Path.Combine(harness.ProjectDirectory, "package.json"),
-			"{ \"name\": \"nested\" }\n",
+			/*lang=json,strict*/"{ \"name\": \"nested\" }\n",
 			cancellationToken
 		);
 
@@ -383,7 +383,7 @@ sealed class PurviewSkillInstallCommandTests
 		Directory.CreateDirectory(Path.Combine(harness.SolutionDirectory, ".github"));
 		await File.WriteAllTextAsync(
 			Path.Combine(harness.ProjectDirectory, "package.json"),
-			"{ \"name\": \"nested\" }\n",
+			/*lang=json,strict*/"{ \"name\": \"nested\" }\n",
 			cancellationToken
 		);
 
@@ -404,7 +404,7 @@ sealed class PurviewSkillInstallCommandTests
 		await File.WriteAllTextAsync(Path.Combine(harness.SolutionDirectory, "LICENSE.md"), "MIT\n", cancellationToken);
 		await File.WriteAllTextAsync(
 			Path.Combine(harness.SolutionDirectory, "package.json"),
-			"{ \"name\": \"root\" }\n",
+			/*lang=json,strict*/"{ \"name\": \"root\" }\n",
 			cancellationToken
 		);
 

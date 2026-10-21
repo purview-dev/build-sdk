@@ -60,6 +60,7 @@ sealed class PurviewSkillResolutionTests
 			return [];
 		}
 
+		// The MSBuild task writes a JSON array of objects, each of which is a dictionary of string properties.
 		return
 		[
 			.. entries

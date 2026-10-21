@@ -41,7 +41,6 @@
 		<PackageVersion Include="TUnit" Version="$(TUnitVersion)" />
 		<PackageVersion Include="TUnit.Mocks" Version="$(TUnitVersion)" />
 		<PackageVersion Include="TUnit.Aspire" Version="$(TUnitVersion)" />
-		<PackageVersion Include="Microsoft.Testing.Platform.MSBuild" Version="2.5.1" />
 
 		<!-- ── Testing (Xunit — opt-in via TestingFramework=Xunit) ───────── -->
 		<PackageVersion Include="xunit.v3" Version="4.0.2" />

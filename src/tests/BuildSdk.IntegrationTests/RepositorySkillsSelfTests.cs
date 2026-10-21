@@ -87,6 +87,7 @@ sealed partial class RepositorySkillsSelfTests
 		if (!document.RootElement.TryGetProperty("skills", out var skills))
 			return [];
 
+		// The lock file is a dictionary of skill names to objects with "source" and "sourceType" properties.
 		return
 		[
 			.. skills

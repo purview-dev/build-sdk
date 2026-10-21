@@ -146,6 +146,7 @@ partial class ProjectHarness : IDisposable
 			// project resolves an SDK by package and an unresolvable entry would fail the build.
 			await File.WriteAllTextAsync(
 				globalJsonPath,
+				/*lang=json,strict*/
 				"""
 				{
 					"test": {

@@ -83,6 +83,7 @@ public sealed partial class SkillPolicyEvaluator
 		if (!Catalogue.FolderExists || Catalogue.Skills.Count > 0)
 			return [];
 
+		// The folder exists but holds no skills, so report it as a violation rather than letting every
 		return
 		[
 			new SkillViolation(

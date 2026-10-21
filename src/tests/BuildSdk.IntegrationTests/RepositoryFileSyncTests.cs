@@ -95,13 +95,14 @@ sealed class RepositoryFileSyncTests
 		using var h = await CreateHarnessAsync(extraProps: null, cancellationToken: cancellationToken);
 
 		var editorConfigPath = Path.Combine(h.SolutionDirectory, ".editorconfig");
-		const string Owned = "root = true\n\n[*.cs]\nindent_style = space\n";
-		await File.WriteAllTextAsync(editorConfigPath, Owned, cancellationToken);
+		const string owned = "root = true\n\n[*.cs]\nindent_style = space\n";
+
+		await File.WriteAllTextAsync(editorConfigPath, owned, cancellationToken);
 
 		var (success, output, errors) = await h.BuildAsync(restore: true, verbose: true, cancellationToken);
 
 		await Assert.That(success).IsTrue().Because(TestHelpers.GenerateError(output, errors));
-		await Assert.That(await File.ReadAllTextAsync(editorConfigPath, cancellationToken)).IsEqualTo(Owned);
+		await Assert.That(await File.ReadAllTextAsync(editorConfigPath, cancellationToken)).IsEqualTo(owned);
 	}
 
 	/// <summary>
@@ -116,13 +117,14 @@ sealed class RepositoryFileSyncTests
 		);
 
 		var editorConfigPath = Path.Combine(h.SolutionDirectory, ".editorconfig");
-		const string Stale = "# Purview.BuildSdk 0.0.1 - managed file, do not edit\nroot = true\n";
-		await File.WriteAllTextAsync(editorConfigPath, Stale, cancellationToken);
+		const string stale = "# Purview.BuildSdk 0.0.1 - managed file, do not edit\nroot = true\n";
+
+		await File.WriteAllTextAsync(editorConfigPath, stale, cancellationToken);
 
 		var (success, output, errors) = await h.BuildAsync(restore: true, verbose: true, cancellationToken);
 
 		await Assert.That(success).IsTrue().Because(TestHelpers.GenerateError(output, errors));
-		await Assert.That(await File.ReadAllTextAsync(editorConfigPath, cancellationToken)).IsEqualTo(Stale);
+		await Assert.That(await File.ReadAllTextAsync(editorConfigPath, cancellationToken)).IsEqualTo(stale);
 	}
 
 	[Test]

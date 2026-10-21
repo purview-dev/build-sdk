@@ -1,5 +1,5 @@
 using Microsoft.CodeAnalysis;
-using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Microsoft.CodeAnalysis.CSharp;
 using Purview.BuildSdk.CodeFixers.ExtensionsNamespace;
 
 namespace Purview.BuildSdk.Analyzers.IntegrationTests.Extensions;
@@ -31,7 +31,7 @@ sealed class SplitExtensionsClassMethodSyntaxTests
 		}
 		""";
 
-	static Compilation CreateCompilation() =>
+	static CSharpCompilation CreateCompilation() =>
 		AnalyzerTestInfrastructure.CreateCompilation(Source, @"C:\FakeProject\ThingExtensions.cs");
 
 	[Test]

@@ -17,6 +17,8 @@ static class AnalyzerTestInfrastructure
 	public static ImmutableArray<MetadataReference> BuildBclReferences() =>
 		[.. TrustedAssemblies.Select(p => MetadataReference.CreateFromFile(p))];
 
+	/// <param name="source">The source code to parse.</param>
+	/// <param name="filePath">The file path to associate with the syntax tree.</param>
 	/// <param name="languageVersion">
 	/// The language version to parse with. Defaults to the parser's own default; pass
 	/// <see cref="LanguageVersion.Preview"/> for source that uses a preview feature, such as a

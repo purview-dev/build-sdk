@@ -309,6 +309,8 @@ sealed class PurviewSkillRecommendationTests
 		);
 
 		await Assert.That(first.Output).Contains("PRSKL0010");
+
+		// A solution has many projects sharing one repository, and a rebuild changes nothing: the
 		// A solution has many projects sharing one repository, and a rebuild changes nothing: the
 		// same advice must not be repeated until the state it describes actually changes.
 		await Assert.That(second.Output).DoesNotContain("PRSKL0010");

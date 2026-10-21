@@ -1,27 +1,30 @@
 <Project>
 	<PropertyGroup>
-		<!-- Purview.Skills.Testing ships TUnit.Core and TUnit.Assertions as package dependencies, so
-		     this is the floor every consumer inherits. -->
 		<TUnitVersion>1.76.0</TUnitVersion>
+		<MicrosoftRoslynVersion>5.9.0</MicrosoftRoslynVersion>
 	</PropertyGroup>
 	<ItemGroup>
 		<!-- SourceLink is auto-added by the SDK to IsPackable projects -->
 		<PackageVersion Include="Microsoft.SourceLink.GitHub" Version="10.0.402" />
-		<PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="5.9.0" />
-		<PackageVersion Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="5.9.0" />
-		<PackageVersion Include="Microsoft.CodeAnalysis.Features" Version="5.9.0" />
-		<PackageVersion Include="Microsoft.CodeAnalysis.Analyzers" Version="5.9.0" />
+		<!-- Roslyn / Code Analysis -->
+		<PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="$(MicrosoftRoslynVersion)" />
+		<PackageVersion Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="$(MicrosoftRoslynVersion)" />
+		<PackageVersion Include="Microsoft.CodeAnalysis.Features" Version="$(MicrosoftRoslynVersion)" />
+		<PackageVersion Include="Microsoft.CodeAnalysis.Analyzers" Version="$(MicrosoftRoslynVersion)" />
+		<!-- Testing Frameworks  -->
+		<PackageVersion Include="Bogus" Version="35.6.5" />
 		<PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.11.0" />
-		<PackageVersion Include="Microsoft.Testing.Platform.MSBuild" Version="2.5.1" />
+		<!-- TUnit Testing Framework -->
 		<PackageVersion Include="TUnit" Version="$(TUnitVersion)" />
 		<PackageVersion Include="TUnit.Core" Version="$(TUnitVersion)" />
 		<PackageVersion Include="TUnit.Assertions" Version="$(TUnitVersion)" />
 		<PackageVersion Include="TUnit.Aspire" Version="$(TUnitVersion)" />
+		<PackageVersion Include="TUnit.Mocks" Version="$(TUnitVersion)" />
+		<!-- Xunit Testing Framework -->
 		<PackageVersion Include="xunit.v3" Version="4.0.2" />
 		<PackageVersion Include="xunit.runner.visualstudio" Version="4.0.1" />
-		<PackageVersion Include="TUnit.Mocks" Version="$(TUnitVersion)" />
+		<!-- NSubstitute Packages -->
 		<PackageVersion Include="NSubstitute" Version="6.2.0" />
 		<PackageVersion Include="NSubstitute.Analyzers.CSharp" Version="1.0.17" />
-		<PackageVersion Include="Bogus" Version="35.6.5" />
 	</ItemGroup>
 </Project>

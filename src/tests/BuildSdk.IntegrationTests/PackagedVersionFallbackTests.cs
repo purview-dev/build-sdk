@@ -28,6 +28,12 @@ public sealed partial class PackagedVersionFallbackTests
 	[GeneratedRegex(@"^#\s*Purview\.BuildSdk\s+(?<version>\S+)")]
 	private static partial Regex EditorConfigVersionMarker();
 
+	[GeneratedRegex(
+		@"<PurviewEditorConfigVersionMarker[^>]*>\s*(?<marker>.*?)</PurviewEditorConfigVersionMarker>",
+		RegexOptions.Singleline
+	)]
+	private static partial Regex EditorConfigVersionMarkerRegex();
+
 	static string RepositoryRoot
 	{
 		get
@@ -56,10 +62,11 @@ public sealed partial class PackagedVersionFallbackTests
 	}
 
 	[Test]
-	public async Task GlobalJsonVersionFallback_MatchesPackageJson()
+	public async Task GlobalJsonVersionFallback_MatchesPackageJson(CancellationToken cancellationToken)
 	{
-		var defaults = File.ReadAllText(
-			Path.Combine(RepositoryRoot, "src", "src", "BuildSdk", "Sdk", "Props", "Defaults.props")
+		var defaults = await File.ReadAllTextAsync(
+			Path.Combine(RepositoryRoot, "src", "src", "BuildSdk", "Sdk", "Props", "Defaults.props"),
+			cancellationToken
 		);
 
 		var match = GlobalJsonVersionFallback().Match(defaults);
@@ -80,16 +87,16 @@ public sealed partial class PackagedVersionFallbackTests
 	/// the stamp fails the build rather than packing an unrecognisable file.
 	/// </remarks>
 	[Test]
-	public async Task EditorConfigVersionMarker_IsTheFirstLineAndWellFormed()
+	public async Task EditorConfigVersionMarker_IsTheFirstLineAndWellFormed(CancellationToken cancellationToken)
 	{
-		var lines = File.ReadAllLines(Path.Combine(RepositoryRoot, ".editorconfig"));
+		var lines = await File.ReadAllLinesAsync(Path.Combine(RepositoryRoot, ".editorconfig"), cancellationToken);
 
 		await Assert.That(lines).IsNotEmpty();
 
 		var match = EditorConfigVersionMarker().Match(lines[0]);
 
 		await Assert.That(match.Success).IsTrue();
-		await Assert.That(System.Version.TryParse(match.Groups["version"].Value, out _)).IsTrue();
+		await Assert.That(Version.TryParse(match.Groups["version"].Value, out _)).IsTrue();
 	}
 
 	/// <summary>
@@ -97,24 +104,23 @@ public sealed partial class PackagedVersionFallbackTests
 	/// managed file is never recognised as managed and the update silently never happens.
 	/// </summary>
 	[Test]
-	public async Task EditorConfigVersionMarker_IsPrefixedByTheDefaultsPropsMarker()
+	public async Task EditorConfigVersionMarker_IsPrefixedByTheDefaultsPropsMarker(CancellationToken cancellationToken)
 	{
-		var defaults = File.ReadAllText(
-			Path.Combine(RepositoryRoot, "src", "src", "BuildSdk", "Sdk", "Props", "Defaults.props")
+		var defaults = await File.ReadAllTextAsync(
+			Path.Combine(RepositoryRoot, "src", "src", "BuildSdk", "Sdk", "Props", "Defaults.props"),
+			cancellationToken
 		);
 
-		var marker = Regex
-			.Match(
-				defaults,
-				@"<PurviewEditorConfigVersionMarker[^>]*>\s*(?<marker>.*?)</PurviewEditorConfigVersionMarker>",
-				RegexOptions.Singleline
-			)
+		var marker = EditorConfigVersionMarkerRegex()
+			.Match(defaults)
 			.Groups["marker"]
 			.Value.Replace("&#32;", " ", StringComparison.Ordinal);
 
 		await Assert.That(marker).IsNotEmpty();
 
-		var firstLine = File.ReadAllLines(Path.Combine(RepositoryRoot, ".editorconfig"))[0];
+		var firstLine = (
+			await File.ReadAllLinesAsync(Path.Combine(RepositoryRoot, ".editorconfig"), cancellationToken)
+		)[0];
 
 		await Assert.That(firstLine.StartsWith(marker, StringComparison.Ordinal)).IsTrue();
 	}
@@ -139,7 +145,7 @@ public sealed partial class PackagedVersionFallbackTests
 		CancellationToken cancellationToken
 	)
 	{
-		const string StampedVersion = "4.5.6-test";
+		const string stampedVersion = "4.5.6-test";
 
 		var projectPath = Path.Combine(RepositoryRoot, "src", "src", "BuildSdk", "BuildSdk.csproj");
 		var trackedPath = Path.Combine(RepositoryRoot, ".editorconfig");
@@ -152,7 +158,7 @@ public sealed partial class PackagedVersionFallbackTests
 		{
 			var (exitCode, output) = await RunMsBuildAsync(
 				projectPath,
-				$"-t:StampPurviewEditorConfigVersionTarget -p:PackageVersion={StampedVersion} \"-p:_PurviewStampedEditorConfig={destination}\"",
+				$"-t:StampPurviewEditorConfigVersionTarget -p:PackageVersion={stampedVersion} \"-p:_PurviewStampedEditorConfig={destination}\"",
 				cancellationToken
 			);
 
@@ -160,7 +166,7 @@ public sealed partial class PackagedVersionFallbackTests
 			await Assert.That(File.Exists(destination)).IsTrue().Because(output);
 
 			var stamped = await File.ReadAllLinesAsync(destination, cancellationToken);
-			await Assert.That(stamped[0]).IsEqualTo($"# Purview.BuildSdk {StampedVersion} - managed file, do not edit");
+			await Assert.That(stamped[0]).IsEqualTo($"# Purview.BuildSdk {stampedVersion} - managed file, do not edit");
 
 			// Only the marker is rewritten; the rules themselves are packed verbatim.
 			var trackedLines = await File.ReadAllLinesAsync(trackedPath, cancellationToken);
@@ -207,10 +213,10 @@ public sealed partial class PackagedVersionFallbackTests
 	[Arguments("README.md")]
 	[Arguments("docs/wiki/Getting-Started.md")]
 	[Arguments("templates/global.json")]
-	public async Task AdoptionPin_MatchesPackageJson(string relativePath)
+	public async Task AdoptionPin_MatchesPackageJson(string relativePath, CancellationToken cancellationToken)
 	{
 		var path = Path.Combine(RepositoryRoot, relativePath.Replace('/', Path.DirectorySeparatorChar));
-		var content = File.ReadAllText(path);
+		var content = await File.ReadAllTextAsync(path, cancellationToken);
 
 		var pins = BuildSdkPin()
 			.Matches(content)
