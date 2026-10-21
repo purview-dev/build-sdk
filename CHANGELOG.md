@@ -28,6 +28,16 @@ release summarise what the commits recorded rather than what was written at the 
 
 ### Changed
 
+- **Every `PackageVersion` names a version; the floating `*` entries are gone.** A `PackageVersion` is
+  already a minimum — NuGet resolves it unless something in the graph requires higher — so floating was
+  never needed to stay current, and it made the packed result depend on the day it was built.
+  `Purview.Skills.Testing` ships `TUnit.Core` and `TUnit.Assertions` as dependencies, so the floor it
+  declared moved from 1.75.0 to 1.76.0 between 1.0.6 and 1.1.0 purely because time passed. The TUnit
+  baseline is now `1.76.0`, chosen in `Directory.Packages.props` rather than inherited from a restore.
+  `CentralPackageFloatingVersionsEnabled` is no longer needed and has been removed.
+- The starter `templates/Directory.Packages.props` names versions for the same reason, and referenced
+  `Microsoft.SourceLink.AzureDevOps.Git`, which does not exist on nuget.org — the package is
+  `Microsoft.SourceLink.AzureRepos.Git`. The floating version hid it, because nothing ever restored it.
 - **CI runs every test suite, not just the unit ones.** `Build:TestFilter` was
   `/*/*/*/*[Category=Unit]/`, and the SDK derives an assembly-level TUnit category from each project's name
   suffix — so `BuildSdk.IntegrationTests` was `Category=Integration` and its 416 tests, the repository's

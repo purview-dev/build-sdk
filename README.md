@@ -69,7 +69,7 @@ A reusable MSBuild SDK NuGet package that delivers standardised .NET project def
 
 ### 4. Copy `Directory.Packages.props` to repo root
 
-Copy [`templates/Directory.Packages.props`](https://github.com/purview-dev/build-sdk/blob/main/templates/Directory.Packages.props) from the repository to your repo root. The templates are not packed into the NuGet package — they are starting points held in git, so take them from there. All package versions default to `*` (latest at restore). Pin any package by replacing `*` with a specific version.
+Copy [`templates/Directory.Packages.props`](https://github.com/purview-dev/build-sdk/blob/main/templates/Directory.Packages.props) from the repository to your repo root. The templates are not packed into the NuGet package — they are starting points held in git, so take them from there. Every package names a version. A `PackageVersion` is a minimum rather than an exact pin — NuGet resolves it unless something in the graph requires higher — so floating versions are not needed to stay current, and they would make a build depend on the day it ran.
 
 > **Note:** `ManagePackageVersionsCentrally=true` is set by the SDK. You **must** have a `Directory.Packages.props` at your repo root for CPM to work, even if it only contains the packages the SDK adds automatically.
 
