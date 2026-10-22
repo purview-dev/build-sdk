@@ -1,4 +1,4 @@
-using System.Diagnostics;
+using Purview.BuildSdk.Infra;
 
 namespace Purview.BuildSdk;
 
@@ -52,11 +52,10 @@ sealed class DefaultsPropsTests
 				cancellationToken
 			);
 
-			var (exitCode, stdOut, stdErr) = await RunProcessAsync(
-				"dotnet",
+			var (exitCode, stdOut, stdErr) = await ProcessRunner.RunDotNetAsync(
 				$"msbuild \"{testProjectPath}\" -nologo -t:NoOp",
 				tempRoot,
-				cancellationToken
+				cancellationToken: cancellationToken
 			);
 
 			var output = stdOut + stdErr;
@@ -68,34 +67,5 @@ sealed class DefaultsPropsTests
 			if (Directory.Exists(tempRoot))
 				Directory.Delete(tempRoot, recursive: true);
 		}
-	}
-
-	static async Task<(int Code, string StdOut, string StdErr)> RunProcessAsync(
-		string fileName,
-		string arguments,
-		string workingDirectory,
-		CancellationToken cancellationToken
-	)
-	{
-		using var process = new Process
-		{
-			StartInfo = new ProcessStartInfo
-			{
-				FileName = fileName,
-				Arguments = arguments,
-				WorkingDirectory = workingDirectory,
-				RedirectStandardOutput = true,
-				RedirectStandardError = true,
-				UseShellExecute = false,
-				CreateNoWindow = true,
-			},
-		};
-
-		process.Start();
-		var stdOutTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-		var stdErrTask = process.StandardError.ReadToEndAsync(cancellationToken);
-		await process.WaitForExitAsync(cancellationToken);
-
-		return (process.ExitCode, await stdOutTask, await stdErrTask);
 	}
 }

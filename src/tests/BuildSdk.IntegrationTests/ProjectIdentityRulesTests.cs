@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Text.Json;
 using Purview.BuildSdk.Harness;
 using Purview.BuildSdk.Infra;
@@ -518,11 +517,10 @@ sealed class ProjectIdentityRulesTests
 				cancellationToken
 			);
 
-			var (exitCode, stdOut, stdErr) = await RunProcessAsync(
-				"dotnet",
+			var (exitCode, stdOut, stdErr) = await ProcessRunner.RunDotNetAsync(
 				$"msbuild \"{projectFilePath}\" -nologo -t:ValidateProjectFileNamingConventionTarget",
 				projectDirectory,
-				cancellationToken
+				cancellationToken: cancellationToken
 			);
 
 			return (exitCode, stdOut + stdErr);
@@ -564,34 +562,5 @@ sealed class ProjectIdentityRulesTests
 		}
 
 		return [];
-	}
-
-	static async Task<(int Code, string StdOut, string StdErr)> RunProcessAsync(
-		string fileName,
-		string arguments,
-		string workingDirectory,
-		CancellationToken cancellationToken
-	)
-	{
-		using var process = new Process
-		{
-			StartInfo = new ProcessStartInfo
-			{
-				FileName = fileName,
-				Arguments = arguments,
-				WorkingDirectory = workingDirectory,
-				RedirectStandardOutput = true,
-				RedirectStandardError = true,
-				UseShellExecute = false,
-				CreateNoWindow = true,
-			},
-		};
-
-		process.Start();
-		var stdOutTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-		var stdErrTask = process.StandardError.ReadToEndAsync(cancellationToken);
-		await process.WaitForExitAsync(cancellationToken);
-
-		return (process.ExitCode, await stdOutTask, await stdErrTask);
 	}
 }

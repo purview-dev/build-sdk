@@ -1,6 +1,6 @@
-using System.Diagnostics;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Purview.BuildSdk.Infra;
 
 namespace Purview.BuildSdk;
 
@@ -156,11 +156,12 @@ public sealed partial class PackagedVersionFallbackTests
 
 		try
 		{
-			var (exitCode, output) = await RunMsBuildAsync(
-				projectPath,
-				$"-t:StampPurviewEditorConfigVersionTarget -p:PackageVersion={stampedVersion} \"-p:_PurviewStampedEditorConfig={destination}\"",
+			var (exitCode, stdOut, stdErr) = await ProcessRunner.RunDotNetAsync(
+				$"msbuild \"{projectPath}\" -t:StampPurviewEditorConfigVersionTarget -p:PackageVersion={stampedVersion} \"-p:_PurviewStampedEditorConfig={destination}\" -v:m",
+				RepositoryRoot,
 				cancellationToken
 			);
+			var output = stdOut + stdErr;
 
 			await Assert.That(exitCode).IsEqualTo(0).Because(output);
 			await Assert.That(File.Exists(destination)).IsTrue().Because(output);
@@ -180,29 +181,6 @@ public sealed partial class PackagedVersionFallbackTests
 		}
 
 		await Assert.That(await File.ReadAllTextAsync(trackedPath, cancellationToken)).IsEqualTo(trackedBefore);
-	}
-
-	static async Task<(int ExitCode, string Output)> RunMsBuildAsync(
-		string projectPath,
-		string arguments,
-		CancellationToken cancellationToken
-	)
-	{
-		using Process process = new();
-		process.StartInfo = new ProcessStartInfo("dotnet", $"msbuild \"{projectPath}\" {arguments} -v:m")
-		{
-			RedirectStandardOutput = true,
-			RedirectStandardError = true,
-			UseShellExecute = false,
-		};
-
-		process.Start();
-
-		var stdout = await process.StandardOutput.ReadToEndAsync(cancellationToken);
-		var stderr = await process.StandardError.ReadToEndAsync(cancellationToken);
-		await process.WaitForExitAsync(cancellationToken);
-
-		return (process.ExitCode, stdout + stderr);
 	}
 
 	/// <summary>

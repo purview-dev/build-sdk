@@ -2480,15 +2480,39 @@
 	     This target is what keeps a malformed skill from reaching the CLI: it
 	     runs at pack time in the repository that owns the skills, so the
 	     failure lands on the author rather than silently producing a skill the
-	     CLI skips.
+	     CLI skips. The folder it validates is the one every other skill target
+	     resolves, because validating a different repository passes silently.
 	     ===================================================================== -->
 	<Target
 		Name="ValidatePurviewSkills"
 		BeforeTargets="Pack"
-		Condition="'$(PurviewSkillsSourceFolder)' != '' AND Exists('$(PurviewSkillsSourceFolder)')"
+		DependsOnTargets="ResolvePurviewSkillsRepositoryRoot"
 		Label="Validates that every authored skill is well formed."
 	>
-		<ValidatePurviewSkillFolders SkillsRoot="$(PurviewSkillsSourceFolder)">
+		<PropertyGroup>
+			<!--
+				The same root every other skill target runs from. Resolving it here rather than trusting the
+				evaluation-time PurviewSkillsSourceFolder matters because that guess only knows RepoRoot and
+				an AGENTS.md walk-up: RepoRoot is taken from GITHUB_WORKSPACE on a CI runner, and can also
+				arrive stale from the version-detection cache. Either one validates a *different*
+				repository's skills while this repository's malformed skill goes unnoticed - a silent pass,
+				which is the worst outcome for a check whose only job is to fail.
+			-->
+			<_PurviewSkillsValidationRoot Condition="'$(_PurviewSkillsRepositoryRoot)' != ''"
+				>$([MSBuild]::NormalizeDirectory('$(_PurviewSkillsRepositoryRoot)', 'skills'))</_PurviewSkillsValidationRoot>
+			<!-- The folder a caller set directly, and the only clue when no root resolves at all. -->
+			<_PurviewSkillsValidationRoot Condition="'$(_PurviewSkillsValidationRoot)' == ''"
+				>$(PurviewSkillsSourceFolder)</_PurviewSkillsValidationRoot>
+		</PropertyGroup>
+		<!--
+			Exists is tested on the task, not on the target: a target's Condition is evaluated before its
+			DependsOnTargets run, so it would inspect a property the dependency has not computed yet. The
+			same trap is why the unresolved-root guard sits on EvaluatePurviewSkillState.
+		-->
+		<ValidatePurviewSkillFolders
+			SkillsRoot="$(_PurviewSkillsValidationRoot)"
+			Condition="'$(_PurviewSkillsValidationRoot)' != '' AND Exists('$(_PurviewSkillsValidationRoot)')"
+		>
 			<Output TaskParameter="Failures" ItemName="_PurviewSkillValidationFailure" />
 		</ValidatePurviewSkillFolders>
 		<Error
@@ -2498,8 +2522,11 @@
 		/>
 		<Message
 			Importance="Low"
-			Condition="'@(_PurviewSkillValidationFailure)' == ''"
-			Text="Authored skills in '$(PurviewSkillsSourceFolder)' are well formed."
+			Condition="
+				'@(_PurviewSkillValidationFailure)' == ''
+				AND '$(_PurviewSkillsValidationRoot)' != ''
+				AND Exists('$(_PurviewSkillsValidationRoot)')"
+			Text="Authored skills in '$(_PurviewSkillsValidationRoot)' are well formed."
 		/>
 	</Target>
 

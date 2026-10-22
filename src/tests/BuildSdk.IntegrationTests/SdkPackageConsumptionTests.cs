@@ -1,7 +1,5 @@
-using System.Diagnostics;
 using System.IO.Compression;
 using System.Text.Json;
-using Purview.BuildSdk.Harness;
 using Purview.BuildSdk.Infra;
 
 namespace Purview.BuildSdk;
@@ -221,7 +219,7 @@ sealed class SdkPackageConsumptionTests
 	{
 		var nugetConfigPath = Path.Combine(consumerDirectory, "NuGet.Config");
 
-		var (code, stdOut, stdErr) = await RunProcessAsync(
+		var (code, stdOut, stdErr) = await ProcessRunner.RunAsync(
 			"dotnet",
 			$"msbuild \"{Path.Combine("src", "Proof.LibTest", "Proof.LibTest.csproj")}\" -nologo -noconlog -p:RestoreConfigFile=\"{nugetConfigPath}\" -getItem:Analyzer -p:CentralPackageFloatingVersionsEnabled=true {extraMsbuildArgs}",
 			consumerDirectory,
@@ -250,7 +248,7 @@ sealed class SdkPackageConsumptionTests
 	{
 		var nugetConfigPath = Path.Combine(consumerDirectory, "NuGet.Config");
 
-		var (code, stdOut, stdErr) = await RunProcessAsync(
+		var (code, stdOut, stdErr) = await ProcessRunner.RunAsync(
 			"dotnet",
 			$"build \"{Path.Combine("src", "Proof.LibTest", "Proof.LibTest.csproj")}\" -nologo -p:RestoreConfigFile=\"{nugetConfigPath}\" -p:CentralPackageFloatingVersionsEnabled=true -p:NoWarn=NU1010",
 			consumerDirectory,
@@ -271,7 +269,7 @@ sealed class SdkPackageConsumptionTests
 			?? throw new InvalidOperationException("Unable to determine SDK project directory.");
 
 		var packageVersion = $"0.0.0-integration-test-{Guid.NewGuid():N}";
-		var (code, stdOut, stdErr) = await RunProcessAsync(
+		var (code, stdOut, stdErr) = await ProcessRunner.RunAsync(
 			"dotnet",
 			$"pack \"{sdkProjectPath}\" -c Release -o \"{feedDirectory}\" -p:PackageVersion={packageVersion} -p:Version={packageVersion}",
 			sdkProjectDirectory,
@@ -390,7 +388,7 @@ sealed class SdkPackageConsumptionTests
 		CancellationToken cancellationToken
 	)
 	{
-		var (code, stdOut, stdErr) = await RunProcessAsync(
+		var (code, stdOut, stdErr) = await ProcessRunner.RunAsync(
 			"dotnet",
 			"new sln -n Proof",
 			consumerDirectory,
@@ -398,10 +396,10 @@ sealed class SdkPackageConsumptionTests
 		);
 		await Assert.That(code).IsEqualTo(0).Because(TestHelpers.GenerateError(stdOut, stdErr));
 
-		(code, stdOut, stdErr) = await RunProcessAsync("git", "init", consumerDirectory, cancellationToken);
+		(code, stdOut, stdErr) = await ProcessRunner.RunAsync("git", "init", consumerDirectory, cancellationToken);
 		await Assert.That(code).IsEqualTo(0).Because(TestHelpers.GenerateError(stdOut, stdErr));
 
-		(code, stdOut, stdErr) = await RunProcessAsync(
+		(code, stdOut, stdErr) = await ProcessRunner.RunAsync(
 			"dotnet",
 			$"new classlib -n Proof.LibTest -o \"{Path.Combine(consumerSrcDirectory, "Proof.LibTest")}\" -f net10.0",
 			consumerDirectory,
@@ -418,7 +416,7 @@ sealed class SdkPackageConsumptionTests
 			.IsNotNull()
 			.Because("The generated solution file was not found in the consumer directory.");
 
-		(code, stdOut, stdErr) = await RunProcessAsync(
+		(code, stdOut, stdErr) = await ProcessRunner.RunAsync(
 			"dotnet",
 			$"sln \"{solutionPath}\" add \"{Path.Combine(consumerSrcDirectory, "Proof.LibTest", "Proof.LibTest.csproj")}\"",
 			consumerDirectory,
@@ -514,7 +512,7 @@ sealed class SdkPackageConsumptionTests
 	{
 		var nugetConfigPath = Path.Combine(consumerDirectory, "NuGet.Config");
 
-		var (code, stdOut, stdErr) = await RunProcessAsync(
+		var (code, stdOut, stdErr) = await ProcessRunner.RunAsync(
 			"dotnet",
 			$"msbuild \"{Path.Combine("src", "Proof.LibTest", "Proof.LibTest.csproj")}\" -nologo -noconlog -p:RestoreConfigFile=\"{nugetConfigPath}\" -getProperty:EditorConfigFilePath -getItem:EditorConfigFiles -p:CentralPackageFloatingVersionsEnabled=true",
 			consumerDirectory,
@@ -560,7 +558,7 @@ sealed class SdkPackageConsumptionTests
 			.IsTrue();
 
 		var editorConfigContent = await File.ReadAllTextAsync(editorConfigPath!, cancellationToken);
-		(code, stdOut, stdErr) = await RunProcessAsync(
+		(code, stdOut, stdErr) = await ProcessRunner.RunAsync(
 			"dotnet",
 			$"build \"{Path.Combine("src", "Proof.LibTest", "Proof.LibTest.csproj")}\" -nologo -p:RestoreConfigFile=\"{nugetConfigPath}\" -p:CentralPackageFloatingVersionsEnabled=true -p:NoWarn=NU1010",
 			consumerDirectory,
@@ -584,7 +582,7 @@ sealed class SdkPackageConsumptionTests
 			.IsFalse()
 			.Because($"A build created '{consumerAgentsFolder}'; only the skills CLI may write there.");
 
-		var (code, stdOut, stdErr) = await RunProcessAsync(
+		var (code, stdOut, stdErr) = await ProcessRunner.RunAsync(
 			"dotnet",
 			$"msbuild \"{Path.Combine("src", "Proof.LibTest", "Proof.LibTest.csproj")}\" -nologo -p:RestoreConfigFile=\"{nugetConfigPath}\" -t:EnsureRepositoryEditorConfigTarget -getProperty:RepositoryEditorConfigFilePath",
 			consumerDirectory,
@@ -609,7 +607,7 @@ sealed class SdkPackageConsumptionTests
 			.Because($"Repository EditorConfig file not found at path: {repositoryEditorConfigPath}");
 
 		File.Delete(repositoryEditorConfigPath);
-		(code, stdOut, stdErr) = await RunProcessAsync(
+		(code, stdOut, stdErr) = await ProcessRunner.RunAsync(
 			"dotnet",
 			$"msbuild \"{Path.Combine("src", "Proof.LibTest", "Proof.LibTest.csproj")}\" -nologo -p:RestoreConfigFile=\"{nugetConfigPath}\" -p:BootstrapEditorConfigToRepoRoot=false -t:EnsureRepositoryEditorConfigTarget",
 			consumerDirectory,
@@ -621,7 +619,7 @@ sealed class SdkPackageConsumptionTests
 			.IsFalse()
 			.Because("BootstrapEditorConfigToRepoRoot=false should disable the physical repo-level copy.");
 
-		(code, stdOut, stdErr) = await RunProcessAsync(
+		(code, stdOut, stdErr) = await ProcessRunner.RunAsync(
 			"dotnet",
 			$"msbuild \"{Path.Combine("src", "Proof.LibTest", "Proof.LibTest.csproj")}\" -nologo -p:RestoreConfigFile=\"{nugetConfigPath}\" -t:EnsureRepositoryGlobalJsonTarget -getProperty:RepositoryGlobalJsonFilePath",
 			consumerDirectory,
@@ -657,42 +655,5 @@ sealed class SdkPackageConsumptionTests
 			.Because(
 				$"Repository GlobalJson file at path {repositoryGlobalJsonPath} does not contain the expected content."
 			);
-	}
-
-	static async Task<(int Code, string StdOut, string StdErr)> RunProcessAsync(
-		string fileName,
-		string arguments,
-		string workingDirectory,
-		CancellationToken cancellationToken
-	)
-	{
-		using var process = new Process
-		{
-			StartInfo = new ProcessStartInfo
-			{
-				FileName = fileName,
-				Arguments = arguments,
-				WorkingDirectory = workingDirectory,
-				RedirectStandardOutput = true,
-				RedirectStandardError = true,
-				UseShellExecute = false,
-				CreateNoWindow = true,
-			},
-		};
-
-		// Isolate the throwaway consumer from the host CI environment so repo-root discovery
-		// (and therefore the .agents copy destination) resolves inside the consumer directory
-		// rather than GITHUB_WORKSPACE on CI runners.
-		ProjectHarness.IsolateFromHostEnvironment(
-			process.StartInfo.Environment,
-			new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-		);
-
-		process.Start();
-		var stdoutTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-		var stderrTask = process.StandardError.ReadToEndAsync(cancellationToken);
-		await process.WaitForExitAsync(cancellationToken);
-
-		return (process.ExitCode, await stdoutTask, await stderrTask);
 	}
 }

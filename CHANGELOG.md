@@ -34,6 +34,16 @@ release summarise what the commits recorded rather than what was written at the 
   `PurviewEditorConfigAdoptionWarning=false` or the existing `PurviewEditorConfigAutoUpdate=false`
   silences it.
 
+### Fixed
+
+- **Pack-time skill validation now validates the repository it is packing.** `ValidatePurviewSkills` read
+  the evaluation-time `PurviewSkillsSourceFolder`, which is resolved from `RepoRoot` and an `AGENTS.md`
+  walk-up. On a CI runner `RepoRoot` is taken from `GITHUB_WORKSPACE`, and it can also arrive stale from
+  the version-detection cache, so `pack` could validate a *different* repository's `skills/` folder —
+  passing silently while the packed repository's malformed skill went unnoticed. The target now resolves
+  the same root every other skill target uses (`ResolvePurviewSkillsRepositoryRoot`), so a malformed skill
+  fails `pack` in its own repository whatever the ambient environment says.
+
 ## [1.1.0] - 2026-10-21
 
 ### Performance

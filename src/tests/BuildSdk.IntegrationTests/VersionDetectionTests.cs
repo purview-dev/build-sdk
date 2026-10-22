@@ -1,4 +1,5 @@
 using Purview.BuildSdk.Harness;
+using Purview.BuildSdk.Infra;
 
 namespace Purview.BuildSdk;
 
@@ -431,8 +432,8 @@ sealed partial class VersionDetectionTests
 	}
 
 	/// <summary>
-	/// Runs <c>dotnet msbuild</c> against the throwaway project with the host CI environment
-	/// stripped out (GITHUB_WORKSPACE, GITHUB_ACTIONS, etc.), so version detection and CI
+	/// Runs <c>dotnet msbuild</c> against the throwaway project through the shared runner, which strips
+	/// the host CI environment (GITHUB_WORKSPACE, GITHUB_ACTIONS, etc.), so version detection and CI
 	/// detection behave deterministically on every machine and CI runner.
 	/// </summary>
 	static async Task<(int ExitCode, string Output)> RunMSBuildAsync(
@@ -441,30 +442,12 @@ sealed partial class VersionDetectionTests
 		CancellationToken cancellationToken
 	)
 	{
-		using var process = new System.Diagnostics.Process
-		{
-			StartInfo = new System.Diagnostics.ProcessStartInfo
-			{
-				FileName = "dotnet",
-				Arguments = $"msbuild \"{harness.ProjectFilePath}\" -nologo {msbuildArguments}",
-				WorkingDirectory = harness.ProjectDirectory,
-				RedirectStandardOutput = true,
-				RedirectStandardError = true,
-				UseShellExecute = false,
-				CreateNoWindow = true,
-			},
-		};
-
-		ProjectHarness.IsolateFromHostEnvironment(
-			process.StartInfo.Environment,
-			new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+		var (code, stdOut, stdErr) = await ProcessRunner.RunDotNetAsync(
+			$"msbuild \"{harness.ProjectFilePath}\" -nologo {msbuildArguments}",
+			harness.ProjectDirectory,
+			cancellationToken
 		);
 
-		process.Start();
-		var stdoutTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-		var stderrTask = process.StandardError.ReadToEndAsync(cancellationToken);
-		await process.WaitForExitAsync(cancellationToken);
-
-		return (process.ExitCode, (await stdoutTask) + (await stderrTask));
+		return (code, stdOut + stdErr);
 	}
 }
