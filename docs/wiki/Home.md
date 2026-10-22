@@ -52,8 +52,9 @@ repo root inherits everything automatically.
   default (`DisableAutoCopySdkFiles=true` to opt out). Existing files are never overwritten unless
   `PurviewRepoBootstrapMode` says otherwise, and a race between parallel projects is a no-op rather than a
   build failure.
-- **Bundled analyzers and code fixes** — three analyzers (`PDS0002`–`PDS0004`) and three suppressors
-  (`PDS0001`, `PDS0005`, `PDS0006`), plus IDE code fixes for naming and extensions-namespace conventions.
+- **Bundled analyzers and code fixes** — three analyzers (`PDS0002`–`PDS0004`) and four suppressors
+  (`PDS0001`, `PDS0005`, `PDS0006`, `PDS0007`), plus IDE code fixes for naming and extensions-namespace
+  conventions.
 - **Agent skills** — the SDK resolves which skills a restored package ships and the exact commit it was
   built from, and reports what is missing or has drifted (`PRSKL0010`–`PRSKL0014`) during an ordinary
   build. Installing them is a separate, explicit step (`dotnet msbuild -t:InstallPurviewSkills`) that

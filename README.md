@@ -778,10 +778,11 @@ copy of the shipped file, a stale copy is reported rather than obeyed: refresh i
 | `PDS0004` | Naming | Warning | Use correct acronym capitalization (`Api` → `API`) |
 | `PDS0005` | (suppressor) | — | Suppresses `IDE0130` for files under a project-root `Extensions/` folder, whose namespace is reset by `PDS0002` |
 | `PDS0006` | (suppressor) | — | Suppresses `CA1815` on a union declaration |
+| `PDS0007` | (suppressor) | — | Suppresses `CA1034` on an `extension` block |
 
-`PDS0001`, `PDS0005` and `PDS0006` are `DiagnosticSuppressor`s rather than analyzers, so they declare
-`SuppressionDescriptor`s and do not appear in `AnalyzerReleases.Shipped.md` — that file tracks analyzer
-rules only.
+`PDS0001`, `PDS0005`, `PDS0006` and `PDS0007` are `DiagnosticSuppressor`s rather than analyzers, so they
+declare `SuppressionDescriptor`s and do not appear in `AnalyzerReleases.Shipped.md` — that file tracks
+analyzer rules only.
 
 ### Union equality (`PDS0006`)
 
@@ -812,6 +813,39 @@ public readonly union TenantError(NotFound);        // CA1815 suppressed
 ```
 
 Add `PDS0006` to `NoWarn` to turn the suppression off, which brings `CA1815` back for every union.
+
+### Extension block nesting (`PDS0007`)
+
+A C# 14 `extension` block is compiled into a nested type inside its owning static class, so `CA1034`
+("nested types should not be visible") fires on every one — reported at the `extension` keyword and naming
+nothing, because the generated type has no source name:
+
+```text
+Lib.cs(5,2): error CA1034: Do not nest type . Alternatively, change its accessibility so that it is not
+externally visible.
+```
+
+The rule's advice cannot be taken: the nesting is the language's own encoding of the feature, not a design
+choice. `CA1034` ships at `error` in the shipped `.editorconfig`, so without this suppression a single
+extension block fails the build, and the only alternative is a `#pragma warning disable CA1034` or a
+`[SuppressMessage]` beside every one.
+
+The suppression is deliberately narrow — only the extension block's own declaration is suppressed, and an
+ordinary nested type keeps the warning whether it sits beside the block or inside it:
+
+```csharp
+public static class StringExtensions
+{
+	extension(string value)                        // CA1034 suppressed
+	{
+		public bool IsBlank => string.IsNullOrWhiteSpace(value);
+	}
+
+	public class Options { }                       // CA1034 still reported
+}
+```
+
+Add `PDS0007` to `NoWarn` to turn the suppression off, which restores `CA1034` for every extension block.
 
 `PDS0004` follows .NET naming guidance for well-known framework spellings (`Sql`, `Guid`, `Uuid`, `Url`,
 `Dns`, `Http`, `Xml`, `DbContext`, ...) while still enforcing uppercase for acronyms such as `Api` → `API`,

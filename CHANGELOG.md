@@ -13,6 +13,15 @@ release summarise what the commits recorded rather than what was written at the 
 
 ### Added
 
+- **`CA1034` is suppressed on an `extension` block (`PDS0007`).** A C# 14 extension block is compiled
+  into a nested type inside its owning static class, so `CA1034` ("nested types should not be visible")
+  fires on every one, reported at the `extension` keyword and naming nothing because the generated type
+  has no source name. The nesting is the language's own encoding of the feature rather than a design
+  choice, and `CA1034` ships at `error` in the shipped `.editorconfig`, so a single extension block
+  failed the build. The suppression is narrow: only the block's own declaration is suppressed, and an
+  ordinary nested type keeps the warning whether it sits beside the block or inside it. Add `PDS0007` to
+  `NoWarn` to restore `CA1034` for every extension block.
+
 - **An unmarked repository `.editorconfig` is now reported instead of being silently abandoned.** A
   repository that adopted the SDK before the version marker existed has a `.editorconfig` with no marker
   on its first line, which the refresh deliberately treats as the developer's own file — so it was never
