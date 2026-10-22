@@ -179,7 +179,47 @@ sealed class PurviewSkillValidationTests
 	[Test]
 	public async Task Pack_FailsWhenAPackedSkillIsMalformed(CancellationToken cancellationToken)
 	{
-		using var harness = await ProjectHarness.CreateAsync(
+		using var harness = await CreatePackHarnessAsync(cancellationToken);
+		await WriteSkillAsync(harness, "purview-broken", "# no frontmatter\n", cancellationToken);
+
+		var (exitCode, stdOut, stdErr) = await PackAsync(harness, cancellationToken);
+
+		// The repository that owns the skill is the one that sees the failure, rather than shipping
+		// a skill the CLI will silently skip.
+		await Assert.That(exitCode).IsNotEqualTo(0).Because(TestHelpers.GenerateError(stdOut, stdErr));
+		await Assert.That(stdOut + stdErr).Contains("PRSKL0005");
+	}
+
+	/// <summary>
+	/// A CI runner exports <c>GITHUB_WORKSPACE</c>, and the SDK's version detection reads
+	/// <c>RepoRoot</c> from it. The throwaway project is not inside that workspace, so inheriting the
+	/// variable must not make pack validate the *checkout's* skills while the project's own malformed
+	/// one goes unnoticed. This is how the test above first failed on the Linux runner.
+	/// </summary>
+	[Test]
+	public async Task Pack_ValidatesTheProjectsOwnSkills_EvenWhenAGitHubWorkspaceIsInherited(
+		CancellationToken cancellationToken
+	)
+	{
+		using var harness = await CreatePackHarnessAsync(
+			cancellationToken,
+			new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["GITHUB_WORKSPACE"] = RepositoryRoot }
+		);
+		await WriteSkillAsync(harness, "purview-broken", "# no frontmatter\n", cancellationToken);
+
+		var (exitCode, stdOut, stdErr) = await PackAsync(harness, cancellationToken);
+
+		await Assert.That(exitCode).IsNotEqualTo(0).Because(TestHelpers.GenerateError(stdOut, stdErr));
+		await Assert.That(stdOut + stdErr).Contains("PRSKL0005");
+		await Assert.That(stdOut + stdErr).Contains("purview-broken");
+	}
+
+	static async Task<ProjectHarness> CreatePackHarnessAsync(
+		CancellationToken cancellationToken,
+		IDictionary<string, string>? extraEnv = null
+	)
+	{
+		var harness = await ProjectHarness.CreateAsync(
 			"SkillValidationPack",
 			extraProps: """
 			<IsPackable>true</IsPackable>
@@ -187,6 +227,7 @@ sealed class PurviewSkillValidationTests
 			<ExcludePurviewTelemetry>true</ExcludePurviewTelemetry>
 			<ExcludeMSTelemetryExtension>true</ExcludeMSTelemetryExtension>
 			""",
+			extraEnv: extraEnv,
 			cancellationToken: cancellationToken
 		);
 		await File.WriteAllTextAsync(
@@ -194,48 +235,49 @@ sealed class PurviewSkillValidationTests
 			"# Agents",
 			cancellationToken
 		);
-		await WriteSkillAsync(harness, "purview-broken", "# no frontmatter\n", cancellationToken);
+		return harness;
+	}
 
+	/// <summary>
+	/// Packs through the harness so the runner's environment cannot leak in: a spawned process that
+	/// inherits <c>GITHUB_WORKSPACE</c> resolves the wrong repository root and validates the wrong
+	/// skills.
+	/// </summary>
+	static Task<(int Code, string StdOut, string StdErr)> PackAsync(
+		ProjectHarness harness,
+		CancellationToken cancellationToken
+	)
+	{
 		var feedDirectory = Path.Combine(harness.SolutionDirectory, "feed");
-		var (exitCode, stdOut, stdErr) = await RunProcessAsync(
+
+		return harness.RunProcessAsync(
 			"dotnet",
 			$"pack \"{harness.ProjectFilePath}\" -c Release -o \"{feedDirectory}\" -p:PackageVersion=0.0.0-test -p:Version=0.0.0-test",
 			harness.SolutionDirectory,
 			cancellationToken
 		);
-
-		// The repository that owns the skill is the one that sees the failure, rather than shipping
-		// a skill the CLI will silently skip.
-		await Assert.That(exitCode).IsNotEqualTo(0);
-		await Assert.That(stdOut + stdErr).Contains("PRSKL0005");
 	}
 
-	static async Task<(int Code, string StdOut, string StdErr)> RunProcessAsync(
-		string fileName,
-		string arguments,
-		string workingDirectory,
-		CancellationToken cancellationToken
-	)
+	/// <summary>
+	/// This repository's root, found by the same <c>AGENTS.md</c> marker the SDK uses, so a test can
+	/// point <c>GITHUB_WORKSPACE</c> at a real checkout.
+	/// </summary>
+	static string RepositoryRoot
 	{
-		using var process = new System.Diagnostics.Process
+		get
 		{
-			StartInfo = new System.Diagnostics.ProcessStartInfo
+			var directory = new DirectoryInfo(AppContext.BaseDirectory);
+			while (directory is not null)
 			{
-				FileName = fileName,
-				Arguments = arguments,
-				WorkingDirectory = workingDirectory,
-				RedirectStandardOutput = true,
-				RedirectStandardError = true,
-				UseShellExecute = false,
-				CreateNoWindow = true,
-			},
-		};
+				if (File.Exists(Path.Combine(directory.FullName, "AGENTS.md")))
+					return directory.FullName;
 
-		process.Start();
-		var stdoutTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-		var stderrTask = process.StandardError.ReadToEndAsync(cancellationToken);
-		await process.WaitForExitAsync(cancellationToken);
+				directory = directory.Parent;
+			}
 
-		return (process.ExitCode, await stdoutTask, await stderrTask);
+			throw new InvalidOperationException(
+				$"No AGENTS.md was found above '{AppContext.BaseDirectory}', so the repository root could not be resolved."
+			);
+		}
 	}
 }

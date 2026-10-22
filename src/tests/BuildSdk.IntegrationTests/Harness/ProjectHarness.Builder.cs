@@ -22,6 +22,7 @@ sealed class ProjectHarnessBuilder
 	string? _preImportPropsRaw;
 	string? _projectFileContent;
 	string? _solutionDirectory;
+	bool _seedRepositoryBootstrapFiles = true;
 
 	internal ProjectHarnessBuilder(string projectName)
 	{
@@ -128,6 +129,21 @@ sealed class ProjectHarnessBuilder
 		return this;
 	}
 
+	/// <summary>
+	/// Leaves the throwaway solution without a <c>.editorconfig</c> or <c>global.json</c>, so the SDK's
+	/// repository bootstrap has work to do on the first build.
+	/// </summary>
+	/// <remarks>
+	/// Only the tests that cover the bootstrap itself need this. Every other test seeds those files,
+	/// because a throwaway solution starts empty and would otherwise make the bootstrap compile and run its
+	/// inline task on every build — around 0.7s each, for a side effect the test is not looking at.
+	/// </remarks>
+	public ProjectHarnessBuilder WithoutRepositoryBootstrapSeed()
+	{
+		_seedRepositoryBootstrapFiles = false;
+		return this;
+	}
+
 	public async Task<ProjectHarness> BuildAsync(CancellationToken cancellationToken = default)
 	{
 		var workDir = string.IsNullOrWhiteSpace(_solutionDirectory)
@@ -142,7 +158,13 @@ sealed class ProjectHarnessBuilder
 			ownsWorkDir
 		);
 
-		await harness.WriteBoilerplateAsync(_namespacePrefix, _projectName, _preImportPropsRaw, cancellationToken);
+		await harness.WriteBoilerplateAsync(
+			_namespacePrefix,
+			_projectName,
+			_preImportPropsRaw,
+			_seedRepositoryBootstrapFiles,
+			cancellationToken
+		);
 
 		if (!string.IsNullOrWhiteSpace(_projectFileContent))
 		{

@@ -1,5 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
 	<PropertyGroup>
+		<!-- A consuming repository's test project compiles against PurviewSkillTests and the rule engine,
+		     so a removed or changed public member breaks it. Compared against the last published version
+		     on every pack. -->
+		<EnablePackageValidation>true</EnablePackageValidation>
+		<PackageValidationBaselineVersion>1.0.7</PackageValidationBaselineVersion>
+	</PropertyGroup>
+
+	<PropertyGroup>
 		<PackageId>Purview.Skills.Testing</PackageId>
 		<Title>Purview Skills Testing</Title>
 		<Description>Validates a repository's authored agent skills against the Agent Skills specification: SKILL.md frontmatter, name and description constraints, optional fields, bundled resource links and body size. Ships a TUnit base class, so a consuming repository adds one derived test class and its skills/ folder is checked on every test run.</Description>

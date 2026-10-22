@@ -45,6 +45,7 @@ public static class SkillManifestReader
 			};
 		}
 
+		// The file exists, so read it and parse it.
 		return Parse(folderName, skillDirectory, skillFilePath, File.ReadAllText(skillFilePath));
 	}
 

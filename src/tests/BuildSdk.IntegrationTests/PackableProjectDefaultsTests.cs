@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.IO.Compression;
 using System.Xml.Linq;
 using Purview.BuildSdk.Harness;
@@ -356,8 +355,7 @@ sealed class PackableProjectDefaultsTests
 
 			var feedDirectory = Path.Combine(sharedDir, "feed");
 			var solutionPath = Path.Combine(sharedDir, "TestingSolution.slnx");
-			var (exitCode, stdOut, stdErr) = await RunProcessAsync(
-				"dotnet",
+			var (exitCode, stdOut, stdErr) = await ProcessRunner.RunDotNetAsync(
 				$"pack \"{solutionPath}\" -c Release -o \"{feedDirectory}\"",
 				sharedDir,
 				cancellationToken
@@ -416,8 +414,7 @@ sealed class PackableProjectDefaultsTests
 
 			var feedDirectory = Path.Combine(sharedDir, "feed");
 			var solutionPath = Path.Combine(sharedDir, "TestingSolution.slnx");
-			var (exitCode, stdOut, stdErr) = await RunProcessAsync(
-				"dotnet",
+			var (exitCode, stdOut, stdErr) = await ProcessRunner.RunDotNetAsync(
 				$"pack \"{solutionPath}\" -c Release -o \"{feedDirectory}\"",
 				sharedDir,
 				cancellationToken
@@ -462,8 +459,7 @@ sealed class PackableProjectDefaultsTests
 	)
 	{
 		var feedDirectory = Path.Combine(harness.SolutionDirectory, "feed");
-		return await RunProcessAsync(
-			"dotnet",
+		return await ProcessRunner.RunDotNetAsync(
 			$"pack \"{harness.ProjectFilePath}\" -c Release -o \"{feedDirectory}\"",
 			harness.SolutionDirectory,
 			cancellationToken
@@ -478,39 +474,5 @@ sealed class PackableProjectDefaultsTests
 		);
 
 		return match.Success ? match.Groups[1].Value : string.Empty;
-	}
-
-	static async Task<(int Code, string StdOut, string StdErr)> RunProcessAsync(
-		string fileName,
-		string arguments,
-		string workingDirectory,
-		CancellationToken cancellationToken
-	)
-	{
-		using var process = new Process
-		{
-			StartInfo = new ProcessStartInfo
-			{
-				FileName = fileName,
-				Arguments = arguments,
-				WorkingDirectory = workingDirectory,
-				RedirectStandardOutput = true,
-				RedirectStandardError = true,
-				UseShellExecute = false,
-				CreateNoWindow = true,
-			},
-		};
-
-		ProjectHarness.IsolateFromHostEnvironment(
-			process.StartInfo.Environment,
-			new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-		);
-
-		process.Start();
-		var stdoutTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-		var stderrTask = process.StandardError.ReadToEndAsync(cancellationToken);
-		await process.WaitForExitAsync(cancellationToken);
-
-		return (process.ExitCode, await stdoutTask, await stderrTask);
 	}
 }

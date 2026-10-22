@@ -37,7 +37,7 @@ public sealed record SkillManifest
 
 	/// <summary>The optional <c>metadata</c> mapping.</summary>
 	public IReadOnlyDictionary<string, string> Metadata { get; init; } =
-		new Dictionary<string, string>(System.StringComparer.Ordinal);
+		new Dictionary<string, string>(StringComparer.Ordinal);
 
 	/// <summary>Top-level frontmatter keys the specification does not define.</summary>
 	/// <remarks>

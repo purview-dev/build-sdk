@@ -59,6 +59,139 @@ sealed class RepositoryFileSyncTests
 		await Assert.That(await File.ReadAllTextAsync(editorConfigPath, cancellationToken)).IsEqualTo("# user owned\n");
 	}
 
+	/// <summary>
+	/// A <c>.editorconfig</c> carrying the SDK's version marker is one the SDK wrote, so a version change
+	/// refreshes it. This is what stops a consuming repository silently running a release-old rule set.
+	/// </summary>
+	[Test]
+	public async Task EditorConfigBootstrap_StaleVersionMarker_IsUpdated(CancellationToken cancellationToken)
+	{
+		using var h = await CreateHarnessAsync(extraProps: null, cancellationToken: cancellationToken);
+
+		var editorConfigPath = Path.Combine(h.SolutionDirectory, ".editorconfig");
+		await File.WriteAllTextAsync(
+			editorConfigPath,
+			"# Purview.BuildSdk 0.0.1 - managed file, do not edit\nroot = true\n",
+			cancellationToken
+		);
+
+		var (success, output, errors) = await h.BuildAsync(restore: true, verbose: true, cancellationToken);
+
+		await Assert.That(success).IsTrue().Because(TestHelpers.GenerateError(output, errors));
+
+		var updated = await File.ReadAllTextAsync(editorConfigPath, cancellationToken);
+		await Assert.That(updated).DoesNotContain("Purview.BuildSdk 0.0.1");
+		await Assert.That(updated).Contains("Purview.BuildSdk ");
+	}
+
+	/// <summary>
+	/// The marker is the whole of the ownership test. Without it the file is the developer's, whatever it
+	/// contains, and must survive untouched — which is what makes deleting the marker line a supported way
+	/// to take ownership.
+	/// </summary>
+	[Test]
+	public async Task EditorConfigBootstrap_NoVersionMarker_IsLeftAlone(CancellationToken cancellationToken)
+	{
+		using var h = await CreateHarnessAsync(extraProps: null, cancellationToken: cancellationToken);
+
+		var editorConfigPath = Path.Combine(h.SolutionDirectory, ".editorconfig");
+		const string owned = "root = true\n\n[*.cs]\nindent_style = space\n";
+
+		await File.WriteAllTextAsync(editorConfigPath, owned, cancellationToken);
+
+		var (success, output, errors) = await h.BuildAsync(restore: true, verbose: true, cancellationToken);
+
+		await Assert.That(success).IsTrue().Because(TestHelpers.GenerateError(output, errors));
+		await Assert.That(await File.ReadAllTextAsync(editorConfigPath, cancellationToken)).IsEqualTo(owned);
+	}
+
+	/// <summary>
+	/// An unmarked file is left alone, but silence is how a repository bootstrapped before the marker
+	/// existed stays pinned to a release-old rule set forever. It is reported once per SDK version, so
+	/// the second build of the same state has to say nothing.
+	/// </summary>
+	[Test]
+	public async Task EditorConfigBootstrap_NoVersionMarker_IsReportedOnce(CancellationToken cancellationToken)
+	{
+		using var h = await CreateHarnessAsync(
+			// The suite itself runs in CI, where the advice is deliberately silent.
+			extraProps: "<PurviewEditorConfigAdoptionWarningInCI>true</PurviewEditorConfigAdoptionWarningInCI>",
+			cancellationToken: cancellationToken
+		);
+
+		var editorConfigPath = Path.Combine(h.SolutionDirectory, ".editorconfig");
+		const string owned = "root = true\n\n[*.cs]\nindent_style = space\n";
+
+		await File.WriteAllTextAsync(editorConfigPath, owned, cancellationToken);
+
+		var (success, output, errors) = await h.BuildAsync(restore: true, verbose: true, cancellationToken);
+
+		await Assert.That(success).IsTrue().Because(TestHelpers.GenerateError(output, errors));
+		await Assert.That(output + errors).Contains("carries no Purview.BuildSdk version marker");
+		await Assert.That(output + errors).Contains("PurviewRepoBootstrapMode=Always");
+		await Assert.That(await File.ReadAllTextAsync(editorConfigPath, cancellationToken)).IsEqualTo(owned);
+
+		var (secondSuccess, secondOutput, secondErrors) = await h.BuildAsync(
+			restore: false,
+			verbose: true,
+			cancellationToken
+		);
+
+		await Assert.That(secondSuccess).IsTrue().Because(TestHelpers.GenerateError(secondOutput, secondErrors));
+		await Assert.That(secondOutput + secondErrors).DoesNotContain("carries no Purview.BuildSdk version marker");
+	}
+
+	/// <summary>
+	/// Taking ownership of the file is the supported outcome, so the property that says so has to
+	/// silence the advice as well as the refresh.
+	/// </summary>
+	[Test]
+	public async Task EditorConfigBootstrap_AutoUpdateDisabled_SuppressesTheAdoptionWarning(
+		CancellationToken cancellationToken
+	)
+	{
+		using var h = await CreateHarnessAsync(
+			extraProps: """
+			<PurviewEditorConfigAdoptionWarningInCI>true</PurviewEditorConfigAdoptionWarningInCI>
+			<PurviewEditorConfigAutoUpdate>false</PurviewEditorConfigAutoUpdate>
+			""",
+			cancellationToken: cancellationToken
+		);
+
+		await File.WriteAllTextAsync(
+			Path.Combine(h.SolutionDirectory, ".editorconfig"),
+			"root = true\n",
+			cancellationToken
+		);
+
+		var (success, output, errors) = await h.BuildAsync(restore: true, verbose: true, cancellationToken);
+
+		await Assert.That(success).IsTrue().Because(TestHelpers.GenerateError(output, errors));
+		await Assert.That(output + errors).DoesNotContain("carries no Purview.BuildSdk version marker");
+	}
+
+	/// <summary>
+	/// The documented opt-out has to actually pin the file, marker and all.
+	/// </summary>
+	[Test]
+	public async Task EditorConfigBootstrap_AutoUpdateDisabled_KeepsTheStaleFile(CancellationToken cancellationToken)
+	{
+		using var h = await CreateHarnessAsync(
+			extraProps: "<PurviewEditorConfigAutoUpdate>false</PurviewEditorConfigAutoUpdate>",
+			cancellationToken: cancellationToken
+		);
+
+		var editorConfigPath = Path.Combine(h.SolutionDirectory, ".editorconfig");
+		const string stale = "# Purview.BuildSdk 0.0.1 - managed file, do not edit\nroot = true\n";
+
+		await File.WriteAllTextAsync(editorConfigPath, stale, cancellationToken);
+
+		var (success, output, errors) = await h.BuildAsync(restore: true, verbose: true, cancellationToken);
+
+		await Assert.That(success).IsTrue().Because(TestHelpers.GenerateError(output, errors));
+		await Assert.That(await File.ReadAllTextAsync(editorConfigPath, cancellationToken)).IsEqualTo(stale);
+	}
+
 	[Test]
 	public async Task EditorConfigBootstrap_WarnOnDrift_ReportsWarningAndKeepsUserFile(
 		CancellationToken cancellationToken
@@ -263,6 +396,10 @@ sealed class RepositoryFileSyncTests
 			<PackageReference Remove="Purview.Telemetry.SourceGenerator" />
 			<PackageReference Remove="Microsoft.Extensions.Telemetry.Abstractions" />
 			""",
+			// These are the tests that cover the bootstrap, so the solution has to start without the files
+			// it creates. Every other harness test seeds them, to keep the bootstrap's inline task out of
+			// the build.
+			seedRepositoryBootstrapFiles: false,
 			cancellationToken: cancellationToken
 		);
 

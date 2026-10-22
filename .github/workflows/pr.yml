@@ -21,10 +21,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # Every test project under src/tests. A project missing from this list is simply never run,
+        # so keep it in step with the folder.
         project:
           - Analyzers.UnitTests.csproj
           - Analyzers.IntegrationTests.csproj
           - BuildSdk.IntegrationTests.csproj
+          - SkillsTesting.UnitTests.csproj
     uses: purview-dev/build/.github/workflows/purview-build.yml@main
     with:
       run-lint: false

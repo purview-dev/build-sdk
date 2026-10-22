@@ -41,7 +41,7 @@ A reusable MSBuild SDK NuGet package that delivers standardised .NET project def
     "runner": "Microsoft.Testing.Platform"
   },
   "msbuild-sdks": {
-    "Purview.BuildSdk": "1.0.0"
+    "Purview.BuildSdk": "1.1.0"
   }
 }
 ```
@@ -69,7 +69,7 @@ A reusable MSBuild SDK NuGet package that delivers standardised .NET project def
 
 ### 4. Copy `Directory.Packages.props` to repo root
 
-Copy `templates/Directory.Packages.props` from this package to your repo root. All package versions default to `*` (latest at restore). Pin any package by replacing `*` with a specific version.
+Copy [`templates/Directory.Packages.props`](https://github.com/purview-dev/build-sdk/blob/main/templates/Directory.Packages.props) from the repository to your repo root. The templates are not packed into the NuGet package — they are starting points held in git, so take them from there. Every package names a version. A `PackageVersion` is a minimum rather than an exact pin — NuGet resolves it unless something in the graph requires higher — so floating versions are not needed to stay current, and they would make a build depend on the day it ran.
 
 > **Note:** `ManagePackageVersionsCentrally=true` is set by the SDK. You **must** have a `Directory.Packages.props` at your repo root for CPM to work, even if it only contains the packages the SDK adds automatically.
 
@@ -194,6 +194,84 @@ solution writes those same destinations, so a write is staged into a temporary f
 place, an existing file is never overwritten unless asked, retries are silent (`MSB3026` is demoted
 to a low-importance message) and only a copy that still fails after every retry is reported. See
 [Repository Bootstrap](docs/wiki/Repository-Bootstrap.md) for the retry and failure properties.
+
+### `.editorconfig`
+
+The bootstrapped `.editorconfig` opens with a version marker:
+
+```editorconfig
+# Purview.BuildSdk 1.1.0 - managed file, do not edit
+```
+
+That line is how the SDK recognises a file **it** wrote. When the SDK version changes, a file carrying
+the marker is refreshed so a repository never silently runs a release-old rule set. A `.editorconfig`
+**without** the marker is yours and is never touched, whatever it contains — which makes deleting the
+first line a supported way to take ownership of the file. You then own every rule in it, including the
+ones a later SDK version would have fixed.
+
+A repository that adopted the SDK *before* the marker existed has exactly that file: unmarked, so it
+is never refreshed, and indistinguishable on disk from one you wrote. Rather than overwrite it, the
+SDK says so once:
+
+> `<path>/.editorconfig` carries no Purview.BuildSdk version marker, so the SDK treats it as yours and
+> will never refresh it …
+
+Build once with `-p:PurviewRepoBootstrapMode=Always` to adopt the SDK's file, or set
+`PurviewEditorConfigAutoUpdate=false` to keep your own and silence it. The warning is reported once
+per repository per SDK version — stamped at `.purview/editorconfig-adoption.cache`, overridable with
+`PurviewEditorConfigAdoptionStampPath` — and is skipped on CI builds, so no advice can fail a build
+run with `-warnaserror`. `PurviewEditorConfigAdoptionWarningInCI=true` opts back in;
+`PurviewEditorConfigAdoptionWarning=false` turns it off entirely.
+
+The version is stamped in when the package is built, from the version being packed, so it is always
+the version you restored. It is not maintained by hand in the repository, and building never rewrites
+the tracked `.editorconfig`: the stamped copy is written to `obj/` and that copy is packed.
+
+#### Adding your own rules
+
+Do not edit the managed file — put your rules in a **second `.editorconfig` in a subdirectory**, most
+often `src/.editorconfig`, and omit `root = true`:
+
+```editorconfig
+# src/.editorconfig - yours, never touched by the SDK
+[*.cs]
+dotnet_diagnostic.CA1062.severity = none
+```
+
+EditorConfig applies the nearest file last, so your settings override the SDK's for everything beneath
+that folder, and nothing you write is lost when the managed file is updated. A rule you want to turn
+off repository-wide is better expressed as `NoWarn` in `Directory.Build.props`, which the managed file
+also never touches.
+
+#### Turning the update off
+
+| Property | Effect |
+| -- | -- |
+| `PurviewEditorConfigAutoUpdate=false` | Keep the managed `.editorconfig` exactly as it is; everything else still bootstraps. |
+| `PurviewEditorConfigAdoptionWarning=false` | Keep an unmarked `.editorconfig` without being told it will never be refreshed. |
+| `BootstrapEditorConfigToRepoRoot=false` | Do not write a repository `.editorconfig` at all. |
+| `PurviewRepoBootstrapMode=Never` | Opt out of all bootstrapping, `global.json` included. |
+
+#### Finding the repository root
+
+`PurviewRepositoryRootStrategy` chooses how the bootstrap locates the repository root:
+
+| Value | Behaviour |
+| -- | -- |
+| `Markers` *(default)* | The nearest ancestor directory containing `.git/`, found with plain MSBuild path checks. No process is started. |
+| `Git` | Asks git via `rev-parse`, falling back to the walk. |
+
+`Markers` is the default because `Git` spawns a git process for every project on every build, whether or
+not anything needs bootstrapping. The two can disagree: git reports the *worktree* root, so for a
+submodule, a linked worktree, or a package nested inside a larger repository it may answer differently
+from "the nearest `.git/` above me". Set `Git` where that distinction matters.
+
+The bootstrap also skips its file-sync task entirely when there is nothing to do — a destination that
+exists, is not marker-stale, and is not being checked for drift. That avoids compiling the inline task,
+which is worth roughly 0.7s per build.
+
+`PurviewRepoBootstrapMode=Always` still forces an overwrite regardless of the marker, and
+`WarnOnDrift` still reports a difference without writing.
 
 ### Agent skills
 
@@ -698,6 +776,76 @@ copy of the shipped file, a stale copy is reported rather than obeyed: refresh i
 | `PDS0002` | Naming | Warning | Files under a project-root `Extensions/` folder reset their namespace |
 | `PDS0003` | Style | Warning | Prefer an explicit type with target-typed `new()` over `var` |
 | `PDS0004` | Naming | Warning | Use correct acronym capitalization (`Api` → `API`) |
+| `PDS0005` | (suppressor) | — | Suppresses `IDE0130` for files under a project-root `Extensions/` folder, whose namespace is reset by `PDS0002` |
+| `PDS0006` | (suppressor) | — | Suppresses `CA1815` on a union declaration |
+| `PDS0007` | (suppressor) | — | Suppresses `CA1034` on an `extension` block |
+
+`PDS0001`, `PDS0005`, `PDS0006` and `PDS0007` are `DiagnosticSuppressor`s rather than analyzers, so they
+declare `SuppressionDescriptor`s and do not appear in `AnalyzerReleases.Shipped.md` — that file tracks
+analyzer rules only.
+
+### Union equality (`PDS0006`)
+
+A union is a value type, so `CA1815` ("override `Equals` and the equality operators on value types") fires
+on every one. The members it asks for cannot sensibly be written: C# does not synthesise value equality for
+a union declaration, and a union is read by matching its active case rather than by comparing two unions.
+Analyser support for unions is planned for .NET 12, so until then every union declaration would otherwise
+need a `#pragma warning disable CA1815` or a `[SuppressMessage]` beside it.
+
+Both spellings are recognised, because both produce a union and both are reported by `CA1815`:
+
+```csharp
+// the union keyword
+public readonly union TenantError(NotFound, Disabled);
+
+// System.Runtime.CompilerServices.UnionAttribute, which is also how the keyword form is
+// encoded in metadata, so a union from a referenced assembly is recognised too
+[Union]
+public struct AttributedUnion { public int Tag; }
+```
+
+The suppression is deliberately narrow. A union's **case types** are ordinary value types and keep the
+warning, as does every other struct and any type nested inside a union:
+
+```csharp
+public readonly record struct NotFound(int Id);     // CA1815 still reported
+public readonly union TenantError(NotFound);        // CA1815 suppressed
+```
+
+Add `PDS0006` to `NoWarn` to turn the suppression off, which brings `CA1815` back for every union.
+
+### Extension block nesting (`PDS0007`)
+
+A C# 14 `extension` block is compiled into a nested type inside its owning static class, so `CA1034`
+("nested types should not be visible") fires on every one — reported at the `extension` keyword and naming
+nothing, because the generated type has no source name:
+
+```text
+Lib.cs(5,2): error CA1034: Do not nest type . Alternatively, change its accessibility so that it is not
+externally visible.
+```
+
+The rule's advice cannot be taken: the nesting is the language's own encoding of the feature, not a design
+choice. `CA1034` ships at `error` in the shipped `.editorconfig`, so without this suppression a single
+extension block fails the build, and the only alternative is a `#pragma warning disable CA1034` or a
+`[SuppressMessage]` beside every one.
+
+The suppression is deliberately narrow — only the extension block's own declaration is suppressed, and an
+ordinary nested type keeps the warning whether it sits beside the block or inside it:
+
+```csharp
+public static class StringExtensions
+{
+	extension(string value)                        // CA1034 suppressed
+	{
+		public bool IsBlank => string.IsNullOrWhiteSpace(value);
+	}
+
+	public class Options { }                       // CA1034 still reported
+}
+```
+
+Add `PDS0007` to `NoWarn` to turn the suppression off, which restores `CA1034` for every extension block.
 
 `PDS0004` follows .NET naming guidance for well-known framework spellings (`Sql`, `Guid`, `Uuid`, `Url`,
 `Dns`, `Http`, `Xml`, `DbContext`, ...) while still enforcing uppercase for acronyms such as `Api` → `API`,

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Purview.BuildSdk.Infra;
 
 namespace Purview.BuildSdk;
 
@@ -87,6 +88,7 @@ sealed partial class RepositorySkillsSelfTests
 		if (!document.RootElement.TryGetProperty("skills", out var skills))
 			return [];
 
+		// The lock file is a dictionary of skill names to objects with "source" and "sourceType" properties.
 		return
 		[
 			.. skills
@@ -195,25 +197,18 @@ sealed partial class RepositorySkillsSelfTests
 
 	static async Task<string[]> TrackedFilesUnderAsync(string repositoryRelativePath)
 	{
-		using var process = System.Diagnostics.Process.Start(
-			new System.Diagnostics.ProcessStartInfo("git", $"ls-files -- \"{repositoryRelativePath}\"")
-			{
-				WorkingDirectory = RepositoryRoot,
-				RedirectStandardOutput = true,
-				RedirectStandardError = true,
-				UseShellExecute = false,
-			}
+		var (exitCode, stdOut, _) = await ProcessRunner.RunAsync(
+			"git",
+			$"ls-files -- \"{repositoryRelativePath}\"",
+			RepositoryRoot
 		);
 
-		if (process is null)
+		if (exitCode != 0)
 			return [];
-
-		var output = await process.StandardOutput.ReadToEndAsync();
-		await process.WaitForExitAsync();
 
 		return
 		[
-			.. output
+			.. stdOut
 				.Split('\n', StringSplitOptions.RemoveEmptyEntries)
 				.Select(line => line.Trim())
 				.Where(line => line.Length > 0),

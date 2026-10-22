@@ -11,6 +11,8 @@ command-line builds and Visual Studio.
 | `PDS0003` | Style | Warning | Prefer an explicit type with target-typed `new()` over `var` |
 | `PDS0004` | Naming | Warning | Use correct acronym capitalization (`Api` → `API`) |
 | `PDS0005` | (suppressor) | — | Suppresses `IDE0130` for files rooted under `Extensions/` |
+| `PDS0006` | (suppressor) | — | Suppresses `CA1815` on a union declaration |
+| `PDS0007` | (suppressor) | — | Suppresses `CA1034` on an `extension` block |
 
 ## Style policy
 

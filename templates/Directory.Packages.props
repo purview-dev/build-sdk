@@ -2,53 +2,53 @@
 	<!--
 		Central Package Management for Purview.BuildSdk consumers
 		==================================================================
-		All PackageVersion entries use Version="*" (floating to latest at restore).
-		Pin individual packages by replacing "*" with a specific version, e.g.:
-		  <PackageVersion Include="TUnit" Version="1.45.29" />
+		A PackageVersion is a minimum, not an exact pin: NuGet resolves this version unless something
+		in the graph requires a higher one. Floating versions ("*") are not needed to stay current,
+		and they make a build depend on the day it ran, so every entry below names a version.
 
-		This file is automatically discovered by MSBuild when placed at the repo
-		root. ManagePackageVersionsCentrally is already set to true by the SDK —
-		this file only needs to define versions.
+		This file is automatically discovered by MSBuild when placed at the repo root.
+		ManagePackageVersionsCentrally is already set to true by the SDK - this file only needs to
+		define versions.
 
 		To add project-specific packages, append more PackageVersion entries below.
 	-->
 	<PropertyGroup>
-		<!-- Required to allow Version="*" floating versions in PackageVersion items -->
-		<CentralPackageFloatingVersionsEnabled>true</CentralPackageFloatingVersionsEnabled>
+		<AspireVersion>13.6.2</AspireVersion>
+		<SourceLinkVersion>10.0.402</SourceLinkVersion>
+		<TUnitVersion>1.76.0</TUnitVersion>
 	</PropertyGroup>
 	<ItemGroup>
 		<!-- ── Aspire ────────────────────────────────────────────────────── -->
-		<PackageVersion Include="Aspire.Hosting" Version="*" />
-		<PackageVersion Include="Aspire.Hosting.Testing" Version="*" />
-		<PackageVersion Include="Aspire.Hosting.JavaScript" Version="*" />
-		<PackageVersion Include="Aspire.Hosting.Azure.PostgreSQL" Version="*" />
-		<PackageVersion Include="Aspire.Hosting.Azure.Redis" Version="*" />
+		<PackageVersion Include="Aspire.Hosting" Version="$(AspireVersion)" />
+		<PackageVersion Include="Aspire.Hosting.Testing" Version="$(AspireVersion)" />
+		<PackageVersion Include="Aspire.Hosting.JavaScript" Version="$(AspireVersion)" />
+		<PackageVersion Include="Aspire.Hosting.Azure.PostgreSQL" Version="$(AspireVersion)" />
+		<PackageVersion Include="Aspire.Hosting.Azure.Redis" Version="$(AspireVersion)" />
 
 		<!-- ── Source Control / SourceLink ───────────────────────────────── -->
-		<PackageVersion Include="Microsoft.SourceLink.GitHub" Version="*" />
-		<PackageVersion Include="Microsoft.SourceLink.AzureDevOps.Git" Version="*" />
-		<PackageVersion Include="Microsoft.SourceLink.GitLab" Version="*" />
+		<PackageVersion Include="Microsoft.SourceLink.GitHub" Version="$(SourceLinkVersion)" />
+		<PackageVersion Include="Microsoft.SourceLink.AzureRepos.Git" Version="$(SourceLinkVersion)" />
+		<PackageVersion Include="Microsoft.SourceLink.GitLab" Version="$(SourceLinkVersion)" />
 
 		<!-- ── Purview Telemetry ─────────────────────────────────────────── -->
-		<PackageVersion Include="Purview.Telemetry.SourceGenerator" Version="*" />
-		<PackageVersion Include="Microsoft.Extensions.Telemetry.Abstractions" Version="*" />
+		<PackageVersion Include="Purview.Telemetry.SourceGenerator" Version="5.0.4" />
+		<PackageVersion Include="Microsoft.Extensions.Telemetry.Abstractions" Version="10.11.0" />
 
 		<!-- ── Azure Container Tools ─────────────────────────────────────── -->
-		<PackageVersion Include="Microsoft.VisualStudio.Azure.Containers.Tools.Targets" Version="*" />
+		<PackageVersion Include="Microsoft.VisualStudio.Azure.Containers.Tools.Targets" Version="1.23.0" />
 
 		<!-- ── Testing (TUnit — default framework) ────────────────────────  -->
-		<PackageVersion Include="TUnit" Version="*" />
-		<PackageVersion Include="TUnit.Mocks" Version="*" />
-		<PackageVersion Include="TUnit.Aspire" Version="*" />
-		<PackageVersion Include="Microsoft.Testing.Platform.MSBuild" Version="*" />
+		<PackageVersion Include="TUnit" Version="$(TUnitVersion)" />
+		<PackageVersion Include="TUnit.Mocks" Version="$(TUnitVersion)" />
+		<PackageVersion Include="TUnit.Aspire" Version="$(TUnitVersion)" />
 
 		<!-- ── Testing (Xunit — opt-in via TestingFramework=Xunit) ───────── -->
-		<PackageVersion Include="xunit.v3" Version="*" />
-		<PackageVersion Include="xunit.runner.visualstudio" Version="*" />
+		<PackageVersion Include="xunit.v3" Version="4.0.2" />
+		<PackageVersion Include="xunit.runner.visualstudio" Version="4.0.1" />
 
 		<!-- ── Testing (shared across frameworks) ────────────────────────── -->
-		<PackageVersion Include="Bogus" Version="*" />
-		<PackageVersion Include="NSubstitute" Version="*" />
-		<PackageVersion Include="NSubstitute.Analyzers.CSharp" Version="*" />
+		<PackageVersion Include="Bogus" Version="35.6.5" />
+		<PackageVersion Include="NSubstitute" Version="6.2.0" />
+		<PackageVersion Include="NSubstitute.Analyzers.CSharp" Version="1.0.17" />
 	</ItemGroup>
 </Project>

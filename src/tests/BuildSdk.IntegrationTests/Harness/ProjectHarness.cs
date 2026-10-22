@@ -1,7 +1,7 @@
 using System.Collections.Immutable;
-using System.Diagnostics;
 using System.Text.Json;
 using System.Xml.Linq;
+using Purview.BuildSdk.Infra;
 
 namespace Purview.BuildSdk.Harness;
 
@@ -53,6 +53,7 @@ partial class ProjectHarness : IDisposable
 		string? extraItems = null,
 		IDictionary<string, string>? extraEnv = null,
 		string? preImportProps = null,
+		bool seedRepositoryBootstrapFiles = true,
 		CancellationToken cancellationToken = default
 	)
 	{
@@ -60,6 +61,9 @@ partial class ProjectHarness : IDisposable
 			.WithSdk(sdk)
 			.WithTargetFramework(targetFramework)
 			.WithNamespacePrefix(namespacePrefix);
+
+		if (!seedRepositoryBootstrapFiles)
+			builder.WithoutRepositoryBootstrapSeed();
 
 		if (withDockerfile)
 			builder.WithDockerfile();
@@ -96,10 +100,70 @@ partial class ProjectHarness : IDisposable
 			.BuildAsync(cancellationToken);
 	}
 
+	/// <summary>
+	/// The <c>.editorconfig</c> the SDK bootstraps from, resolved the same way <c>Sdk.props</c> resolves
+	/// <c>EditorConfigFilePath</c> when the SDK is imported from source: the packed copy if it exists,
+	/// otherwise the repository's own.
+	/// </summary>
+	static string SourceEditorConfigPath
+	{
+		get
+		{
+			var packaged = Path.Combine(SdkPaths.SdkDirectory, ".editorconfig");
+
+			return File.Exists(packaged)
+				? packaged
+				: Path.GetFullPath(Path.Combine(SdkPaths.SdkDirectory, "..", "..", "..", "..", ".editorconfig"));
+		}
+	}
+
+	/// <summary>
+	/// Seeds the files the SDK's repository bootstrap would otherwise create on the first build.
+	/// </summary>
+	/// <remarks>
+	/// A throwaway solution starts empty, so without this every build gives the bootstrap real work and it
+	/// compiles and runs its <c>RoslynCodeTaskFactory</c> task — roughly 0.7s per build, for a side effect
+	/// almost no test is looking at. Seeding the destination with the exact source content makes the
+	/// bootstrap's own "nothing to do" check succeed, which is the same state a real repository is in on
+	/// every build after its first.
+	///
+	/// The tests that cover the bootstrap opt out with
+	/// <see cref="ProjectHarnessBuilder.WithoutRepositoryBootstrapSeed"/>.
+	/// </remarks>
+	async Task SeedRepositoryBootstrapFilesAsync(CancellationToken cancellationToken)
+	{
+		var editorConfigPath = Path.Combine(SolutionDirectory, ".editorconfig");
+		if (!File.Exists(editorConfigPath) && File.Exists(SourceEditorConfigPath))
+		{
+			File.Copy(SourceEditorConfigPath, editorConfigPath);
+		}
+
+		var globalJsonPath = Path.Combine(SolutionDirectory, "global.json");
+		if (!File.Exists(globalJsonPath))
+		{
+			// Content is irrelevant to the bootstrap, which only checks that the file is there; this is
+			// the shape it would have written. No msbuild-sdks entry, because nothing in a throwaway
+			// project resolves an SDK by package and an unresolvable entry would fail the build.
+			await File.WriteAllTextAsync(
+				globalJsonPath,
+				/*lang=json,strict*/
+				"""
+				{
+					"test": {
+						"runner": "Microsoft.Testing.Platform"
+					}
+				}
+				""",
+				cancellationToken
+			);
+		}
+	}
+
 	internal async Task WriteBoilerplateAsync(
 		string namespacePrefix,
 		string projectName,
 		string? preImportProps,
+		bool seedRepositoryBootstrapFiles,
 		CancellationToken cancellationToken
 	)
 	{
@@ -161,6 +225,11 @@ partial class ProjectHarness : IDisposable
 				""",
 				cancellationToken
 			);
+		}
+
+		if (seedRepositoryBootstrapFiles)
+		{
+			await SeedRepositoryBootstrapFilesAsync(cancellationToken);
 		}
 	}
 
@@ -530,80 +599,31 @@ partial class ProjectHarness : IDisposable
 			SolutionDirectory
 		);
 
+	/// <summary>
+	/// Runs an arbitrary command through the harness, with the host CI environment stripped. Use this
+	/// rather than spawning a process directly: inheriting the runner's environment is how an
+	/// integration test starts asserting something different in CI than it does locally.
+	/// </summary>
+	public Task<(int Code, string StdOut, string StdErr)> RunProcessAsync(
+		string fileName,
+		string arguments,
+		string? workingDirectory = null,
+		CancellationToken cancellationToken = default
+	) => RunAsync(fileName, arguments, cancellationToken, workingDirectory);
+
 	async Task<(int Code, string StdOut, string StdErr)> RunAsync(
 		string fileName,
 		string arguments,
 		CancellationToken cancellationToken,
 		string? workingDirectory = null
-	)
-	{
-		using Process process = new()
-		{
-			StartInfo = new()
-			{
-				FileName = fileName,
-				Arguments = arguments,
-				WorkingDirectory = workingDirectory ?? ProjectDirectory,
-				RedirectStandardOutput = true,
-				RedirectStandardError = true,
-				UseShellExecute = false,
-				CreateNoWindow = true,
-			},
-		};
-
-		if (_extraEnv.Count > 0)
-		{
-			foreach (var (key, value) in _extraEnv)
-				process.StartInfo.Environment[key] = value;
-		}
-
-		IsolateFromHostEnvironment(process.StartInfo.Environment, _extraEnv);
-
-		process.Start();
-
-		var stdoutTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-		var stderrTask = process.StandardError.ReadToEndAsync(cancellationToken);
-
-		await process.WaitForExitAsync(cancellationToken);
-
-		return (process.ExitCode, await stdoutTask, await stderrTask);
-	}
-
-	/// <summary>
-	/// Throwaway consumer projects must not inherit the CI runner's environment. Env vars like
-	/// <c>GITHUB_WORKSPACE</c> (version detection), <c>GITHUB_ACTIONS</c>/<c>TF_BUILD</c> (CI
-	/// detection) and friends would change SDK behaviour and make tests environment-dependent.
-	/// They are removed unless the harness explicitly overrides them via <paramref name="overrides"/>.
-	/// </summary>
-	internal static void IsolateFromHostEnvironment(
-		IDictionary<string, string?> environment,
-		IReadOnlyDictionary<string, string> overrides
-	)
-	{
-		foreach (var name in CiEnvironmentVariables)
-		{
-			if (!overrides.ContainsKey(name))
-				environment.Remove(name);
-		}
-	}
-
-	static readonly string[] CiEnvironmentVariables =
-	[
-		"CI",
-		"GITHUB_ACTIONS",
-		"GITHUB_WORKSPACE",
-		"GITHUB_SHA",
-		"GITHUB_REF",
-		"GITHUB_HEAD_REF",
-		"GITHUB_BASE_REF",
-		"TF_BUILD",
-		"BUILD_SOURCESDIRECTORY",
-		"BUILD_REPOSITORY_LOCALPATH",
-		"CI_PROJECT_DIR",
-		"RUNNER_OS",
-		"RUNNER_ARCH",
-		"RUNNER_TEMP",
-	];
+	) =>
+		await ProcessRunner.RunWithEnvironmentAsync(
+			fileName,
+			arguments,
+			workingDirectory ?? ProjectDirectory,
+			_extraEnv,
+			cancellationToken
+		);
 
 	public async Task<XDocument> GetPreprocessProjectAsync(CancellationToken cancellationToken)
 	{

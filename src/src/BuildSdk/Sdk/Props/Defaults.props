@@ -23,6 +23,8 @@
 			>true</BootstrapEditorConfigToRepoRoot>
 		<BootstrapGlobalJsonToRepoRoot Condition="'$(BootstrapGlobalJsonToRepoRoot)' == ''"
 			>true</BootstrapGlobalJsonToRepoRoot>
+		<CentralPackageTransitivePinningEnabled Condition="'$(CentralPackageTransitivePinningEnabled)' == ''"
+			>true</CentralPackageTransitivePinningEnabled>
 		<CollectCoverage Condition="'$(CollectCoverage)' == ''">false</CollectCoverage>
 		<ContinuousIntegrationBuild Condition="'$(ContinuousIntegrationBuild)' == ''">false</ContinuousIntegrationBuild>
 		<CurrentYear Condition="'$(CurrentYear)' == ''"></CurrentYear>
@@ -167,8 +169,50 @@
 			>Library</PurviewSharedTestingOutputType>
 		<PublishAot Condition="'$(PublishAot)' == ''">false</PublishAot>
 		<PublishRepositoryUrl Condition="'$(PublishRepositoryUrl)' == ''">true</PublishRepositoryUrl>
+		<!--
+			How the repository bootstrap finds the repository root.
+
+			  Markers  (default) the nearest ancestor directory containing '.git/', walking up from the
+			                     directory holding Directory.Build.props. Pure MSBuild path checks: no
+			                     process, nothing to compile.
+			  Git                ask git, via 'rev-parse', falling back to the walk.
+
+			'Markers' is the default because the probe costs nothing and 'Git' spawns a git process for
+			every project on every build - measured at ~426ms each, paid whether or not anything needs
+			bootstrapping.
+
+			They can disagree, which is the reason this is a choice rather than a silent change. Git
+			reports the *worktree* root, so for a submodule, a linked worktree, or a package nested inside
+			a larger repository it can answer differently from "the nearest '.git/' above me". Set
+			'Git' to keep the original behaviour where that distinction matters.
+		-->
+		<PurviewRepositoryRootStrategy Condition="'$(PurviewRepositoryRootStrategy)' == ''"
+			>Markers</PurviewRepositoryRootStrategy>
+		<!-- The marker on the first line of the SDK's own .editorconfig. A bootstrapped file carrying it is
+		     recognised as one the SDK wrote and is refreshed when the version changes; a file without it
+		     belongs to the developer and is never touched. Set PurviewEditorConfigAutoUpdate=false to keep
+		     a managed file as it is. PackagedVersionFallbackTests pins the marker against package.json. -->
+		<PurviewEditorConfigVersionMarker Condition="'$(PurviewEditorConfigVersionMarker)' == ''"
+			>#&#32;Purview.BuildSdk&#32;</PurviewEditorConfigVersionMarker>
+		<PurviewEditorConfigAutoUpdate Condition="'$(PurviewEditorConfigAutoUpdate)' == ''"
+			>true</PurviewEditorConfigAutoUpdate>
+		<!-- An existing .editorconfig without the marker is indistinguishable from one the developer wrote,
+		     so it is never overwritten - but a file bootstrapped before the marker existed would otherwise
+		     stay pinned to a release-old rule set in silence. Reported once per repository per SDK version,
+		     stamped at PurviewEditorConfigAdoptionStampPath, and kept out of CI so no advice can fail a
+		     build using TreatWarningsAsErrors. -->
+		<PurviewEditorConfigAdoptionWarning Condition="'$(PurviewEditorConfigAdoptionWarning)' == ''"
+			>true</PurviewEditorConfigAdoptionWarning>
+		<PurviewEditorConfigAdoptionWarningInCI Condition="'$(PurviewEditorConfigAdoptionWarningInCI)' == ''"
+			>false</PurviewEditorConfigAdoptionWarningInCI>
+		<PurviewEditorConfigAdoptionStampPath
+			Condition="'$(PurviewEditorConfigAdoptionStampPath)' == ''"
+		></PurviewEditorConfigAdoptionStampPath>
+		<!-- Only used when the version cannot be detected from the restored SDK package path. It must track
+		     the version in package.json, or a bootstrapped global.json pins a release that predates every
+		     fix in the SDK doing the bootstrapping. PackagedVersionFallbackTests enforces that. -->
 		<PurviewBuildSdkVersionForGlobalJson Condition="'$(PurviewBuildSdkVersionForGlobalJson)' == ''"
-			>1.0.0</PurviewBuildSdkVersionForGlobalJson>
+			>1.1.0</PurviewBuildSdkVersionForGlobalJson>
 		<RepositoryEditorConfigFilePath
 			Condition="'$(RepositoryEditorConfigFilePath)' == ''"
 		></RepositoryEditorConfigFilePath>

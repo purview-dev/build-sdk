@@ -154,7 +154,7 @@ Note that a target's `Condition` is evaluated *before* its `DependsOnTargets` ru
 
 ### Validating skills
 
-`ValidatePurviewSkills` runs `BeforeTargets="Pack"` and checks that every authored skill is well formed, so a malformed skill fails in the repository that owns it rather than reaching the CLI, which would silently skip it. It checks:
+`ValidatePurviewSkills` runs `BeforeTargets="Pack"` and checks that every authored skill is well formed, so a malformed skill fails in the repository that owns it rather than reaching the CLI, which would silently skip it. It validates the folder under the root `ResolvePurviewSkillsRepositoryRoot` resolved — the same one install and recommendation use — rather than the evaluation-time `PurviewSkillsSourceFolder`, because that guess only knows `RepoRoot` and an `AGENTS.md` walk-up: on a CI runner `RepoRoot` comes from `GITHUB_WORKSPACE`, so reading it there validated a different repository's skills and passed silently. It checks:
 
 - every folder under the skills root has a `SKILL.md`,
 - that file opens with YAML frontmatter carrying `name` and `description` (a `>-` block scalar counts),
@@ -326,6 +326,10 @@ Use `src/tests/BuildSdk.IntegrationTests/Harness/ProjectHarness.cs` when validat
   - `GetItemIdentitiesAsync` / `GetProjectReferencesAsync`
   - `GetPreprocessProjectAsync` for evaluated project inspection
 - Use `BuildAsync(restore: true)` when package restore/build behaviour is part of the scenario.
+- Spawn processes through `Infra/ProcessRunner` (or `ProjectHarness.RunProcessAsync`), never `new Process`.
+  It strips the CI runner's environment — `GITHUB_WORKSPACE` moves the SDK's idea of the repository root,
+  and `CI`/`GITHUB_ACTIONS`/`TF_BUILD` change what is suppressed — so a test cannot pass locally and fail
+  on `ubuntu-latest`. Use `RunWithEnvironmentAsync` only to opt one variable back in deliberately.
 - Keep scenarios minimal and deterministic; isolate one behaviour per test.
 - For import-time behaviour, set required pre-import properties in harness setup (before `Sdk.props` import).
 

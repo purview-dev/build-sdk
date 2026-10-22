@@ -1,25 +1,30 @@
 <Project>
 	<PropertyGroup>
-		<CentralPackageFloatingVersionsEnabled>true</CentralPackageFloatingVersionsEnabled>
+		<TUnitVersion>1.76.0</TUnitVersion>
+		<MicrosoftRoslynVersion>5.9.0</MicrosoftRoslynVersion>
 	</PropertyGroup>
 	<ItemGroup>
 		<!-- SourceLink is auto-added by the SDK to IsPackable projects -->
-		<PackageVersion Include="Microsoft.SourceLink.GitHub" Version="*" />
-		<PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="5.9.0" />
-		<PackageVersion Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="5.9.0" />
-		<PackageVersion Include="Microsoft.CodeAnalysis.Features" Version="5.9.0" />
-		<PackageVersion Include="Microsoft.CodeAnalysis.Analyzers" Version="*" />
-		<PackageVersion Include="Microsoft.NET.Test.Sdk" Version="*" />
-		<PackageVersion Include="Microsoft.Testing.Platform.MSBuild" Version="*" />
-		<PackageVersion Include="TUnit" Version="*" />
-		<PackageVersion Include="TUnit.Core" Version="*" />
-		<PackageVersion Include="TUnit.Assertions" Version="*" />
-		<PackageVersion Include="TUnit.Aspire" Version="*" />
-		<PackageVersion Include="xunit.v3" Version="*" />
-		<PackageVersion Include="xunit.runner.visualstudio" Version="*" />
-		<PackageVersion Include="TUnit.Mocks" Version="*" />
-		<PackageVersion Include="NSubstitute" Version="*" />
-		<PackageVersion Include="NSubstitute.Analyzers.CSharp" Version="*" />
-		<PackageVersion Include="Bogus" Version="*" />
+		<PackageVersion Include="Microsoft.SourceLink.GitHub" Version="10.0.402" />
+		<!-- Roslyn / Code Analysis -->
+		<PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="$(MicrosoftRoslynVersion)" />
+		<PackageVersion Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="$(MicrosoftRoslynVersion)" />
+		<PackageVersion Include="Microsoft.CodeAnalysis.Features" Version="$(MicrosoftRoslynVersion)" />
+		<PackageVersion Include="Microsoft.CodeAnalysis.Analyzers" Version="$(MicrosoftRoslynVersion)" />
+		<!-- Testing Frameworks  -->
+		<PackageVersion Include="Bogus" Version="35.6.5" />
+		<PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.11.0" />
+		<!-- TUnit Testing Framework -->
+		<PackageVersion Include="TUnit" Version="$(TUnitVersion)" />
+		<PackageVersion Include="TUnit.Core" Version="$(TUnitVersion)" />
+		<PackageVersion Include="TUnit.Assertions" Version="$(TUnitVersion)" />
+		<PackageVersion Include="TUnit.Aspire" Version="$(TUnitVersion)" />
+		<PackageVersion Include="TUnit.Mocks" Version="$(TUnitVersion)" />
+		<!-- Xunit Testing Framework -->
+		<PackageVersion Include="xunit.v3" Version="4.0.2" />
+		<PackageVersion Include="xunit.runner.visualstudio" Version="4.0.1" />
+		<!-- NSubstitute Packages -->
+		<PackageVersion Include="NSubstitute" Version="6.2.0" />
+		<PackageVersion Include="NSubstitute.Analyzers.CSharp" Version="1.0.17" />
 	</ItemGroup>
 </Project>

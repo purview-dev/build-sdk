@@ -13,6 +13,16 @@
 	</ItemGroup>
 
 	<ItemGroup>
+		<!--
+			The refactoring and code-fix tests live alongside the analyzer tests in
+			Analyzers.IntegrationTests, because the behaviour they cover spans an analyzer's diagnostic and
+			the fix for it. The SDK's automatic grant is derived from this project's own name, so that one
+			test assembly has to be named explicitly.
+		-->
+		<InternalsVisibleTo Include="Purview.BuildSdk.Analyzers.IntegrationTests" />
+	</ItemGroup>
+
+	<ItemGroup>
 		<PackageReference Include="Microsoft.CodeAnalysis.CSharp">
 			<PrivateAssets>all</PrivateAssets>
 		</PackageReference>
