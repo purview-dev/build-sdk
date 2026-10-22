@@ -106,6 +106,71 @@ sealed class RepositoryFileSyncTests
 	}
 
 	/// <summary>
+	/// An unmarked file is left alone, but silence is how a repository bootstrapped before the marker
+	/// existed stays pinned to a release-old rule set forever. It is reported once per SDK version, so
+	/// the second build of the same state has to say nothing.
+	/// </summary>
+	[Test]
+	public async Task EditorConfigBootstrap_NoVersionMarker_IsReportedOnce(CancellationToken cancellationToken)
+	{
+		using var h = await CreateHarnessAsync(
+			// The suite itself runs in CI, where the advice is deliberately silent.
+			extraProps: "<PurviewEditorConfigAdoptionWarningInCI>true</PurviewEditorConfigAdoptionWarningInCI>",
+			cancellationToken: cancellationToken
+		);
+
+		var editorConfigPath = Path.Combine(h.SolutionDirectory, ".editorconfig");
+		const string owned = "root = true\n\n[*.cs]\nindent_style = space\n";
+
+		await File.WriteAllTextAsync(editorConfigPath, owned, cancellationToken);
+
+		var (success, output, errors) = await h.BuildAsync(restore: true, verbose: true, cancellationToken);
+
+		await Assert.That(success).IsTrue().Because(TestHelpers.GenerateError(output, errors));
+		await Assert.That(output + errors).Contains("carries no Purview.BuildSdk version marker");
+		await Assert.That(output + errors).Contains("PurviewRepoBootstrapMode=Always");
+		await Assert.That(await File.ReadAllTextAsync(editorConfigPath, cancellationToken)).IsEqualTo(owned);
+
+		var (secondSuccess, secondOutput, secondErrors) = await h.BuildAsync(
+			restore: false,
+			verbose: true,
+			cancellationToken
+		);
+
+		await Assert.That(secondSuccess).IsTrue().Because(TestHelpers.GenerateError(secondOutput, secondErrors));
+		await Assert.That(secondOutput + secondErrors).DoesNotContain("carries no Purview.BuildSdk version marker");
+	}
+
+	/// <summary>
+	/// Taking ownership of the file is the supported outcome, so the property that says so has to
+	/// silence the advice as well as the refresh.
+	/// </summary>
+	[Test]
+	public async Task EditorConfigBootstrap_AutoUpdateDisabled_SuppressesTheAdoptionWarning(
+		CancellationToken cancellationToken
+	)
+	{
+		using var h = await CreateHarnessAsync(
+			extraProps: """
+			<PurviewEditorConfigAdoptionWarningInCI>true</PurviewEditorConfigAdoptionWarningInCI>
+			<PurviewEditorConfigAutoUpdate>false</PurviewEditorConfigAutoUpdate>
+			""",
+			cancellationToken: cancellationToken
+		);
+
+		await File.WriteAllTextAsync(
+			Path.Combine(h.SolutionDirectory, ".editorconfig"),
+			"root = true\n",
+			cancellationToken
+		);
+
+		var (success, output, errors) = await h.BuildAsync(restore: true, verbose: true, cancellationToken);
+
+		await Assert.That(success).IsTrue().Because(TestHelpers.GenerateError(output, errors));
+		await Assert.That(output + errors).DoesNotContain("carries no Purview.BuildSdk version marker");
+	}
+
+	/// <summary>
 	/// The documented opt-out has to actually pin the file, marker and all.
 	/// </summary>
 	[Test]

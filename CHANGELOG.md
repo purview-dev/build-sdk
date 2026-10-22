@@ -9,6 +9,22 @@ that version to nuget.org.
 This file was reconstructed from the conventional-commit history at 1.0.7, so entries before that
 release summarise what the commits recorded rather than what was written at the time.
 
+## [Unreleased]
+
+### Added
+
+- **An unmarked repository `.editorconfig` is now reported instead of being silently abandoned.** A
+  repository that adopted the SDK before the version marker existed has a `.editorconfig` with no marker
+  on its first line, which the refresh deliberately treats as the developer's own file — so it was never
+  updated and nothing said so, leaving the repository pinned to a release-old rule set indefinitely.
+  Overwriting it is not safe (nothing on disk distinguishes it from a hand-authored file), so the SDK
+  warns once per repository per SDK version, naming `-p:PurviewRepoBootstrapMode=Always` as the one-command
+  fix. The stamp lives at `.purview/editorconfig-adoption.cache` (`PurviewEditorConfigAdoptionStampPath`),
+  CI builds are skipped so advice can never fail a `-warnaserror` build
+  (`PurviewEditorConfigAdoptionWarningInCI=true` opts in), and either
+  `PurviewEditorConfigAdoptionWarning=false` or the existing `PurviewEditorConfigAutoUpdate=false`
+  silences it.
+
 ## [1.1.0] - 2026-10-21
 
 ### Performance

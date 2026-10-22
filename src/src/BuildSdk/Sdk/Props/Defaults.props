@@ -196,6 +196,18 @@
 			>#&#32;Purview.BuildSdk&#32;</PurviewEditorConfigVersionMarker>
 		<PurviewEditorConfigAutoUpdate Condition="'$(PurviewEditorConfigAutoUpdate)' == ''"
 			>true</PurviewEditorConfigAutoUpdate>
+		<!-- An existing .editorconfig without the marker is indistinguishable from one the developer wrote,
+		     so it is never overwritten - but a file bootstrapped before the marker existed would otherwise
+		     stay pinned to a release-old rule set in silence. Reported once per repository per SDK version,
+		     stamped at PurviewEditorConfigAdoptionStampPath, and kept out of CI so no advice can fail a
+		     build using TreatWarningsAsErrors. -->
+		<PurviewEditorConfigAdoptionWarning Condition="'$(PurviewEditorConfigAdoptionWarning)' == ''"
+			>true</PurviewEditorConfigAdoptionWarning>
+		<PurviewEditorConfigAdoptionWarningInCI Condition="'$(PurviewEditorConfigAdoptionWarningInCI)' == ''"
+			>false</PurviewEditorConfigAdoptionWarningInCI>
+		<PurviewEditorConfigAdoptionStampPath
+			Condition="'$(PurviewEditorConfigAdoptionStampPath)' == ''"
+		></PurviewEditorConfigAdoptionStampPath>
 		<!-- Only used when the version cannot be detected from the restored SDK package path. It must track
 		     the version in package.json, or a bootstrapped global.json pins a release that predates every
 		     fix in the SDK doing the bootstrapping. PackagedVersionFallbackTests enforces that. -->

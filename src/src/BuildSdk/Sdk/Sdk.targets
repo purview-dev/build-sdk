@@ -1736,8 +1736,14 @@
 			<_PurviewEditorConfigDestinationFirstLine
 				Condition="'$(_PurviewEditorConfigDestinationExists)' == 'true' AND '$(_PurviewEditorConfigVersionMarkerPrefix)' != ''"
 				>$([System.Text.RegularExpressions.Regex]::Match($([System.IO.File]::ReadAllText('$(_EffectiveRepositoryEditorConfigFilePath)')), `^[^\r\n]*`).Value)</_PurviewEditorConfigDestinationFirstLine>
-			<_PurviewEditorConfigSourceFirstLine Condition="'$(_PurviewEditorConfigDestinationFirstLine)' != ''"
+			<_PurviewEditorConfigSourceFirstLine
+				Condition="'$(_PurviewEditorConfigDestinationExists)' == 'true' AND '$(_PurviewEditorConfigVersionMarkerPrefix)' != ''"
 				>$([System.Text.RegularExpressions.Regex]::Match($([System.IO.File]::ReadAllText('$(EditorConfigFilePath)')), `^[^\r\n]*`).Value)</_PurviewEditorConfigSourceFirstLine>
+			<_PurviewEditorConfigIsManaged
+				Condition="
+					'$(_PurviewEditorConfigDestinationFirstLine)' != ''
+					AND $(_PurviewEditorConfigDestinationFirstLine.StartsWith('$(_PurviewEditorConfigVersionMarkerPrefix)'))"
+				>true</_PurviewEditorConfigIsManaged>
 
 			<!-- Missing destination: the bootstrap's whole purpose. -->
 			<_PurviewEditorConfigNeedsSync Condition="'$(_PurviewEditorConfigDestinationExists)' != 'true'"
@@ -1752,11 +1758,57 @@
 			-->
 			<_PurviewEditorConfigNeedsSync
 				Condition="
-					'$(_PurviewEditorConfigDestinationFirstLine)' != ''
-					AND $(_PurviewEditorConfigDestinationFirstLine.StartsWith('$(_PurviewEditorConfigVersionMarkerPrefix)'))
+					'$(_PurviewEditorConfigIsManaged)' == 'true'
 					AND '$(_PurviewEditorConfigDestinationFirstLine)' != '$(_PurviewEditorConfigSourceFirstLine)'"
 				>true</_PurviewEditorConfigNeedsSync>
+
+			<!--
+				An existing destination carrying no marker is either a file the developer wrote or one
+				bootstrapped by an SDK released before the marker existed, and nothing on disk tells the
+				two apart. Overwriting it would destroy the first case, so it is still left untouched -
+				but saying nothing leaves the second case pinned to a release-old rule set forever with
+				no way to notice, which is how this was found.
+
+				So: report it, once. This is advice, and advice must never fail a build that has not
+				asked for it, which is what the stamp and the CI gate are for. Reuses
+				PurviewEditorConfigAutoUpdate as the opt-out because 'this file is mine' is exactly what
+				that property already says.
+			-->
+			<_PurviewEditorConfigIsUnadopted
+				Condition="
+					'$(_PurviewEditorConfigDestinationExists)' == 'true'
+					AND '$(_PurviewEditorConfigVersionMarkerPrefix)' != ''
+					AND '$(_PurviewEditorConfigIsManaged)' != 'true'
+					AND '$(PurviewRepoBootstrapMode)' == 'IfMissing'
+					AND '$(PurviewEditorConfigAdoptionWarning)' == 'true'
+					AND '$(DesignTimeBuild)' != 'true'
+					AND ('$(PurviewEditorConfigAdoptionWarningInCI)' == 'true'
+						OR ('$(ContinuousIntegrationBuild)' != 'true' AND '$(TF_BUILD)' != 'true'
+							AND '$(GITHUB_ACTIONS)' != 'true' AND '$(CI)' != 'true'))"
+				>true</_PurviewEditorConfigIsUnadopted>
 		</PropertyGroup>
+		<PropertyGroup Condition="'$(_PurviewEditorConfigIsUnadopted)' == 'true'">
+			<PurviewEditorConfigAdoptionStampPath Condition="'$(PurviewEditorConfigAdoptionStampPath)' == ''"
+				>$([MSBuild]::NormalizePath('$(_RepositoryEditorConfigDirectory)', '.purview', 'editorconfig-adoption.cache'))</PurviewEditorConfigAdoptionStampPath>
+			<!-- Stamped with the SDK's own marker line, so a new SDK version reports again. -->
+			<_PurviewEditorConfigAdoptionStampValue Condition="Exists('$(PurviewEditorConfigAdoptionStampPath)')"
+				>$([System.String]::Copy($([System.IO.File]::ReadAllText('$(PurviewEditorConfigAdoptionStampPath)'))).Trim())</_PurviewEditorConfigAdoptionStampValue>
+			<_PurviewEditorConfigReportAdoption
+				Condition="'$(_PurviewEditorConfigAdoptionStampValue)' != '$(_PurviewEditorConfigSourceFirstLine)'"
+				>true</_PurviewEditorConfigReportAdoption>
+		</PropertyGroup>
+		<Warning
+			Text="'$(_EffectiveRepositoryEditorConfigFilePath)' carries no Purview.BuildSdk version marker, so the SDK treats it as yours and will never refresh it - this repository will not pick up rule changes from '$(EditorConfigFilePath)'. Build once with -p:PurviewRepoBootstrapMode=Always to adopt the SDK's .editorconfig, or set PurviewEditorConfigAutoUpdate=false to keep your own and silence this."
+			Condition="'$(_PurviewEditorConfigReportAdoption)' == 'true'"
+		/>
+		<WriteLinesToFile
+			File="$(PurviewEditorConfigAdoptionStampPath)"
+			Lines="$(_PurviewEditorConfigSourceFirstLine)"
+			Overwrite="true"
+			WriteOnlyWhenDifferent="true"
+			ContinueOnError="true"
+			Condition="'$(_PurviewEditorConfigReportAdoption)' == 'true'"
+		/>
 		<SyncPurviewRepositoryFiles
 			DestinationFile="$(_EffectiveRepositoryEditorConfigFilePath)"
 			SourceFile="$(EditorConfigFilePath)"

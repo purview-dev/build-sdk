@@ -209,6 +209,20 @@ the marker is refreshed so a repository never silently runs a release-old rule s
 first line a supported way to take ownership of the file. You then own every rule in it, including the
 ones a later SDK version would have fixed.
 
+A repository that adopted the SDK *before* the marker existed has exactly that file: unmarked, so it
+is never refreshed, and indistinguishable on disk from one you wrote. Rather than overwrite it, the
+SDK says so once:
+
+> `<path>/.editorconfig` carries no Purview.BuildSdk version marker, so the SDK treats it as yours and
+> will never refresh it …
+
+Build once with `-p:PurviewRepoBootstrapMode=Always` to adopt the SDK's file, or set
+`PurviewEditorConfigAutoUpdate=false` to keep your own and silence it. The warning is reported once
+per repository per SDK version — stamped at `.purview/editorconfig-adoption.cache`, overridable with
+`PurviewEditorConfigAdoptionStampPath` — and is skipped on CI builds, so no advice can fail a build
+run with `-warnaserror`. `PurviewEditorConfigAdoptionWarningInCI=true` opts back in;
+`PurviewEditorConfigAdoptionWarning=false` turns it off entirely.
+
 The version is stamped in when the package is built, from the version being packed, so it is always
 the version you restored. It is not maintained by hand in the repository, and building never rewrites
 the tracked `.editorconfig`: the stamped copy is written to `obj/` and that copy is packed.
@@ -234,6 +248,7 @@ also never touches.
 | Property | Effect |
 | -- | -- |
 | `PurviewEditorConfigAutoUpdate=false` | Keep the managed `.editorconfig` exactly as it is; everything else still bootstraps. |
+| `PurviewEditorConfigAdoptionWarning=false` | Keep an unmarked `.editorconfig` without being told it will never be refreshed. |
 | `BootstrapEditorConfigToRepoRoot=false` | Do not write a repository `.editorconfig` at all. |
 | `PurviewRepoBootstrapMode=Never` | Opt out of all bootstrapping, `global.json` included. |
 
