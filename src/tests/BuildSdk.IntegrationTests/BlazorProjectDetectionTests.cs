@@ -324,7 +324,11 @@ sealed class BlazorProjectDetectionTests
 
 		var references = await host.GetProjectReferencesAsync(cancellationToken);
 
-		await Assert.That(references).IsEquivalentTo([declaredReference]);
+		// Normalised because MSBuild on Linux and macOS rewrites the backslashes in an item spec, so the
+		// second case reads back with forward slashes there. What matters is that there is only one.
+		await Assert
+			.That(references.Select(TestHelpers.NormalizePath))
+			.IsEquivalentTo([TestHelpers.NormalizePath(declaredReference)]);
 	}
 
 	[Test]
