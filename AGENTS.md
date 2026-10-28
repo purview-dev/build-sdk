@@ -279,6 +279,13 @@ Prefer `just` tasks:
 - `just pack`
 - `just skills-validate` — the pack-time check over the authored skills
 - `just skills-add <source>` — install a skill from another repository into `.agents/skills/`
+- `just version-sync` — rewrite the `Purview.BuildSdk` pins in the docs and `templates/global.json`
+  after bumping `package.json`
+
+Nothing packed carries a hand-maintained version. The `.editorconfig` marker and
+`Props/PackedVersion.props` (the `global.json` fallback when the SDK is not in a versioned package
+folder) are stamped at pack time from `$(PackageVersion)`. Only the copy-paste pins in the docs live in
+git, and `PackagedVersionFallbackTests` names each stale one as `file:line`.
 
 `dotnet` fallback uses `src/BuildSdk.slnx` and `Release`.
 

@@ -8,6 +8,8 @@
 			>$(TargetFramework)</DefaultTargetFramework>
 	</PropertyGroup>
 
+	<Import Project="$(MSBuildThisFileDirectory)Targets/Blazor.targets" />
+
 	<!-- =====================================================================
 	     SHARED TESTING PROJECT OUTPUT
 	     Shared testing projects provide helpers to the test assemblies, so they are

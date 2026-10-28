@@ -186,6 +186,52 @@
 		</ItemGroup>
 	</Target>
 
+	<!-- =====================================================================
+	     PACKED VERSION STAMP
+	     A bootstrapped global.json pins Purview.BuildSdk to the version doing the bootstrapping. Sdk.props
+	     reads that from the restored package folder name, and falls back to Props/PackedVersion.props
+	     when the SDK is imported from anywhere else. That file is generated here from the version being
+	     packed, for the same reason the .editorconfig marker is: a hand-maintained literal is one bump
+	     away from pinning every new repository to the previous release.
+	     ===================================================================== -->
+	<Target
+		Name="StampPurviewPackedVersionTarget"
+		BeforeTargets="_GetPackageFiles;GenerateNuspec;AssignTargetPaths"
+		Label="Writes Props/PackedVersion.props with the version being packed."
+	>
+		<PropertyGroup>
+			<_PurviewPackedVersionStampVersion>$([System.String]::Copy('$(PackageVersion)').Trim())</_PurviewPackedVersionStampVersion>
+			<_PurviewPackedVersionStampVersion Condition="'$(_PurviewPackedVersionStampVersion)' == ''"
+				>$(Version)</_PurviewPackedVersionStampVersion>
+			<!-- Resolved here for the same reason as _PurviewStampedEditorConfig, and overridable so a test
+			     can drive the target to a scratch path. -->
+			<_PurviewStampedPackedVersionProps Condition="'$(_PurviewStampedPackedVersionProps)' == ''"
+				>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)/$(IntermediateOutputPath)purview-version/PackedVersion.props'))</_PurviewStampedPackedVersionProps>
+		</PropertyGroup>
+		<ItemGroup>
+			<_PurviewPackedVersionPropsLines Include="&lt;Project&gt;" />
+			<_PurviewPackedVersionPropsLines Include="&lt;!-- Generated at pack time by StampPurviewPackedVersionTarget. Do not edit. --&gt;" />
+			<_PurviewPackedVersionPropsLines Include="&lt;PropertyGroup&gt;" />
+			<_PurviewPackedVersionPropsLines Include="&lt;_PurviewPackedSdkVersion&gt;$(_PurviewPackedVersionStampVersion)&lt;/_PurviewPackedSdkVersion&gt;" />
+			<_PurviewPackedVersionPropsLines Include="&lt;/PropertyGroup&gt;" />
+			<_PurviewPackedVersionPropsLines Include="&lt;/Project&gt;" />
+		</ItemGroup>
+		<WriteLinesToFile
+			File="$(_PurviewStampedPackedVersionProps)"
+			Lines="@(_PurviewPackedVersionPropsLines)"
+			Overwrite="true"
+			WriteOnlyWhenDifferent="true"
+		/>
+		<ItemGroup>
+			<None
+				Include="$(_PurviewStampedPackedVersionProps)"
+				Pack="true"
+				PackagePath="Sdk/Props/PackedVersion.props"
+				Visible="false"
+			/>
+		</ItemGroup>
+	</Target>
+
 	<!-- Pack the Sdk/ folder contents into the correct locations in the NuGet package.
 	     .editorconfig must be listed explicitly — NuGet excludes dotfiles by default. -->
 	<ItemGroup>

@@ -11,7 +11,50 @@ release summarise what the commits recorded rather than what was written at the 
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-10-28
+
 ### Added
+
+- **Blazor WebAssembly clients, Blazor hosts and BFF hosts are detected.** `IsBlazorWebAssemblyProject`
+  (`Microsoft.NET.Sdk.BlazorWebAssembly`), `IsRazorClassLibraryProject` (`Microsoft.NET.Sdk.Razor`),
+  `IsBffProject` (a web SDK project named `*Bff`, or one setting `IsBffProject=true`) and
+  `IsBlazorHostProject` (a web SDK project referencing a WebAssembly client) are all compiler-visible.
+  A host never implies a BFF, because a host that keeps no tokens is not one. A host `<Name>` gets an
+  automatic reference to its `<Name>.Client` unless it declares one (`PurviewAutoBlazorClientReference=false`
+  opts out); any other pairing is resolved during the build by `ResolvePurviewBlazorHostProject`.
+
+- **WebAssembly client defaults.** A client is `IsPackable=false` unless it says otherwise, gets no
+  container defaults even beside a `Dockerfile` (`PublishAot` on a client is a publish that fails), and
+  no automatic `../Shared*` reference, so a server-side library cannot join the browser download because
+  of a folder name. Globalisation, trimming and the Blazor runtime settings are left to the Blazor SDK.
+  `DisablePurviewBlazorWebAssemblyDefaults=true` restores the generic defaults.
+
+- **`PurviewBrowserSafe` makes a library the browser downloads fail the build on what would fail at
+  runtime.** On a class library it applies `IsAotCompatible=true`, `<SupportedPlatform Include="browser" />`
+  and `WarningsAsErrors` for the trim, single-file, AOT and `CA1416` ids (`PurviewBrowserSafeWarningCodes`)
+  — each only where the project set nothing, and without `TreatWarningsAsErrors`, so the rest of its
+  warning policy is untouched. `PurviewBrowserSafeWarningsAsErrors=false` keeps them as warnings.
+
+- **`PRBLZ0001`: every library a client downloads must have been declared browser-safe.** A client, and
+  each browser-safe library, asks every `ProjectReference` for its `PurviewBrowserSafe` value and reports
+  the ones that do not set it, so the guarantee covers the whole download rather than its first level.
+  `PurviewBrowserSafe="true"` on the `ProjectReference` records the decision for a project that does not
+  use this SDK; `PurviewBrowserSafeReferenceCheckAsError=true` makes it an error and
+  `DisablePurviewBrowserSafeReferenceCheck=true` turns it off.
+
+- **BFF hosts.** No packages are added — YARP, OpenID Connect and any BFF library are the application's
+  choice — and the OpenAPI interceptor namespace is dropped, because a BFF that only forwards has no
+  document to generate. Referencing `Microsoft.AspNetCore.OpenApi`, or `PurviewBffExposesApi=true`,
+  keeps it.
+
+- **`PDS0008` and `PDS0009` report a BFF authentication cookie that undoes the BFF.** `HttpOnly = false`
+  lets script in the page read and replay the session; `SameSite = None` makes every BFF endpoint a
+  cross-site request forgery target. Only a constant assigned to the `CookieAuthenticationOptions` cookie
+  in a BFF project is reported — never the antiforgery cookie or the OpenID Connect correlation and nonce
+  cookies, which legitimately differ.
+
+- **`just version-sync`** rewrites the `Purview.BuildSdk` pins in the docs and `templates/global.json`
+  from `package.json`.
 
 - **`CA1034` is suppressed on an `extension` block (`PDS0007`).** A C# 14 extension block is compiled
   into a nested type inside its owning static class, so `CA1034` ("nested types should not be visible")
@@ -35,6 +78,14 @@ release summarise what the commits recorded rather than what was written at the 
   silences it.
 
 ### Fixed
+
+- **A bootstrapped `global.json` now pins the SDK version that was actually restored.**
+  `Defaults.props` is imported before `Sdk.props` detects the version from the restored package folder,
+  and it set a hand-maintained literal, so detection never ran: every bootstrapped `global.json` pinned
+  whatever was last typed into `Defaults.props`, which went stale on each bump. The literal is gone. The
+  folder name wins, and an SDK imported from anywhere else falls back to `Props/PackedVersion.props`,
+  stamped from `$(PackageVersion)` at pack time. The remaining copy-paste pins in the docs are rewritten
+  by `just version-sync`, and `PackagedVersionFallbackTests` names each stale one as `file:line`.
 
 - **Pack-time skill validation now validates the repository it is packing.** `ValidatePurviewSkills` read
   the evaluation-time `PurviewSkillsSourceFolder`, which is resolved from `RepoRoot` and an `AGENTS.md`
@@ -210,7 +261,8 @@ release summarise what the commits recorded rather than what was written at the 
 - `.editorconfig` values missing test projects.
 - Source-generator resolution on pack.
 
-[Unreleased]: https://github.com/purview-dev/build-sdk/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/purview-dev/build-sdk/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/purview-dev/build-sdk/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/purview-dev/build-sdk/compare/v1.0.7...v1.1.0
 [1.0.7]: https://github.com/purview-dev/build-sdk/compare/v1.0.6...v1.0.7
 [1.0.6]: https://github.com/purview-dev/build-sdk/compare/v1.0.5...v1.0.6

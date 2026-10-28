@@ -152,7 +152,7 @@ operations skip them silently.
 | `RepositoryEditorConfigFilePath` | *(auto-detected)* | Override the destination path for the bootstrapped `.editorconfig`. |
 | `BootstrapGlobalJsonToRepoRoot` | `true` | Creates a `global.json` at the repository root when missing. |
 | `RepositoryGlobalJsonFilePath` | *(auto-detected)* | Override the destination path for the bootstrapped `global.json`. |
-| `PurviewBuildSdkVersionForGlobalJson` | *(auto-detected or `1.0.0` fallback)* | Version written to the `msbuild-sdks.Purview.BuildSdk` entry in a bootstrapped `global.json`. |
+| `PurviewBuildSdkVersionForGlobalJson` | *(restored package version, else the version it was packed as)* | Version written to the `msbuild-sdks.Purview.BuildSdk` entry in a bootstrapped `global.json`. |
 | `PurviewRepoBootstrapMode` | `IfMissing` | `IfMissing` never touches an existing file, `Always` overwrites it, `WarnOnDrift` reports that an existing file differs from the SDK-provided one, and `Never` skips bootstrapping entirely. |
 | `PurviewRepoBootstrapCopyRetries` | `3` | Copy attempts before a bootstrap write failure is reported. |
 | `PurviewRepoBootstrapCopyRetryDelayMilliseconds` | `500` | Base delay between bootstrap write attempts. |
@@ -180,6 +180,21 @@ consuming repository; that is gone, because the skills CLI covers it. See
 | -- | -- | -- |
 | `ExcludePurviewTelemetry` | `false` | Set to `true` to exclude `Purview.Telemetry.SourceGenerator` from all projects. |
 | `ExcludeMSTelemetryExtension` | `false` | Set to `true` to exclude `Microsoft.Extensions.Telemetry.Abstractions`. Only relevant when `ExcludePurviewTelemetry` is also `false` — when `ExcludePurviewTelemetry=true` the whole telemetry group is skipped anyway. |
+
+## Blazor WebAssembly, browser-safe libraries and BFF hosts
+
+| Property | Default | Description |
+| -- | -- | -- |
+| `IsBffProject` | `true` for a web SDK project named `*Bff` | Classifies a BFF host. `false` opts out, `true` opts in. |
+| `IsBlazorHostProject` | *(computed)* | `true` for a web SDK project referencing a WebAssembly client. `false` opts out. |
+| `PurviewAutoBlazorClientReference` | `true` | A host `<Name>` references its `<Name>.Client` automatically. |
+| `DisablePurviewBlazorWebAssemblyDefaults` | `false` | Keeps the generic defaults on a WebAssembly client. Set before the SDK import. |
+| `PurviewBrowserSafe` | *(unset)* | `true` on a class library applies `IsAotCompatible`, `SupportedPlatform browser` and the browser-safe `WarningsAsErrors`. |
+| `PurviewBrowserSafeWarningsAsErrors` | `true` | `false` keeps trim/AOT diagnostics as warnings. |
+| `PurviewBrowserSafeWarningCodes` | `CA1416`, `IL2001`-`IL2128`, `IL3000`-`IL3005`, `IL3050`-`IL3059` | The ids added to `WarningsAsErrors`. |
+| `DisablePurviewBrowserSafeReferenceCheck` | `false` | Turns off `PRBLZ0001`. |
+| `PurviewBrowserSafeReferenceCheckAsError` | `false` | Reports `PRBLZ0001` as an error. |
+| `PurviewBffExposesApi` | `true` if the BFF references `Microsoft.AspNetCore.OpenApi` | Whether a BFF keeps the OpenAPI interceptor namespace. |
 
 ## Testing
 

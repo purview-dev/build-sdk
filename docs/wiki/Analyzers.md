@@ -13,6 +13,29 @@ command-line builds and Visual Studio.
 | `PDS0005` | (suppressor) | — | Suppresses `IDE0130` for files rooted under `Extensions/` |
 | `PDS0006` | (suppressor) | — | Suppresses `CA1815` on a union declaration |
 | `PDS0007` | (suppressor) | — | Suppresses `CA1034` on an `extension` block |
+| `PDS0008` | Security | Warning | A BFF's authentication cookie must not be set `HttpOnly = false` |
+| `PDS0009` | Security | Warning | A BFF's authentication cookie must not be set `SameSite = None` |
+
+## PDS0008 / PDS0009 — BFF authentication cookie
+
+Active only in a project the SDK classifies as a BFF (`build_property.IsBffProject=true`). A BFF keeps
+the tokens on the server and hands the browser a session cookie; these rules report the two settings
+that undo that:
+
+- `PDS0008` — `HttpOnly = false`: script running in the page, injected script included, can read the
+  session and replay it from anywhere.
+- `PDS0009` — `SameSite = None`: the browser attaches the session to cross-site requests, so every BFF
+  endpoint becomes a cross-site request forgery target.
+
+Only a **constant** assigned to the cookie of `CookieAuthenticationOptions` is reported
+(`options.Cookie.HttpOnly = false`, or `Cookie = { SameSite = SameSiteMode.None }`). The antiforgery
+cookie, which an SPA legitimately reads, and the OpenID Connect correlation and nonce cookies, which
+legitimately need `SameSite=None`, are never reported. A cookie configured in another assembly, or
+through a local variable holding the builder, is missed rather than guessed at.
+
+A persisted Data Protection key ring is deliberately not checked: the `PersistKeysTo*` call usually
+lives in a shared ServiceDefaults project the BFF's compilation cannot see, so a rule would report
+correctly configured BFFs. Anti-forgery on forwarded routes stays a review obligation.
 
 ## Style policy
 

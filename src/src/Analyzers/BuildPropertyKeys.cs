@@ -8,6 +8,8 @@ namespace Purview.BuildSdk.Analyzers;
 static class BuildPropertyKeys
 {
 	public const string ProjectDir = "build_property.ProjectDir";
+
+	public const string IsBffProject = "build_property.IsBffProject";
 }
 
 /// <summary>
