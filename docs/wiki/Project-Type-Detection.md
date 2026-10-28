@@ -21,6 +21,10 @@ wiki.
 | `IsWorkerSdkProject` | `SdkProjectName` is `Microsoft.NET.Sdk.Worker`. |
 | `IsAspireHostProject` | `SdkProjectName` starts with `Aspire.Sdk.Host` or `Aspire.AppHost.Sdk`. |
 | `IsCLIProject` | Project name ends with `CLI`, `Console`, `CommandLine`, `QuickStart`, or `QuickStarts`. |
+| `IsBlazorWebAssemblyProject` | `SdkProjectName` is `Microsoft.NET.Sdk.BlazorWebAssembly`. |
+| `IsRazorClassLibraryProject` | `SdkProjectName` is `Microsoft.NET.Sdk.Razor`. |
+| `IsBffProject` | A web SDK project whose name ends with `Bff` (case-sensitive), or that sets `IsBffProject=true`. `IsBffProject=false` opts out. |
+| `IsBlazorHostProject` | A web SDK project that references an `IsBlazorWebAssemblyProject` project - at evaluation for the `<Name>`/`<Name>.Client` pairing, during the build (`ResolvePurviewBlazorHostProject`) otherwise. Never implies `IsBffProject`. |
 | `IsRoslynComponent` | `<IsRoslynComponent>true</IsRoslynComponent>` is declared in the project file. |
 | `IsPackable` | `<IsPackable>true</IsPackable>` is declared in the project file. |
 | `IsWebProject` | Marker used in SDK web-project behaviour. |
@@ -102,6 +106,35 @@ The SDK ships the following full `TestType` set, in addition to the standard `Un
 ### Aspire host projects
 
 - `OutputType=Exe` (when not a test/shared-testing project), `CA1515` suppressed.
+
+### Blazor WebAssembly clients (`IsBlazorWebAssemblyProject=true`)
+
+- `IsPackable=false` unless the project sets it, no container defaults even with a `Dockerfile`, and no
+  automatic `../Shared*` reference. `DisablePurviewBlazorWebAssemblyDefaults=true` (before the SDK
+  import) restores the generic defaults.
+- `PRBLZ0001` for each `ProjectReference` that does not set `PurviewBrowserSafe`.
+- Globalisation, trimming and the Blazor runtime settings are left to the Blazor SDK.
+
+### Blazor hosts (`IsBlazorHostProject=true`)
+
+- A host named `<Name>` gets an automatic reference to its `<Name>.Client` client unless it declares one.
+  `PurviewAutoBlazorClientReference=false` opts out.
+
+### BFF hosts (`IsBffProject=true`)
+
+- No packages added. No OpenAPI interceptor namespace unless the BFF references
+  `Microsoft.AspNetCore.OpenApi` or sets `PurviewBffExposesApi=true`.
+- `PDS0008`/`PDS0009` on the authentication cookie (see [Analyzers](Analyzers.md)).
+
+### Browser-safe libraries (`PurviewBrowserSafe=true`)
+
+- `IsAotCompatible=true`, `<SupportedPlatform Include="browser" />`, and the trim, single-file, AOT and
+  `CA1416` ids in `WarningsAsErrors` - each only where the project set nothing.
+  `PurviewBrowserSafeWarningsAsErrors=false` keeps them as warnings.
+- The same `PRBLZ0001` reference check a client runs.
+
+The README's [Blazor WebAssembly and BFF](../../README.md#blazor-webassembly-and-bff) section has the
+failure each behaviour prevents.
 
 ### Roslyn components (`IsRoslynComponent=true`)
 

@@ -1,6 +1,11 @@
 <Project>
 	<Import Project="$(MSBuildThisFileDirectory)Props/Defaults.props" />
 	<Import Project="$(MSBuildThisFileDirectory)Props/VersionDetection.props" />
+	<!-- Written at pack time by StampPurviewPackedVersionTarget, so it only exists in a packed SDK. -->
+	<Import
+		Project="$(MSBuildThisFileDirectory)Props/PackedVersion.props"
+		Condition="Exists('$(MSBuildThisFileDirectory)Props/PackedVersion.props')"
+	/>
 
 	<!-- =====================================================================
 	     SHARED PROJECT NAMES
@@ -166,6 +171,8 @@
 		<IsWorkerSdkProject>false</IsWorkerSdkProject>
 		<IsAspireHostProject>false</IsAspireHostProject>
 		<IsCLIProject>false</IsCLIProject>
+		<IsBlazorWebAssemblyProject>false</IsBlazorWebAssemblyProject>
+		<IsRazorClassLibraryProject>false</IsRazorClassLibraryProject>
 		<!--
 			This SDK is imported before the project body is evaluated, so MSBuild cannot yet be asked what the
 			project declares - the raw project text has to be inspected instead. Two rules apply to every scan
@@ -245,9 +252,53 @@
 		<IsSdkProject Condition="'$(SdkProjectName)' != ''">true</IsSdkProject>
 		<IsWebSdkProject Condition="'$(SdkProjectName)' == 'Microsoft.NET.Sdk.Web'">true</IsWebSdkProject>
 		<IsWorkerSdkProject Condition="'$(SdkProjectName)' == 'Microsoft.NET.Sdk.Worker'">true</IsWorkerSdkProject>
+		<IsBlazorWebAssemblyProject Condition="'$(SdkProjectName)' == 'Microsoft.NET.Sdk.BlazorWebAssembly'"
+			>true</IsBlazorWebAssemblyProject>
+		<IsRazorClassLibraryProject Condition="'$(SdkProjectName)' == 'Microsoft.NET.Sdk.Razor'"
+			>true</IsRazorClassLibraryProject>
+		<!--
+			A BFF (backend for frontend) is a web host that keeps the tokens on the server and hands the
+			browser only a session cookie. It is detected by name the way IsCLIProject is - a case-sensitive
+			'Bff' suffix - and only for a web SDK project, because nothing else can be one.
+
+			Unlike the SDK detections above this one honours a value the project already set, so
+			IsBffProject=false opts a project out of the name match and IsBffProject=true opts one in. A
+			value set in the project body is evaluated later and wins anyway; the BFF behaviours in
+			Sdk.targets read the final value.
+		-->
+		<IsBffProject
+			Condition="'$(IsBffProject)' == '' AND '$(IsWebSdkProject)' == 'true' AND $([System.String]::Copy('$(MSBuildProjectName)').EndsWith('Bff')) == 'True'"
+			>true</IsBffProject>
+		<IsBffProject Condition="'$(IsBffProject)' == ''">false</IsBffProject>
+		<!--
+			The Blazor Web App pairing: a web host named <Name> beside a WebAssembly client named
+			<Name>.Client. The client's SDK is read straight from its project file, because the reference
+			that would let MSBuild ask it has not been evaluated yet. A host referencing a client under any
+			other name is still recognised, at build time, by ResolvePurviewBlazorHostProject in Sdk.targets.
+
+			IsBlazorHostProject deliberately says nothing about IsBffProject. In a Blazor Web App the host is
+			the BFF only if it keeps the tokens; one that keeps none is not a BFF, and inferring it would
+			apply BFF rules to a project they do not describe.
+		-->
+		<_PurviewBlazorClientPairProjectPath>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)/../$(MSBuildProjectName).Client/$(MSBuildProjectName).Client.csproj'))</_PurviewBlazorClientPairProjectPath>
+		<_PurviewBlazorClientPairProjectText
+			Condition="'$(IsWebSdkProject)' == 'true' AND Exists('$(_PurviewBlazorClientPairProjectPath)')"
+			>$([System.IO.File]::ReadAllText(`$(_PurviewBlazorClientPairProjectPath)`))</_PurviewBlazorClientPairProjectText>
+		<_PurviewHasBlazorClientPair Condition="'$(_PurviewBlazorClientPairProjectText)' != ''"
+			>$([System.Text.RegularExpressions.Regex]::IsMatch($(_PurviewBlazorClientPairProjectText), `Sdk\s*=\s*"Microsoft\.NET\.Sdk\.BlazorWebAssembly"`))</_PurviewHasBlazorClientPair>
+		<IsBlazorHostProject Condition="'$(IsBlazorHostProject)' == '' AND '$(_PurviewHasBlazorClientPair)' == 'True'"
+			>true</IsBlazorHostProject>
 		<IsContainerProject
 			Condition="Exists('$(MSBuildProjectDirectory)\Dockerfile') OR Exists('$(MSBuildProjectDirectory)\dockerfile') OR Exists('$(MSBuildProjectDirectory)\Dockerfile.dev')"
 			>true</IsContainerProject>
+		<!-- A WebAssembly client runs in the browser, so the container defaults below (PublishAot,
+		     InvariantGlobalization, the Linux Docker target) describe a process it never becomes, and
+		     PublishAot on a client is a publish that fails. The Blazor SDK owns its globalisation and
+		     runtime settings. Set DisablePurviewBlazorWebAssemblyDefaults=true before the SDK import to
+		     keep the Dockerfile detection. -->
+		<IsContainerProject
+			Condition="'$(IsBlazorWebAssemblyProject)' == 'true' AND '$(DisablePurviewBlazorWebAssemblyDefaults)' != 'true'"
+			>false</IsContainerProject>
 		<IsAspireHostProject
 			Label="Detect Aspire.Sdk.Host SDK projects - only works when the SDK attribute is on the Project element"
 			Condition="$([System.String]::Copy('$(SdkProjectName)').StartsWith('Aspire.Sdk.Host')) == 'True' OR $([System.String]::Copy('$(SdkProjectName)').StartsWith('Aspire.AppHost.Sdk')) == 'True'"
@@ -464,6 +515,39 @@
 		</CompilerVisibleProperty>
 		<CompilerVisibleProperty Include="IsAspireHostProject">
 			<Description>True when the project SDK starts with Aspire.Sdk.Host.</Description>
+		</CompilerVisibleProperty>
+		<CompilerVisibleProperty Include="IsBlazorWebAssemblyProject">
+			<Description>True when SdkProjectName is Microsoft.NET.Sdk.BlazorWebAssembly.</Description>
+		</CompilerVisibleProperty>
+		<CompilerVisibleProperty Include="IsRazorClassLibraryProject">
+			<Description>True when SdkProjectName is Microsoft.NET.Sdk.Razor.</Description>
+		</CompilerVisibleProperty>
+		<CompilerVisibleProperty Include="IsBlazorHostProject">
+			<Description>True for a web SDK project that references a Blazor WebAssembly client. Says nothing about whether the host is a BFF.</Description>
+		</CompilerVisibleProperty>
+		<CompilerVisibleProperty Include="IsBffProject">
+			<Description>True for a web SDK project whose name ends with Bff, or that sets IsBffProject=true. IsBffProject=false opts out.</Description>
+		</CompilerVisibleProperty>
+		<CompilerVisibleProperty Include="PurviewBrowserSafe">
+			<Description>When true on a class library, applies the browser-safe defaults (IsAotCompatible, SupportedPlatform browser, trim/AOT/CA1416 as errors). Unset by default.</Description>
+		</CompilerVisibleProperty>
+		<CompilerVisibleProperty Include="PurviewBrowserSafeWarningsAsErrors">
+			<Description>When false, a browser-safe library keeps its trim, AOT and CA1416 diagnostics as warnings. Defaults to true.</Description>
+		</CompilerVisibleProperty>
+		<CompilerVisibleProperty Include="DisablePurviewBrowserSafeReferenceCheck">
+			<Description>When true, a Blazor WebAssembly client (or browser-safe library) does not check that its project references set PurviewBrowserSafe (PRBLZ0001).</Description>
+		</CompilerVisibleProperty>
+		<CompilerVisibleProperty Include="PurviewBrowserSafeReferenceCheckAsError">
+			<Description>When true, PRBLZ0001 is reported as an error instead of a warning. Defaults to false.</Description>
+		</CompilerVisibleProperty>
+		<CompilerVisibleProperty Include="DisablePurviewBlazorWebAssemblyDefaults">
+			<Description>When true, a Blazor WebAssembly client keeps the generic defaults (packable when asked, container detection, the automatic Shared reference). Set before the SDK import.</Description>
+		</CompilerVisibleProperty>
+		<CompilerVisibleProperty Include="PurviewAutoBlazorClientReference">
+			<Description>When false, a host named Name does not automatically reference its Name.Client WebAssembly client. Defaults to true.</Description>
+		</CompilerVisibleProperty>
+		<CompilerVisibleProperty Include="PurviewBffExposesApi">
+			<Description>When true, a BFF keeps the OpenAPI interceptor namespace. Defaults to true only when the BFF references Microsoft.AspNetCore.OpenApi.</Description>
 		</CompilerVisibleProperty>
 		<CompilerVisibleProperty Include="EditorConfigFilePath">
 			<Description>Path to the SDK-provided .editorconfig used for build-time style enforcement.</Description>
@@ -738,6 +822,11 @@
 		<PurviewBuildSdkVersionForGlobalJson
 			Condition="'$(PurviewBuildSdkVersionForGlobalJson)' == '' AND $([System.Text.RegularExpressions.Regex]::IsMatch('$(_PurviewSdkContainerDirectoryName)', '^\d+\.\d+\.\d+([-.].+)?$'))"
 			>$(_PurviewSdkContainerDirectoryName)</PurviewBuildSdkVersionForGlobalJson>
+		<!-- An SDK imported from somewhere other than a restored package folder still knows the version
+		     it was packed as. Only an unpacked source tree reaches the last resort. -->
+		<PurviewBuildSdkVersionForGlobalJson
+			Condition="'$(PurviewBuildSdkVersionForGlobalJson)' == '' AND '$(_PurviewPackedSdkVersion)' != ''"
+			>$(_PurviewPackedSdkVersion)</PurviewBuildSdkVersionForGlobalJson>
 		<PurviewBuildSdkVersionForGlobalJson Condition="'$(PurviewBuildSdkVersionForGlobalJson)' == ''"
 			>1.0.0</PurviewBuildSdkVersionForGlobalJson>
 		<!-- Sensible default for SourceLink (override by setting SourceLinkPackageName) -->
@@ -795,6 +884,23 @@
 		<!-- Same rationale as Aspire hosts: nested public options classes (Spectre.Console settings). -->
 		<NoWarn>$(NoWarn);CA1515;</NoWarn>
 		<PurviewPolicyExemptNoWarn>$(PurviewPolicyExemptNoWarn);CA1515;</PurviewPolicyExemptNoWarn>
+	</PropertyGroup>
+
+	<!-- =====================================================================
+	     BLAZOR WEBASSEMBLY CLIENT PROJECTS
+	     A client is an application that the host serves to the browser, not a
+	     library, so packing it produces a package of a wwwroot nobody can
+	     consume. IsPackable=true in the project body is evaluated later and
+	     still wins. Globalisation, trimming and the Blazor runtime settings are
+	     deliberately left alone: the Blazor SDK owns them, and a second default
+	     here would compete with it. Set DisablePurviewBlazorWebAssemblyDefaults=true
+	     before the SDK import to opt out.
+	     ===================================================================== -->
+	<PropertyGroup
+		Label="Blazor WebAssembly Client Project Properties"
+		Condition="'$(IsBlazorWebAssemblyProject)' == 'true' AND '$(DisablePurviewBlazorWebAssemblyDefaults)' != 'true'"
+	>
+		<IsPackable>false</IsPackable>
 	</PropertyGroup>
 
 	<ItemGroup Label="CLI Item Properties" Condition="'$(IsCLIProject)' == 'true'">
@@ -1282,9 +1388,13 @@
      AUTOMATIC PROJECT REFERENCES FOR TEST PROJECTS
      Resolves the target project relative to the test project location.
      ===================================================================== -->
+	<!-- A WebAssembly client is left out: every assembly it references is downloaded to the browser and
+	     runs there, and a server-side Shared library joining that download because of a folder name is a
+	     decision nobody made. Reference it explicitly - and mark it PurviewBrowserSafe - if it belongs
+	     there. DisablePurviewBlazorWebAssemblyDefaults=true restores the automatic reference. -->
 	<ItemGroup
 		Label="Automatic ProjectReference for Projects"
-		Condition="'$(IsTestProject)' != 'true' AND '$(IsSharedProject)' != 'true' AND '$(IsSharedTestingProject)' != 'true'"
+		Condition="'$(IsTestProject)' != 'true' AND '$(IsSharedProject)' != 'true' AND '$(IsSharedTestingProject)' != 'true' AND ('$(IsBlazorWebAssemblyProject)' != 'true' OR '$(DisablePurviewBlazorWebAssemblyDefaults)' == 'true')"
 	>
 		<!-- Shared project alongside this one (wildcards silently match 0 files) -->
 		<ProjectReference Condition="'$(IsAspireHostProject)' == 'false'" Include="../Shared*/Shared*.csproj" />
