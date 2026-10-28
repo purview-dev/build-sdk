@@ -69,4 +69,4 @@ The pipeline configuration lives in `purview-build.json`:
   Windows, Linux, and macOS — never hardcode platform-specific paths in tests or fixtures.
 - The integration harness (`ProjectHarness`) creates throwaway projects under `Path.GetTempPath()`;
   see `src/tests/BuildSdk.IntegrationTests/Harness/ProjectHarness.cs`.
-- Linux agent-pack integration tests can be run locally via `just test-linux` (Docker-based).
+- The SDK integration suite can be run on Linux locally via `just test-linux` (Docker-based).

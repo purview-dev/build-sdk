@@ -102,7 +102,7 @@ test filter="/*/*/*/*/" *args:
     echo "==> Testing {{ BLUE }}{{ solution_file }}{{ NORMAL }} ({{ GREEN }}{{ build_configuration }}{{ NORMAL }}) with filter {{ YELLOW }}{{ filter }}{{ NORMAL }}"
     dotnet test --project {{ solution_file }} --configuration {{ build_configuration }} --treenode-filter "{{ filter }}" --ignore-exit-code 8 {{ args }}
 
-# Run agent-pack integration tests in the same Linux SDK environment used by CI
+# Run the SDK integration tests in the same Linux SDK environment used by CI
 [group('Build and Test')]
 test-linux:
     pwsh -NoProfile -File ./scripts/test-linux-docker.ps1
