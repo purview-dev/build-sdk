@@ -12,7 +12,8 @@ A reusable MSBuild SDK NuGet package that delivers standardised .NET project def
 
 | Feature | Detail |
 | -- | -- |
-| **Project type detection** | `IsCSharpProject`, `IsTestProject`, `IsSharedTestingProject`, `IsContainerProject`, `IsWebSdkProject`, `IsAspireHostProject`, … |
+| **Project type detection** | `IsCSharpProject`, `IsTestProject`, `IsSharedTestingProject`, `IsContainerProject`, `IsWebSdkProject`, `IsAspireHostProject`, `IsBlazorWebAssemblyProject`, `IsBffProject`, … |
+| **Blazor and BFF** | Blazor WebAssembly clients, Blazor Web App hosts and BFF hosts are detected; `PurviewBrowserSafe` makes a library the client downloads fail the build on trim, AOT and browser-unsupported APIs, and the client checks every reference sets it (see [Blazor WebAssembly and BFF](#blazor-webassembly-and-bff)) |
 | **C# defaults** | `net10.0` TFM (overridable), `LangVersion=preview`, `Nullable=enable`, `ImplicitUsings=enable`, deterministic builds |
 | **Code style** | `.editorconfig` baked into the package, applied via `EditorConfigFilePath`, and auto-bootstrapped to repo root if missing; `EnforceCodeStyleInBuild=true`, `EnableNETAnalyzers=true`, `AnalysisLevel=latest`, `AnalysisMode=All`. Style policy: `dotnet_style_require_accessibility_modifiers=omit_if_default`, private instance fields named `_camelCase`, and `IDE0040`/`CA1515`/`CA1852`/`CA1034` at warning or above, enforced by `ValidatePurviewStylePolicy` (opt out with `DisablePurviewStylePolicyValidation=true`) |
 | **NuGet packaging** | `AssemblyName`/`PackageId` default to the fully evaluated `RootNamespace`; packable projects get `GenerateDocumentationFile=true`, `PublishRepositoryUrl=true`, `IncludeSymbols=true`, `SymbolPackageFormat=snupkg`, `EmbedUntrackedSources=true`, and portable PDBs delivered via `.snupkg` (not the `.nupkg`) |
@@ -41,7 +42,7 @@ A reusable MSBuild SDK NuGet package that delivers standardised .NET project def
     "runner": "Microsoft.Testing.Platform"
   },
   "msbuild-sdks": {
-    "Purview.BuildSdk": "1.1.0"
+    "Purview.BuildSdk": "1.2.0"
   }
 }
 ```
@@ -200,7 +201,7 @@ to a low-importance message) and only a copy that still fails after every retry 
 The bootstrapped `.editorconfig` opens with a version marker:
 
 ```editorconfig
-# Purview.BuildSdk 1.1.0 - managed file, do not edit
+# Purview.BuildSdk 1.2.0 - managed file, do not edit
 ```
 
 That line is how the SDK recognises a file **it** wrote. When the SDK version changes, a file carrying
@@ -392,7 +393,7 @@ Non-packable projects (including web applications) default `WarnOnPackingNonPack
 | `RepositoryEditorConfigFilePath` | *(auto-detected)* | Override the destination path for the bootstrapped `.editorconfig`. |
 | `BootstrapGlobalJsonToRepoRoot` | `true` | Creates a `global.json` at the repository root when missing. |
 | `RepositoryGlobalJsonFilePath` | *(auto-detected)* | Override the destination path for the bootstrapped `global.json`. |
-| `PurviewBuildSdkVersionForGlobalJson` | *(auto-detected or `1.0.0` fallback)* | Version written to the `msbuild-sdks.Purview.BuildSdk` entry in a bootstrapped `global.json`. |
+| `PurviewBuildSdkVersionForGlobalJson` | *(restored package version, else the version it was packed as)* | Version written to the `msbuild-sdks.Purview.BuildSdk` entry in a bootstrapped `global.json`. |
 | `PurviewRepoBootstrapMode` | `IfMissing` | `IfMissing` never touches an existing file, `Always` overwrites it, `WarnOnDrift` reports a file that differs from the SDK-provided one, and `Never` skips bootstrapping. |
 | `PurviewRepoBootstrapCopyRetries` | `3` | Write attempts before a bootstrap write failure is reported. |
 | `PurviewRepoBootstrapCopyRetryDelayMilliseconds` | `500` | Base delay between bootstrap write attempts. |
@@ -496,12 +497,23 @@ The SDK now exports its properties via `CompilerVisibleProperty`, so analyzers a
 | `IsWebSdkProject` | True when `SdkProjectName` is `Microsoft.NET.Sdk.Web`. |
 | `IsWorkerSdkProject` | True when `SdkProjectName` is `Microsoft.NET.Sdk.Worker`. |
 | `IsAspireHostProject` | True when SDK starts with `Aspire.Sdk.Host`. |
+| `IsBlazorWebAssemblyProject` | True when `SdkProjectName` is `Microsoft.NET.Sdk.BlazorWebAssembly`. |
+| `IsRazorClassLibraryProject` | True when `SdkProjectName` is `Microsoft.NET.Sdk.Razor`. |
+| `IsBlazorHostProject` | True for a web SDK project that references a Blazor WebAssembly client. |
+| `IsBffProject` | True for a web SDK project named `*Bff`, or that sets `IsBffProject=true`. |
+| `PurviewBrowserSafe` | When `true` on a class library, applies the browser-safe defaults. |
+| `PurviewBrowserSafeWarningsAsErrors` | When `false`, browser-safe trim and AOT diagnostics stay warnings. |
+| `DisablePurviewBrowserSafeReferenceCheck` | Turns off `PRBLZ0001`. |
+| `PurviewBrowserSafeReferenceCheckAsError` | Reports `PRBLZ0001` as an error. |
+| `DisablePurviewBlazorWebAssemblyDefaults` | Keeps the generic defaults on a WebAssembly client. |
+| `PurviewAutoBlazorClientReference` | When `false`, a host does not reference its `<Name>.Client` automatically. |
+| `PurviewBffExposesApi` | Whether a BFF keeps the OpenAPI interceptor namespace. |
 | `EditorConfigFilePath` | Path to the SDK-provided `.editorconfig` that is injected into `@(EditorConfigFiles)`. |
 | `RepositoryEditorConfigFilePath` | Destination path for bootstrapping a physical repo-level `.editorconfig` (defaults to git repo root; falls back to `Directory.Build.props` directory). |
 | `BootstrapEditorConfigToRepoRoot` | When `true` (default), copies the SDK `.editorconfig` to `RepositoryEditorConfigFilePath` if missing. |
 | `RepositoryGlobalJsonFilePath` | Destination path for bootstrapping a physical repo-level `global.json` (defaults to git repo root; falls back to `Directory.Build.props` directory). |
 | `BootstrapGlobalJsonToRepoRoot` | When `true` (default), creates `global.json` at `RepositoryGlobalJsonFilePath` if missing. |
-| `PurviewBuildSdkVersionForGlobalJson` | Version used for `msbuild-sdks.Purview.BuildSdk` when bootstrapping `global.json` (auto-detected from SDK package path, fallback `1.0.0`). |
+| `PurviewBuildSdkVersionForGlobalJson` | Version used for `msbuild-sdks.Purview.BuildSdk` when bootstrapping `global.json` (auto-detected from SDK package path, falling back to the version stamped in at pack time). |
 | `DisableAutoCopySdkFiles` | When `true`, disables SDK auto-copy/bootstrap for repo files (`.editorconfig`, `global.json`). |
 | `PurviewRepoBootstrapMode` | Controls repo file bootstrapping: `IfMissing` (default), `Always`, `WarnOnDrift` or `Never`. |
 | `PurviewRepoBootstrapCopyRetries` | Number of write attempts before a bootstrap failure is reported (default `3`). |
@@ -540,6 +552,83 @@ The SDK now exports its properties via `CompilerVisibleProperty`, so analyzers a
   <Import Sdk="Purview.BuildSdk" Project="Sdk.props" />
 </Project>
 ```
+
+---
+
+## Blazor WebAssembly and BFF
+
+Every behaviour here applies only to the project type it names. A project that is not a WebAssembly
+client, a Blazor host, a BFF or a `PurviewBrowserSafe` library is unchanged.
+
+### Detection
+
+| Signal | Result |
+| -- | -- |
+| `Sdk="Microsoft.NET.Sdk.BlazorWebAssembly"` | `IsBlazorWebAssemblyProject=true` |
+| `Sdk="Microsoft.NET.Sdk.Razor"` | `IsRazorClassLibraryProject=true` |
+| a web SDK project whose name ends with `Bff` (case-sensitive), or that sets `IsBffProject=true` | `IsBffProject=true`; `IsBffProject=false` opts out |
+| a web SDK project that references an `IsBlazorWebAssemblyProject` project | `IsBlazorHostProject=true` |
+
+`IsBlazorHostProject` never implies `IsBffProject`: a host that keeps no tokens is not a BFF. For the
+`<Name>` (host) / `<Name>.Client` (WebAssembly) pairing it is known at evaluation, and the host gets an
+automatic reference to the client unless it declares one (`PurviewAutoBlazorClientReference=false`
+opts out). A host referencing a client under another name is resolved during the build:
+`dotnet msbuild <host> -t:ResolvePurviewBlazorHostProject -getProperty:IsBlazorHostProject`.
+
+### WebAssembly client defaults
+
+| Applied | Failure it prevents |
+| -- | -- |
+| `IsPackable=false` (the project can still set `true`) | packing an app's `wwwroot` as a package nobody can consume |
+| no container defaults, even with a `Dockerfile` | `PublishAot` on a client is a publish that fails |
+| no automatic `../Shared*` reference | a server-side library joining the browser download because of a folder name |
+| `PRBLZ0001` for each `ProjectReference` that does not set `PurviewBrowserSafe` | a library joining the download without anyone deciding it was safe there |
+
+Globalisation, trimming mode and the Blazor runtime settings are left to the Blazor SDK.
+`DisablePurviewBlazorWebAssemblyDefaults=true` (before the SDK import) restores the generic
+defaults. The automatic telemetry packages were checked rather than assumed: the generator is
+analyzer-only, and its generated code and `Microsoft.Extensions.Telemetry.Abstractions` publish
+trim-clean and run on the WebAssembly runtime (an integration test boots it), so nothing is excluded.
+The SDK adds no exporter.
+
+### Browser-safe libraries
+
+A library a WebAssembly client downloads runs in the browser, where reflection the trimmer cannot
+follow and APIs the browser does not support fail at runtime. `<PurviewBrowserSafe>true</PurviewBrowserSafe>`
+on a class library turns those into build failures, applying only what the project has not set:
+
+- `IsAotCompatible=true`, which turns on `IsTrimmable` and the trim, single-file and AOT analyzers;
+- `<SupportedPlatform Include="browser" />`, so `CA1416` reports browser-unsupported APIs such as
+  `System.Diagnostics.Process`;
+- `WarningsAsErrors` for each trim, single-file, AOT and `CA1416` id (`PurviewBrowserSafeWarningCodes`),
+  rather than `TreatWarningsAsErrors`, so the rest of the project's warning policy is untouched.
+  `PurviewBrowserSafeWarningsAsErrors=false` opts out; `CA1416` then falls back to the repository's
+  severity (`suggestion` in the shipped `.editorconfig`).
+
+File and network I/O are not reported - `File` works against the browser's in-memory file system and
+`HttpClient` through `fetch`, so neither is annotated as unsupported - and stay a review obligation.
+
+The client asks every `ProjectReference`, through an MSBuild call on the referenced project, for its
+`PurviewBrowserSafe` value and reports `PRBLZ0001` for each one that does not set it. A browser-safe
+library runs the same check over its own references, so the guarantee covers the whole download.
+`PurviewBrowserSafe="true"` on the `ProjectReference` records the decision for a project that does not
+use this SDK; `PurviewBrowserSafeReferenceCheckAsError=true` makes it an error and
+`DisablePurviewBrowserSafeReferenceCheck=true` turns it off.
+
+### BFF hosts
+
+- No packages are added: YARP, OpenID Connect and any BFF library (Duende.BFF is commercially
+  licensed) are the application's choice.
+- The OpenAPI interceptor namespace is not added, because a BFF that only forwards has no document to
+  generate. A BFF referencing `Microsoft.AspNetCore.OpenApi`, or setting `PurviewBffExposesApi=true`,
+  keeps it.
+- `PDS0008` reports `HttpOnly = false` and `PDS0009` reports `SameSite = None` on the
+  `CookieAuthenticationOptions` cookie - not on the antiforgery cookie or the OpenID Connect
+  correlation and nonce cookies, which legitimately differ.
+
+A persisted Data Protection key ring is not checked: it is routinely configured in a shared
+ServiceDefaults project the BFF's compilation cannot see, so the rule could not be precise.
+Anti-forgery on forwarded routes stays a review obligation.
 
 ---
 
@@ -779,6 +868,8 @@ copy of the shipped file, a stale copy is reported rather than obeyed: refresh i
 | `PDS0005` | (suppressor) | — | Suppresses `IDE0130` for files under a project-root `Extensions/` folder, whose namespace is reset by `PDS0002` |
 | `PDS0006` | (suppressor) | — | Suppresses `CA1815` on a union declaration |
 | `PDS0007` | (suppressor) | — | Suppresses `CA1034` on an `extension` block |
+| `PDS0008` | Security | Warning | A BFF's authentication cookie must not be set `HttpOnly = false` (see [Blazor WebAssembly and BFF](#blazor-webassembly-and-bff)) |
+| `PDS0009` | Security | Warning | A BFF's authentication cookie must not be set `SameSite = None` |
 
 `PDS0001`, `PDS0005`, `PDS0006` and `PDS0007` are `DiagnosticSuppressor`s rather than analyzers, so they
 declare `SuppressionDescriptor`s and do not appear in `AnalyzerReleases.Shipped.md` — that file tracks

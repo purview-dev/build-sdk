@@ -41,9 +41,16 @@ static class AnalyzerTestInfrastructure
 		);
 	}
 
+	/// <param name="projectDir">The fake project directory exposed as <c>build_property.ProjectDir</c>.</param>
+	/// <param name="rootNamespace">The value exposed as <c>build_property.RootNamespace</c>.</param>
+	/// <param name="buildProperties">
+	/// Further <c>build_property.*</c> values, keyed by property name without the prefix - for example
+	/// <c>IsBffProject</c>.
+	/// </param>
 	public static AnalyzerOptions CreateAnalyzerOptions(
 		string projectDir = @"C:\FakeProject\",
-		string rootNamespace = "An.Example.Project"
+		string rootNamespace = "An.Example.Project",
+		IReadOnlyDictionary<string, string>? buildProperties = null
 	)
 	{
 		var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -51,6 +58,9 @@ static class AnalyzerTestInfrastructure
 			["build_property.ProjectDir"] = NormalizeFakePath(projectDir),
 			["build_property.RootNamespace"] = rootNamespace,
 		};
+
+		foreach (var (name, value) in buildProperties ?? new Dictionary<string, string>())
+			values["build_property." + name] = value;
 
 		InMemoryAnalyzerConfigOptions options = new(values);
 		InMemoryAnalyzerConfigOptionsProvider provider = new(options);

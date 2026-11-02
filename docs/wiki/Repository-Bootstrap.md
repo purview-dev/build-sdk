@@ -62,7 +62,7 @@ file, and honours `PurviewRepoBootstrapMode`:
 | -- | -- | -- |
 | `BootstrapGlobalJsonToRepoRoot` | `true` | Creates a `global.json` at the repository root when missing. |
 | `RepositoryGlobalJsonFilePath` | *(auto-detected)* | Override the destination path for the bootstrapped `global.json`. |
-| `PurviewBuildSdkVersionForGlobalJson` | *(auto-detected or `1.0.0` fallback)* | Version written to the `msbuild-sdks.Purview.BuildSdk` entry. |
+| `PurviewBuildSdkVersionForGlobalJson` | *(restored package version, else the version it was packed as)* | Version written to the `msbuild-sdks.Purview.BuildSdk` entry. |
 | `DisableAutoCopySdkFiles` | `false` | Master switch that disables repo-level SDK file bootstrapping. |
 | `PurviewRepoBootstrapMode` | `IfMissing` | `IfMissing`, `Always`, `WarnOnDrift` or `Never`. |
 

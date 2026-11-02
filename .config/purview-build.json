@@ -18,9 +18,11 @@
 				"README.md",
 				"Sdk/.editorconfig",
 				"Sdk/Props/Defaults.props",
+				"Sdk/Props/PackedVersion.props",
 				"Sdk/Props/VersionDetection.props",
 				"Sdk/Sdk.props",
 				"Sdk/Sdk.targets",
+				"Sdk/Targets/Blazor.targets",
 				"Sdk/Targets/VersionDetection.targets"
 			],
 			"purview.skills.testing": [

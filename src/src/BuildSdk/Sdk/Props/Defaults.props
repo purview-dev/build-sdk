@@ -130,6 +130,13 @@
 		<InterceptorsNamespaces Condition="'$(InterceptorsNamespaces)' == ''"></InterceptorsNamespaces>
 		<InvariantGlobalization Condition="'$(InvariantGlobalization)' == ''">false</InvariantGlobalization>
 		<IsAspireHostProject Condition="'$(IsAspireHostProject)' == ''">false</IsAspireHostProject>
+		<IsBlazorWebAssemblyProject Condition="'$(IsBlazorWebAssemblyProject)' == ''">false</IsBlazorWebAssemblyProject>
+		<IsRazorClassLibraryProject Condition="'$(IsRazorClassLibraryProject)' == ''">false</IsRazorClassLibraryProject>
+		<!-- IsBffProject, IsBlazorHostProject and PurviewBrowserSafe are deliberately not defaulted here:
+		     each honours a value the repository set, so an empty value has to survive until Sdk.props can
+		     tell "not set" from "set to false". -->
+		<DisablePurviewBlazorWebAssemblyDefaults Condition="'$(DisablePurviewBlazorWebAssemblyDefaults)' == ''"
+			>false</DisablePurviewBlazorWebAssemblyDefaults>
 		<IsCLIProject Condition="'$(IsCLIProject)' == ''">false</IsCLIProject>
 		<IsContainerProject Condition="'$(IsContainerProject)' == ''">false</IsContainerProject>
 		<IsCSharpProject Condition="'$(IsCSharpProject)' == ''">false</IsCSharpProject>
@@ -208,11 +215,12 @@
 		<PurviewEditorConfigAdoptionStampPath
 			Condition="'$(PurviewEditorConfigAdoptionStampPath)' == ''"
 		></PurviewEditorConfigAdoptionStampPath>
-		<!-- Only used when the version cannot be detected from the restored SDK package path. It must track
-		     the version in package.json, or a bootstrapped global.json pins a release that predates every
-		     fix in the SDK doing the bootstrapping. PackagedVersionFallbackTests enforces that. -->
-		<PurviewBuildSdkVersionForGlobalJson Condition="'$(PurviewBuildSdkVersionForGlobalJson)' == ''"
-			>1.1.0</PurviewBuildSdkVersionForGlobalJson>
+		<!-- Deliberately empty. Sdk.props resolves it from the restored package path, then from the
+		     version stamped into Props/PackedVersion.props at pack time. A literal here would be one bump
+		     away from stale, and because this file is imported first it would also win over both. -->
+		<PurviewBuildSdkVersionForGlobalJson
+			Condition="'$(PurviewBuildSdkVersionForGlobalJson)' == ''"
+		></PurviewBuildSdkVersionForGlobalJson>
 		<RepositoryEditorConfigFilePath
 			Condition="'$(RepositoryEditorConfigFilePath)' == ''"
 		></RepositoryEditorConfigFilePath>

@@ -1,0 +1,262 @@
+<Project>
+	<!-- =====================================================================
+	     BLAZOR WEBASSEMBLY, BROWSER-SAFE LIBRARIES AND BFF HOSTS
+
+	     Imported from Sdk.targets, after the project body, so every property a
+	     project sets is final here. Detection itself (IsBlazorWebAssemblyProject,
+	     IsRazorClassLibraryProject, IsBffProject and the <Name>/<Name>.Client
+	     pairing) lives in Sdk.props beside the other SDK detections.
+
+	     Nothing in this file applies to a project that is not a WebAssembly
+	     client, a Blazor host, a BFF or a PurviewBrowserSafe library.
+	     ===================================================================== -->
+
+	<PropertyGroup Label="Blazor Host Project Resolution" Condition="'$(IsCSharpProject)' == 'true'">
+		<!-- A host referencing a client under any name other than <Name>.Client cannot be recognised until
+		     its references can be asked, so the build resolves it (ResolvePurviewBlazorHostProject). A value
+		     the project set itself, including false, is never second-guessed. -->
+		<_PurviewResolveBlazorHostProject Condition="'$(IsBlazorHostProject)' == '' AND '$(IsWebSdkProject)' == 'true'"
+			>true</_PurviewResolveBlazorHostProject>
+		<IsBlazorHostProject Condition="'$(IsBlazorHostProject)' == ''">false</IsBlazorHostProject>
+		<PurviewAutoBlazorClientReference Condition="'$(PurviewAutoBlazorClientReference)' == ''"
+			>true</PurviewAutoBlazorClientReference>
+	</PropertyGroup>
+
+	<!-- =====================================================================
+	     BLAZOR WEB APP PAIRING
+	     A host named <Name> beside a WebAssembly client named <Name>.Client is
+	     the shape the Blazor Web App template produces, and the host has to
+	     reference the client for its framework files to be served at all. The
+	     reference is probed the same way a test project's target is, and is
+	     only added when the project does not already reference the client -
+	     the template declares it, and a second item would build it twice.
+	     Opt out with PurviewAutoBlazorClientReference=false.
+	     ===================================================================== -->
+	<ItemGroup
+		Label="Automatic Blazor Client ProjectReference"
+		Condition="'$(_PurviewHasBlazorClientPair)' == 'True' AND '$(PurviewAutoBlazorClientReference)' != 'false' AND '$(IsTestProject)' != 'true'"
+	>
+		<_PurviewBlazorClientPairReference Include="$(_PurviewBlazorClientPairProjectPath)" />
+		<_PurviewBlazorClientPairReference Remove="@(ProjectReference->'%(FullPath)')" />
+		<ProjectReference Include="@(_PurviewBlazorClientPairReference->'../$(MSBuildProjectName).Client/$(MSBuildProjectName).Client.csproj')" />
+	</ItemGroup>
+
+	<!-- =====================================================================
+	     BROWSER-SAFE LIBRARIES
+	     A library a WebAssembly client downloads runs in the browser, where
+	     file, process and reflection-heavy code fails at runtime rather than at
+	     build, and where the trimmer removes whatever reflection cannot be
+	     proven to reach. PurviewBrowserSafe=true turns those runtime failures
+	     into build failures, applying only what the project has not set:
+
+	       - IsAotCompatible=true, which turns on IsTrimmable and the trim,
+	         single-file and AOT analyzers;
+	       - SupportedPlatform browser, so CA1416 flags an API the browser does
+	         not support (System.Diagnostics.Process, threads, sockets);
+	       - the trim, single-file, AOT and CA1416 diagnostics added to
+	         WarningsAsErrors individually. TreatWarningsAsErrors is deliberately
+	         not used: the aim is to make *these* failures fatal, not to change
+	         the project's whole warning policy.
+
+	     WarningsAsErrors is also what makes CA1416 count at all. The shipped
+	     .editorconfig sets it to suggestion, which no WarningsAsErrors entry can
+	     escalate - but the compiler's /warnaserror+:CA1416 outranks an
+	     .editorconfig severity (suggestion, silent and none alike), so a
+	     browser-unsupported call fails the build without the repository-wide
+	     severity changing. BrowserSafeLibraryTests pins that. The consequence of
+	     PurviewBrowserSafeWarningsAsErrors=false is therefore that the trim and
+	     AOT diagnostics stay warnings, while CA1416 falls back to whatever
+	     severity the repository configures.
+
+	     It applies to class libraries only. An executable is not downloaded as
+	     a dependency, and a WebAssembly client gets its own settings from the
+	     Blazor SDK.
+	     ===================================================================== -->
+	<PropertyGroup Label="Browser-Safe Library Applicability" Condition="'$(IsCSharpProject)' == 'true'">
+		<_PurviewBrowserSafeApplies
+			Condition="'$(PurviewBrowserSafe)' == 'true' AND ('$(OutputType)' == '' OR '$(OutputType)' == 'Library') AND '$(IsWebSdkProject)' != 'true' AND '$(IsBlazorWebAssemblyProject)' != 'true' AND '$(IsTestProject)' != 'true' AND '$(IsSharedTestingProject)' != 'true' AND '$(IsRoslynComponent)' != 'true'"
+			>true</_PurviewBrowserSafeApplies>
+	</PropertyGroup>
+
+	<PropertyGroup Label="Browser-Safe Library Properties" Condition="'$(_PurviewBrowserSafeApplies)' == 'true'">
+		<!-- IsAotCompatible is only meaningful on a TFM that supports it; on netstandard2.0 or net48 in a
+		     multi-targeted library the .NET SDK would warn (NETSDK1210) for every build. -->
+		<IsAotCompatible
+			Condition="'$(IsAotCompatible)' == '' AND '$(TargetFramework)' != '' AND $([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net8.0'))"
+			>true</IsAotCompatible>
+		<PurviewBrowserSafeWarningsAsErrors Condition="'$(PurviewBrowserSafeWarningsAsErrors)' == ''"
+			>true</PurviewBrowserSafeWarningsAsErrors>
+		<!-- Every trim (IL2001-IL2128), single-file (IL3000-IL3005) and AOT (IL3050-IL3059) diagnostic the
+		     ILLink analyzer defines, read from its DiagnosticId enumeration, plus CA1416. Single-file is
+		     included because Assembly.Location is empty in the browser exactly as it is in a single-file
+		     app. Listing an id the analyzer never reports costs nothing. -->
+		<PurviewBrowserSafeWarningCodes Condition="'$(PurviewBrowserSafeWarningCodes)' == ''">
+			CA1416;IL2001;IL2002;IL2003;IL2004;IL2005;IL2006;IL2007;IL2008;IL2009;IL2010;IL2011;IL2012;IL2013;IL2014;IL2015;
+			IL2016;IL2017;IL2018;IL2019;IL2020;IL2021;IL2022;IL2023;IL2024;IL2025;IL2026;IL2027;IL2028;IL2029;IL2030;IL2031;
+			IL2032;IL2033;IL2034;IL2035;IL2036;IL2037;IL2038;IL2039;IL2040;IL2041;IL2042;IL2043;IL2044;IL2045;IL2046;IL2047;
+			IL2048;IL2049;IL2050;IL2051;IL2052;IL2053;IL2054;IL2055;IL2056;IL2057;IL2058;IL2059;IL2060;IL2061;IL2062;IL2063;
+			IL2064;IL2065;IL2066;IL2067;IL2068;IL2069;IL2070;IL2071;IL2072;IL2073;IL2074;IL2075;IL2076;IL2077;IL2078;IL2079;
+			IL2080;IL2081;IL2082;IL2083;IL2084;IL2085;IL2086;IL2087;IL2088;IL2089;IL2090;IL2091;IL2092;IL2093;IL2094;IL2095;
+			IL2096;IL2097;IL2098;IL2099;IL2100;IL2101;IL2102;IL2103;IL2104;IL2105;IL2106;IL2107;IL2108;IL2109;IL2110;IL2111;
+			IL2112;IL2113;IL2114;IL2115;IL2116;IL2117;IL2118;IL2119;IL2120;IL2121;IL2122;IL2123;IL2124;IL2125;IL2126;IL2127;
+			IL2128;IL3000;IL3001;IL3002;IL3003;IL3004;IL3005;IL3050;IL3051;IL3052;IL3053;IL3054;IL3055;IL3056;IL3057;IL3058;
+			IL3059;
+		</PurviewBrowserSafeWarningCodes>
+		<!-- Whitespace is stripped because the list reaches the compiler's command line as one argument. -->
+		<PurviewBrowserSafeWarningCodes>$([System.Text.RegularExpressions.Regex]::Replace('$(PurviewBrowserSafeWarningCodes)', '\s', ''))</PurviewBrowserSafeWarningCodes>
+		<WarningsAsErrors Condition="'$(PurviewBrowserSafeWarningsAsErrors)' == 'true'"
+			>$(WarningsAsErrors);$(PurviewBrowserSafeWarningCodes)</WarningsAsErrors>
+	</PropertyGroup>
+
+	<ItemGroup Label="Browser-Safe Library Items" Condition="'$(_PurviewBrowserSafeApplies)' == 'true'">
+		<SupportedPlatform Include="browser" Exclude="@(SupportedPlatform)" />
+	</ItemGroup>
+
+	<!-- =====================================================================
+	     BROWSER PROJECT INFORMATION
+	     Answers, for whoever references this project, the questions a client or
+	     a host has to ask of its references: is it a WebAssembly client, and has
+	     anyone declared it browser-safe. Read through an MSBuild task call on
+	     the referenced project rather than guessed from its name.
+	     ===================================================================== -->
+	<Target Name="GetPurviewBrowserProjectInfo" Returns="@(_PurviewBrowserProjectInfo)">
+		<ItemGroup>
+			<_PurviewBrowserProjectInfo Include="$(MSBuildProjectFullPath)">
+				<ProjectName>$(MSBuildProjectName)</ProjectName>
+				<IsBlazorWebAssemblyProject>$(IsBlazorWebAssemblyProject)</IsBlazorWebAssemblyProject>
+				<PurviewBrowserSafe>$(PurviewBrowserSafe)</PurviewBrowserSafe>
+			</_PurviewBrowserProjectInfo>
+		</ItemGroup>
+	</Target>
+
+	<!-- Assembly references only: an analyzer reference, or one with ReferenceOutputAssembly=false,
+	     is never part of the download. -->
+	<Target Name="_PurviewCollectBrowserProjectReferences">
+		<ItemGroup>
+			<_PurviewBrowserProjectReference
+				Include="@(ProjectReference)"
+				Condition="'%(ProjectReference.ReferenceOutputAssembly)' != 'false' AND '%(ProjectReference.OutputItemType)' == ''"
+			/>
+		</ItemGroup>
+	</Target>
+
+	<Target
+		Name="ResolvePurviewBlazorHostProject"
+		BeforeTargets="GenerateMSBuildEditorConfigFileShouldRun;CoreCompile"
+		DependsOnTargets="_PurviewCollectBrowserProjectReferences"
+		Condition="'$(_PurviewResolveBlazorHostProject)' == 'true'"
+		Label="Sets IsBlazorHostProject for a web SDK project that references a Blazor WebAssembly client."
+	>
+		<MSBuild
+			Projects="@(_PurviewBrowserProjectReference)"
+			Targets="GetPurviewBrowserProjectInfo"
+			BuildInParallel="$(BuildInParallel)"
+			Properties="Configuration=$(Configuration)"
+			RemoveProperties="TargetFramework;TargetFrameworks;RuntimeIdentifier;SelfContained"
+			SkipNonexistentProjects="true"
+			SkipNonexistentTargets="true"
+			Condition="'@(_PurviewBrowserProjectReference)' != ''"
+		>
+			<Output TaskParameter="TargetOutputs" ItemName="_PurviewHostReferenceInfo" />
+		</MSBuild>
+		<PropertyGroup>
+			<IsBlazorHostProject
+				Condition="'@(_PurviewHostReferenceInfo->WithMetadataValue('IsBlazorWebAssemblyProject', 'true'))' != ''"
+				>true</IsBlazorHostProject>
+		</PropertyGroup>
+	</Target>
+
+	<!-- =====================================================================
+	     CLIENT-SIDE BROWSER-SAFE REFERENCE CHECK (PRBLZ0001)
+	     Every assembly a WebAssembly client references is downloaded to the
+	     browser and runs there. Without this check a library joins that download
+	     without anyone deciding it was safe there, and its first file read or
+	     reflection lookup fails in a user's browser instead of in the build.
+
+	     Each ProjectReference is asked for its PurviewBrowserSafe value. A
+	     browser-safe library runs the same check over its own references, so
+	     the guarantee holds for the whole download, not only the first level.
+	     A reference can record the decision itself with PurviewBrowserSafe="true"
+	     metadata - the route for a project that does not use this SDK. Package
+	     references are not checked: a package is not built here.
+
+	     Warning by default; PurviewBrowserSafeReferenceCheckAsError=true makes it
+	     an error and DisablePurviewBrowserSafeReferenceCheck=true turns it off.
+	     ===================================================================== -->
+	<Target
+		Name="PurviewValidateBrowserSafeReferences"
+		BeforeTargets="CoreCompile"
+		DependsOnTargets="_PurviewCollectBrowserProjectReferences"
+		Condition="'$(IsCSharpProject)' == 'true' AND ('$(IsBlazorWebAssemblyProject)' == 'true' OR '$(_PurviewBrowserSafeApplies)' == 'true') AND '$(DisablePurviewBrowserSafeReferenceCheck)' != 'true' AND '$(DesignTimeBuild)' != 'true' AND ('$(DefaultTargetFramework)' == '' OR '$(TargetFramework)' == '$(DefaultTargetFramework)')"
+		Label="Reports project references a WebAssembly client downloads without anyone declaring them browser-safe."
+	>
+		<ItemGroup>
+			<_PurviewBrowserSafeCandidate
+				Include="@(_PurviewBrowserProjectReference->'%(FullPath)')"
+				Condition="'%(_PurviewBrowserProjectReference.PurviewBrowserSafe)' != 'true'"
+			/>
+		</ItemGroup>
+		<MSBuild
+			Projects="@(_PurviewBrowserSafeCandidate)"
+			Targets="GetPurviewBrowserProjectInfo"
+			BuildInParallel="$(BuildInParallel)"
+			Properties="Configuration=$(Configuration)"
+			RemoveProperties="TargetFramework;TargetFrameworks;RuntimeIdentifier;SelfContained"
+			SkipNonexistentProjects="true"
+			SkipNonexistentTargets="true"
+			Condition="'@(_PurviewBrowserSafeCandidate)' != ''"
+		>
+			<Output TaskParameter="TargetOutputs" ItemName="_PurviewBrowserSafeReferenceInfo" />
+		</MSBuild>
+		<ItemGroup>
+			<_PurviewBrowserSafeConfirmed Include="@(_PurviewBrowserSafeReferenceInfo->WithMetadataValue('PurviewBrowserSafe', 'true'))" />
+			<_PurviewBrowserUnsafeReference
+				Include="@(_PurviewBrowserSafeCandidate)"
+				Exclude="@(_PurviewBrowserSafeConfirmed)"
+			/>
+		</ItemGroup>
+		<PropertyGroup>
+			<_PurviewBrowserSafeReferenceRole Condition="'$(IsBlazorWebAssemblyProject)' == 'true'"
+				>a Blazor WebAssembly client</_PurviewBrowserSafeReferenceRole>
+			<_PurviewBrowserSafeReferenceRole Condition="'$(IsBlazorWebAssemblyProject)' != 'true'"
+				>a browser-safe library</_PurviewBrowserSafeReferenceRole>
+			<_PurviewBrowserSafeReferenceText>Set &lt;PurviewBrowserSafe&gt;true&lt;/PurviewBrowserSafe&gt; in that project so its build checks it for browser-unsupported APIs, trimming and reflection, or set PurviewBrowserSafe="true" on the ProjectReference to record that it was judged safe. Suppress with DisablePurviewBrowserSafeReferenceCheck=true.</_PurviewBrowserSafeReferenceText>
+		</PropertyGroup>
+		<Warning
+			Code="PRBLZ0001"
+			File="$(MSBuildProjectFullPath)"
+			Text="'$(MSBuildProjectName)' is $(_PurviewBrowserSafeReferenceRole), so its reference '%(_PurviewBrowserUnsafeReference.Filename)' is downloaded to the browser and runs there, but '%(_PurviewBrowserUnsafeReference.Filename)' does not set PurviewBrowserSafe=true. $(_PurviewBrowserSafeReferenceText)"
+			Condition="'@(_PurviewBrowserUnsafeReference)' != '' AND '$(PurviewBrowserSafeReferenceCheckAsError)' != 'true'"
+		/>
+		<Error
+			Code="PRBLZ0001"
+			File="$(MSBuildProjectFullPath)"
+			Text="'$(MSBuildProjectName)' is $(_PurviewBrowserSafeReferenceRole), so its reference '%(_PurviewBrowserUnsafeReference.Filename)' is downloaded to the browser and runs there, but '%(_PurviewBrowserUnsafeReference.Filename)' does not set PurviewBrowserSafe=true. $(_PurviewBrowserSafeReferenceText)"
+			Condition="'@(_PurviewBrowserUnsafeReference)' != '' AND '$(PurviewBrowserSafeReferenceCheckAsError)' == 'true'"
+		/>
+	</Target>
+
+	<!-- =====================================================================
+	     BFF HOSTS
+	     No packages are added. YARP, OpenID Connect and any BFF library are the
+	     application's choice, and Duende.BFF carries a commercial licence: an SDK
+	     that adds a licensed package without asking is making a decision it has
+	     no right to make.
+
+	     A BFF that only forwards has no API document to generate, so the OpenAPI
+	     interceptor namespace every other web project receives is removed - it
+	     would only enable an interceptor for a generator that is not there. A
+	     BFF referencing Microsoft.AspNetCore.OpenApi in its project file is
+	     taken to expose an API of its own and keeps it; set
+	     PurviewBffExposesApi=true or false to decide explicitly.
+	     ===================================================================== -->
+	<PropertyGroup Label="BFF Project Properties" Condition="'$(IsBffProject)' == 'true'">
+		<_PurviewBffReferencesOpenApi>$([System.Text.RegularExpressions.Regex]::IsMatch($(_PurviewProjectText), `(?is)&lt;PackageReference\s[^&gt;]*Include\s*=\s*["']Microsoft\.AspNetCore\.OpenApi["']`))</_PurviewBffReferencesOpenApi>
+		<PurviewBffExposesApi
+			Condition="'$(PurviewBffExposesApi)' == '' AND '$(_PurviewBffReferencesOpenApi)' == 'True'"
+			>true</PurviewBffExposesApi>
+		<PurviewBffExposesApi Condition="'$(PurviewBffExposesApi)' == ''">false</PurviewBffExposesApi>
+		<InterceptorsNamespaces Condition="'$(PurviewBffExposesApi)' != 'true'"
+			>$([System.String]::Copy(';$(InterceptorsNamespaces);').Replace(';Microsoft.AspNetCore.OpenApi.Generated;', ';').Trim(';'))</InterceptorsNamespaces>
+	</PropertyGroup>
+</Project>
