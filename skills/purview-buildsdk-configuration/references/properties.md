@@ -135,8 +135,7 @@ nothing else was left for the mirror to deliver.
 
 Covered in full by `purview-buildsdk-skill-installation`: `PurviewSkillsRunner`,
 `PurviewSkillsRunnerCandidates`, `PurviewSkillsCommand`, `PurviewSkillsPackage`,
-`PurviewSkillsAgents`, `PurviewSkillsSource`, `PurviewSkillsInstallRoot`, `PurviewSkillsRepoRoot`,
-`EnablePurviewSkillRecommendations`, `PurviewSkillRecommendationsInCI`.
+`PurviewSkillsAgents`, `PurviewSkillsSource`, `PurviewSkillsInstallRoot`, `PurviewSkillsRepoRoot`.
 
 ## Compiler-visible properties
 

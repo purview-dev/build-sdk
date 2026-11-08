@@ -63,22 +63,11 @@
 		<EnforceCodeStyleInBuild Condition="'$(EnforceCodeStyleInBuild)' == ''">true</EnforceCodeStyleInBuild>
 		<EnableAssemblyNameGeneration Condition="'$(EnableAssemblyNameGeneration)' == ''"
 			>true</EnableAssemblyNameGeneration>
-		<!-- Recommendations are the one skill feature that runs during an ordinary build. They stay
-		     offline (they read the restore graph and the skills CLI's own lockfile), they never
-		     install anything, and they never fail a build. -->
-		<EnablePurviewSkillRecommendations Condition="'$(EnablePurviewSkillRecommendations)' == ''"
-			>true</EnablePurviewSkillRecommendations>
-		<!-- CI installs nothing and has nobody to act on the advice, so the nudge is noise there.
-		     Set true to opt a pipeline back in - a build that verifies skill state deliberately. -->
-		<PurviewSkillRecommendationsInCI Condition="'$(PurviewSkillRecommendationsInCI)' == ''"
-			>false</PurviewSkillRecommendationsInCI>
-		<!-- Repository-level stamp holding a fingerprint of the last reported state, so a solution
-		     of thirty projects reports once rather than thirty times, and an unchanged state does
-		     not repeat the same advice on every build. Empty resolves to
-		     '<repo root>/.purview/skill-recommendations.cache' at target time. -->
-		<PurviewSkillRecommendationStampPath
-			Condition="'$(PurviewSkillRecommendationStampPath)' == ''"
-		></PurviewSkillRecommendationStampPath>
+		<!-- Skills are checked and installed only by a target a person invokes:
+		     -t:RecommendPurviewSkills, -t:VerifyPurviewSkills, -t:InstallPurviewSkills or
+		     -t:ListPurviewSkills. There is deliberately no build hook: reading the restore graph
+		     and the lockfile on every build of every project was measured as the largest
+		     avoidable cost in an up-to-date build, and it existed only to print advice. -->
 		<!-- Overrides where skills-lock.json is read from. Empty resolves to the repository root,
 		     which is where the CLI writes it for a project-scope install. -->
 		<PurviewSkillsLockFile Condition="'$(PurviewSkillsLockFile)' == ''"></PurviewSkillsLockFile>

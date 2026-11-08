@@ -2,6 +2,8 @@ pre-commit:
   jobs:
     - name: csharpier check
       run: just lint-check
+    - name: version pins
+      run: just version-sync-check
 
 commit-msg:
   jobs:

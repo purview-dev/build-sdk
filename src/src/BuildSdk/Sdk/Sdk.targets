@@ -583,8 +583,6 @@
 			<SkillSources ParameterType="Microsoft.Build.Framework.ITaskItem[]" Required="false" />
 			<UnresolvableSkillSources ParameterType="Microsoft.Build.Framework.ITaskItem[]" Required="false" />
 			<LockFilePath ParameterType="System.String" Required="false" />
-			<StampPath ParameterType="System.String" Required="false" />
-			<RespectStamp ParameterType="System.Boolean" Required="false" />
 			<Agents ParameterType="System.String" Required="false" />
 			<CommandPrefix ParameterType="System.String" Required="false" />
 			<RepositoryRoot ParameterType="System.String" Required="false" />
@@ -595,7 +593,6 @@
 			<Satisfied ParameterType="Microsoft.Build.Framework.ITaskItem[]" Output="true" />
 			<Orphaned ParameterType="Microsoft.Build.Framework.ITaskItem[]" Output="true" />
 			<LockFileFound ParameterType="System.Boolean" Output="true" />
-			<ShouldReport ParameterType="System.Boolean" Output="true" />
 		</ParameterGroup>
 		<Task>
 			<Using Namespace="System.IO" />
@@ -875,59 +872,9 @@
 					Satisfied = satisfied.ToArray();
 					Orphaned = orphaned.ToArray();
 
-					// ---- Deduplicate -------------------------------------------------------------
-					// A solution has many projects and they share one repository, so the same advice
-					// would otherwise be printed once per project, and again on every rebuild. The
-					// stamp holds a fingerprint of the exact state last reported: advice repeats only
-					// when the state actually changes.
-					var fingerprint = new StringBuilder();
-					foreach (var pair in new[]
-					{
-						new KeyValuePair<string, List<ITaskItem>>("missing", missing),
-						new KeyValuePair<string, List<ITaskItem>>("drifted", drifted),
-						new KeyValuePair<string, List<ITaskItem>>("unknown", unknown),
-						new KeyValuePair<string, List<ITaskItem>>("orphaned", orphaned),
-					})
-					{
-						foreach (var line in pair.Value
-							.Select(item => pair.Key + "|" + item.GetMetadata("PackageId") + "|"
-								+ item.GetMetadata("PackageVersion") + "|" + item.GetMetadata("Skills")
-								+ item.GetMetadata("Skill") + "|" + item.GetMetadata("RepositoryCommit"))
-							.OrderBy(line => line, StringComparer.Ordinal))
-						{
-							fingerprint.Append(line).Append('\n');
-						}
-					}
-
-					// An unrestored lockfile is its own state: restoring it must end the advice.
-					if (LockFileFound && !AgentSkillDirectoriesFound && lockedSource.Count > 0)
-						fingerprint.Append("needs-restore\n");
-
-					var current = fingerprint.ToString();
-					ShouldReport = true;
-
-					if (RespectStamp && !string.IsNullOrEmpty(StampPath))
-					{
-						var previous = string.Empty;
-						try { if (File.Exists(StampPath)) previous = File.ReadAllText(StampPath); }
-						catch (IOException) { }
-						catch (UnauthorizedAccessException) { }
-
-						ShouldReport = !string.Equals(previous, current, StringComparison.Ordinal);
-
-						// A stamp that cannot be written costs a repeated message, never a failed
-						// build: a read-only or concurrently-built tree must still build.
-						if (ShouldReport)
-						{
-							try
-							{
-								Directory.CreateDirectory(Path.GetDirectoryName(StampPath));
-								File.WriteAllText(StampPath, current);
-							}
-							catch (IOException) { }
-							catch (UnauthorizedAccessException) { }
-						}
-					}
+					// No stamp and no fingerprint: this task is reached only by a target a person
+					// invokes, so reporting every time is the point. The fingerprint existed to stop
+					// a per-build hook repeating itself once per project; that hook is gone.
 				]]>
 			</Code>
 		</Task>
@@ -1657,11 +1604,19 @@
 		</PropertyGroup>
 	</Target>
 
+	<!--
+		DesignTimeBuild is excluded on purpose. Nothing here produces a build output, so an IDE's
+		design-time builds only ever repeat the work: the repository-root probe ladder plus two full
+		reads of a 95 KB .editorconfig, per project, continuously while a solution is open. Measured
+		at 0.83 ms of I/O per project per pass, and a design-time build runs PrepareForBuild on every
+		edit. A real build is still the thing that bootstraps the file, and it is the only thing that
+		needs to: external tooling reads the file when it runs, not when the IDE re-evaluates.
+	-->
 	<Target
 		Name="EnsureRepositoryEditorConfigTarget"
 		BeforeTargets="PrepareForBuild"
 		DependsOnTargets="ResolvePurviewRepoBootstrapModeTarget"
-		Condition="'$(IsCSharpProject)' == 'true' AND '$(DisableAutoCopySdkFiles)' != 'true' AND '$(BootstrapEditorConfigToRepoRoot)' == 'true' AND '$(PurviewRepoBootstrapMode)' != 'Never' AND Exists('$(EditorConfigFilePath)')"
+		Condition="'$(IsCSharpProject)' == 'true' AND '$(DisableAutoCopySdkFiles)' != 'true' AND '$(BootstrapEditorConfigToRepoRoot)' == 'true' AND '$(PurviewRepoBootstrapMode)' != 'Never' AND '$(DesignTimeBuild)' != 'true' AND Exists('$(EditorConfigFilePath)')"
 		Label="Bootstraps a physical .editorconfig at the repo root for external tooling."
 	>
 		<PropertyGroup>
@@ -2303,19 +2258,19 @@
 	</Target>
 
 	<!-- =====================================================================
-	     SKILL RECOMMENDATIONS
-	     The one skill feature that runs during an ordinary build. It reads
-	     the restore graph and the skills CLI's own lockfile, both local, so
-	     it stays offline; it recommends commands and never runs them; and it
-	     never fails a build, because a missing skill is advice, not a defect.
+	     SKILL RECOMMENDATIONS — explicit only
 
-	     Three things keep it quiet:
+	     Nothing here runs during a build. These targets are reached only by
+	     name, so a repository pays for them when it asks for them:
 
-	       * a design-time build, a CI build and a non-default TFM pass are
-	         all skipped outright,
-	       * a repository-level stamp means a given state is reported once,
-	         not once per project and again on every rebuild, and
-	       * a correctly installed set produces no output at all.
+	       -t:RecommendPurviewSkills   report, never fail
+	       -t:VerifyPurviewSkills      report, and fail on anything unverifiable
+
+	     Both read the restore graph and the skills CLI's own lockfile, both
+	     local, so they stay offline; neither installs anything; and
+	     RecommendPurviewSkills alone never fails a build, because a missing
+	     skill is advice, not a defect. VerifyPurviewSkills is the escalation,
+	     and it is safe precisely because it cannot be reached by accident.
 
 	     Severity splits on what the developer can act on. A missing or
 	     version-drifted skill is something they can fix with one command, so
@@ -2323,28 +2278,26 @@
 	     a package without SourceLink metadata cannot be pinned by anybody -
 	     so it is a message, and no amount of it can break a build that
 	     treats warnings as errors.
+
+	     There is deliberately no stamp any more. The stamp existed so a
+	     build hook could report one state once per repository instead of
+	     once per project; with no build hook and a target a person invokes,
+	     reporting every time is exactly what is wanted.
 	     ===================================================================== -->
 	<Target
 		Name="_ResolvePurviewSkillRecommendationPaths"
 		DependsOnTargets="ResolvePurviewSkillsRepositoryRoot"
-		Label="Resolves the repository-level lockfile and stamp paths skill recommendations read."
+		Label="Resolves the repository-level lockfile path skill recommendations read."
 	>
 		<PropertyGroup>
 			<!-- Everything read here is repository-scoped, so there is no project-directory fallback:
-			     an unresolved root means the recommendation pass simply says nothing, because a build
-			     is never a place to fail over optional advice. -->
+			     an unresolved root means the pass simply says nothing. -->
 			<_PurviewSkillRecommendationRoot Condition="'$(_PurviewSkillRecommendationRoot)' == ''"
 				>$(_PurviewSkillsRepositoryRoot)</_PurviewSkillRecommendationRoot>
 			<!-- Where the CLI writes it for a project-scope install: beside the repository root. -->
 			<PurviewSkillsLockFile
 				Condition="'$(PurviewSkillsLockFile)' == '' AND '$(_PurviewSkillRecommendationRoot)' != ''"
 				>$([MSBuild]::NormalizePath('$(_PurviewSkillRecommendationRoot)', 'skills-lock.json'))</PurviewSkillsLockFile>
-			<PurviewSkillRecommendationStampPath
-				Condition="'$(PurviewSkillRecommendationStampPath)' == '' AND '$(_PurviewSkillRecommendationRoot)' != ''"
-				>$([MSBuild]::NormalizePath('$(_PurviewSkillRecommendationRoot)', '.purview', 'skill-recommendations.cache'))</PurviewSkillRecommendationStampPath>
-			<!-- The explicit target always reports; only the build hook honours the stamp. -->
-			<_PurviewSkillRespectStamp Condition="'$(_PurviewSkillRespectStamp)' == ''"
-				>false</_PurviewSkillRespectStamp>
 			<PurviewSkillsAgents Condition="'$(PurviewSkillsAgents)' == ''">*</PurviewSkillsAgents>
 			<!-- Recommendation text is written against the *configured* runner, not a detected one:
 			     advice costs no PATH probe, and the command a developer copies should be the one
@@ -2370,8 +2323,6 @@
 			SkillSources="@(PurviewSkillSource)"
 			UnresolvableSkillSources="@(PurviewUnresolvableSkillSource)"
 			LockFilePath="$(PurviewSkillsLockFile)"
-			StampPath="$(PurviewSkillRecommendationStampPath)"
-			RespectStamp="$(_PurviewSkillRespectStamp)"
 			Agents="$(PurviewSkillsAgents)"
 			RepositoryRoot="$(_PurviewSkillRecommendationRoot)"
 		>
@@ -2382,13 +2333,12 @@
 			<Output TaskParameter="Orphaned" ItemName="PurviewOrphanedSkill" />
 			<Output TaskParameter="LockFileFound" PropertyName="_PurviewSkillsLockFileFound" />
 			<Output TaskParameter="AgentSkillDirectoriesFound" PropertyName="_PurviewAgentSkillDirectoriesFound" />
-			<Output TaskParameter="ShouldReport" PropertyName="_PurviewSkillStateChanged" />
 		</EvaluatePurviewSkillState>
 
 		<!-- One warning per package, carrying the exact command that fixes it. -->
 		<Warning
 			Code="PRSKL0010"
-			Condition="'$(_PurviewSkillStateChanged)' == 'true' AND '@(PurviewMissingSkill)' != ''"
+			Condition="'@(PurviewMissingSkill)' != ''"
 			Text="Purview Skills: %(PurviewMissingSkill.PackageId) %(PurviewMissingSkill.PackageVersion) ships %(PurviewMissingSkill.SkillCount) agent skill(s) that are not installed: %(PurviewMissingSkill.Skills). Install them with: %(PurviewMissingSkill.Command)"
 		/>
 
@@ -2400,21 +2350,21 @@
 		     design forbids, so the referenced package's own commit is named instead. -->
 		<Warning
 			Code="PRSKL0011"
-			Condition="'$(_PurviewSkillStateChanged)' == 'true' AND '@(PurviewDriftedSkill)' != ''"
+			Condition="'@(PurviewDriftedSkill)' != ''"
 			Text="Purview Skills: %(PurviewDriftedSkill.PackageId) %(PurviewDriftedSkill.PackageVersion) was built from commit %(PurviewDriftedSkill.RepositoryCommit), but these skills are installed from a different ref: %(PurviewDriftedSkill.InstalledRefs). They may describe a different version of the library than the one referenced. Install the matching skills with: %(PurviewDriftedSkill.Command). Prefer this over '$(_PurviewSkillsCommandDisplay) update', which installs the newest published skill regardless of which package version this project references."
 		/>
 
 		<!-- Not actionable by the consumer in the common case, so it never becomes a warning. -->
 		<Message
 			Importance="High"
-			Condition="'$(_PurviewSkillStateChanged)' == 'true' AND '@(PurviewUnverifiableSkill)' != ''"
+			Condition="'@(PurviewUnverifiableSkill)' != ''"
 			Text="PRSKL0012: Purview Skills: compatibility of %(PurviewUnverifiableSkill.SkillCount) skill(s) from %(PurviewUnverifiableSkill.PackageId) %(PurviewUnverifiableSkill.PackageVersion) cannot be verified because %(PurviewUnverifiableSkill.Reason). Inspect what is installed with: $(_PurviewSkillsCommandDisplay) list"
 		/>
 
 		<!-- Owner-scoped, so a skill the developer installed themselves is never named. -->
 		<Message
 			Importance="High"
-			Condition="'$(_PurviewSkillStateChanged)' == 'true' AND '@(PurviewOrphanedSkill)' != ''"
+			Condition="'@(PurviewOrphanedSkill)' != ''"
 			Text="PRSKL0013: Purview Skills: '%(PurviewOrphanedSkill.Skill)' is installed from '%(PurviewOrphanedSkill.Source)', which this project no longer references. Remove it if it is no longer wanted: %(PurviewOrphanedSkill.Command)"
 		/>
 
@@ -2423,38 +2373,79 @@
 		     experimental because the CLI flags it that way. -->
 		<Message
 			Importance="High"
-			Condition="'$(_PurviewSkillStateChanged)' == 'true' AND '$(_PurviewSkillsLockFileFound)' == 'true' AND '$(_PurviewAgentSkillDirectoriesFound)' != 'true'"
+			Condition="'$(_PurviewSkillsLockFileFound)' == 'true' AND '$(_PurviewAgentSkillDirectoriesFound)' != 'true'"
 			Text="PRSKL0014: Purview Skills: '$(PurviewSkillsLockFile)' lists installed skills, but no agent skill directory exists in this repository. Restore them with: $(_PurviewSkillsCommandDisplay) experimental_install (experimental; '$(_PurviewSkillsCommandDisplay) add' is the supported fallback)."
 		/>
 	</Target>
 
-	<Target
-		Name="_PurviewSkillRecommendationBuildSetup"
-		Label="Opts the build-time recommendation pass into stamp-based deduplication."
-	>
-		<PropertyGroup>
-			<_PurviewSkillRespectStamp>true</_PurviewSkillRespectStamp>
-		</PropertyGroup>
-	</Target>
+	<!-- =====================================================================
+	     VERIFY SKILLS — the gate, not the nag
 
-	<!-- Build integration lives in its own target so RecommendPurviewSkills itself keeps no
-	     BeforeTargets/AfterTargets, and a consumer can still invoke it explicitly with none of
-	     this gating applied. Nothing here installs: this is the recommendation half only, and
-	     InstallPurviewSkills remains a thing a person asks for by name. -->
+	     Reading the restore graph and the lockfile is real work, and this SDK
+	     used to do it on EVERY build of EVERY project, from an
+	     AfterTargets="Build" hook. Measured on a 39-project solution, that
+	     hook was the single largest avoidable cost in an otherwise up-to-date
+	     build, and it was paid to print advice. A repository that manages its
+	     skills deliberately - which is every repository that has a
+	     skills-lock.json at all - was paying twice for one answer.
+
+	     So there is no build hook any more. Nothing in this file reads the
+	     restore graph or the lockfile unless a person asks:
+
+	       -t:RecommendPurviewSkills   report the state, never fail
+	       -t:VerifyPurviewSkills      the same state, as a build failure
+	       -t:InstallPurviewSkills     install what is missing
+	       -t:ListPurviewSkills        what the restored packages ship
+
+	     VerifyPurviewSkills is what a CI job calls. Because it is invoked by
+	     name rather than reached by accident, escalation to an error is safe:
+	     a build that did not ask is never broken by skill advice.
+
+	     What escalates is deliberately narrow - only the diagnostics the caller
+	     can actually act on:
+
+	       PRSKL0010  a referenced package ships a skill that is not installed
+	       PRSKL0011  an installed skill is pinned to a different ref
+
+	     Both are factual, both are fixed by one 'npx skills add' command, and
+	     neither can fire without a referenced package that really ships skills.
+	     PRSKL0012 stays a warning (a package published without repository
+	     metadata is not the consumer's to fix), and PRSKL0013/PRSKL0014 stay
+	     messages: 0013 is an owner-scoped heuristic, and 0014 fires on any
+	     clone of a repository that installs skills on demand - .agents/skills is
+	     gitignored by design in this SDK's own layout, so failing on it would
+	     make the gate unusable before anybody had a chance to install anything.
+	     ===================================================================== -->
 	<Target
-		Name="RecommendPurviewSkillsOnBuild"
-		AfterTargets="Build"
-		DependsOnTargets="_PurviewSkillRecommendationBuildSetup;RecommendPurviewSkills"
-		Condition="'$(EnablePurviewSkillRecommendations)' == 'true'
-			AND '$(DesignTimeBuild)' != 'true'
-			AND '$(BuildingProject)' == 'true'
-			AND Exists('$(ProjectAssetsFile)')
-			AND ('$(DefaultTargetFramework)' == '' OR '$(TargetFramework)' == '$(DefaultTargetFramework)')
-			AND ('$(PurviewSkillRecommendationsInCI)' == 'true'
-				OR ('$(ContinuousIntegrationBuild)' != 'true' AND '$(TF_BUILD)' != 'true'
-					AND '$(GITHUB_ACTIONS)' != 'true' AND '$(CI)' != 'true'))"
-		Label="Reports skill recommendations after an ordinary, interactive build."
-	/>
+		Name="VerifyPurviewSkills"
+		DependsOnTargets="RecommendPurviewSkills"
+		Condition="'$(DefaultTargetFramework)' == '' OR '$(TargetFramework)' == '$(DefaultTargetFramework)'"
+		Label="Fails when a referenced package ships agent skills that are missing or installed from a different ref."
+	>
+		<Error
+			Code="PRSKL0010"
+			Condition="'@(PurviewMissingSkill)' != ''"
+			Text="Purview Skills: %(PurviewMissingSkill.PackageId) %(PurviewMissingSkill.PackageVersion) ships %(PurviewMissingSkill.SkillCount) agent skill(s) that are not installed: %(PurviewMissingSkill.Skills). Install them with: %(PurviewMissingSkill.Command)"
+		/>
+		<Error
+			Code="PRSKL0011"
+			Condition="'@(PurviewDriftedSkill)' != ''"
+			Text="Purview Skills: %(PurviewDriftedSkill.PackageId) %(PurviewDriftedSkill.PackageVersion) was built from commit %(PurviewDriftedSkill.RepositoryCommit), but these skills are installed from a different ref: %(PurviewDriftedSkill.InstalledRefs). Install the matching skills with: %(PurviewDriftedSkill.Command)"
+		/>
+		<!--
+			A warning rather than an error, because PRSKL0012 is not always the consumer's to fix. It
+			covers "the package cannot be pinned at all" - a package shipped without SourceLink
+			repository metadata, which only its author can correct - as well as a skill installed
+			without a ref, which the consumer can. The two are indistinguishable here, so failing the
+			build would sometimes hand somebody an error with no possible fix. It is still reported, and
+			MSBuildWarningsAsErrors or TreatWarningsAsErrors in the calling pipeline can promote it.
+		-->
+		<Warning
+			Code="PRSKL0012"
+			Condition="'@(PurviewUnverifiableSkill)' != ''"
+			Text="Purview Skills: compatibility of %(PurviewUnverifiableSkill.SkillCount) skill(s) from %(PurviewUnverifiableSkill.PackageId) %(PurviewUnverifiableSkill.PackageVersion) cannot be verified because %(PurviewUnverifiableSkill.Reason). This is not always fixable from this repository - a package published without repository metadata can only be corrected by its author."
+		/>
+	</Target>
 
 	<Target
 		Name="IncludeLinkedSdkFiles"
@@ -2707,16 +2698,24 @@
 
 					// Walk the .editorconfig chain the way the compiler does: the nearest file wins,
 					// later entries beat earlier ones, and the walk stops at a file declaring 'root = true'.
-					var chain = new List<string>();
+					//
+					// Each file is read exactly once. Both passes below need its lines, and the SDK's
+					// own .editorconfig is ~2,700 lines / 95 KB, so reading it twice per project per
+					// compile meant 190 KB of I/O for the same answer it gave on the previous build.
+					var chain = new List<KeyValuePair<string, string[]>>();
 					var directory = ProjectDirectory;
 					while (!string.IsNullOrEmpty(directory) && Directory.Exists(directory))
 					{
 						var candidate = Path.Combine(directory, ".editorconfig");
 						if (File.Exists(candidate))
 						{
-							chain.Add(candidate);
-							if (DeclaresRoot(candidate))
-								break;
+							var lines = TryReadAllLines(candidate);
+							if (lines != null)
+							{
+								chain.Add(new KeyValuePair<string, string[]>(candidate, lines));
+								if (DeclaresRoot(lines))
+									break;
+							}
 						}
 
 						var trimmed = directory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
@@ -2731,8 +2730,8 @@
 
 					var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 					var sources = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-					foreach (var file in chain)
-						MergeEditorConfig(file, values, sources);
+					foreach (var entry in chain)
+						MergeEditorConfig(entry.Key, entry.Value, values, sources);
 
 					string optionValue;
 					if (values.TryGetValue("dotnet_style_require_accessibility_modifiers", out optionValue))
@@ -2809,18 +2808,8 @@
 							"This repository sets '{0}' to '{1}'. Private instance fields must keep the '_' prefix ('_name', never 'name'); restore the prefix, or set DisablePurviewStylePolicyValidation=true to opt out of this validation.", fieldNamingPrefixKey, fieldNamingPrefix);
 					}
 
-					bool DeclaresRoot(string file)
+					bool DeclaresRoot(string[] lines)
 					{
-						string[] lines;
-						try
-						{
-							lines = File.ReadAllLines(file);
-						}
-						catch (Exception)
-						{
-							return false;
-						}
-
 						foreach (var line in lines)
 						{
 							var text = StripComment(line).Trim();
@@ -2841,18 +2830,23 @@
 						return false;
 					}
 
-					void MergeEditorConfig(string file, Dictionary<string, string> target, Dictionary<string, string> targetSources)
+					// Null when the file cannot be read. A file that exists but cannot be read is
+					// treated as absent rather than as a violation: this validation must never fail
+					// a build over an I/O error it does not understand.
+					string[] TryReadAllLines(string file)
 					{
-						string[] lines;
 						try
 						{
-							lines = File.ReadAllLines(file);
+							return File.ReadAllLines(file);
 						}
 						catch (Exception)
 						{
-							return;
+							return null;
 						}
+					}
 
+					void MergeEditorConfig(string file, string[] lines, Dictionary<string, string> target, Dictionary<string, string> targetSources)
+					{
 						var section = string.Empty;
 						foreach (var line in lines)
 						{
@@ -2917,11 +2911,13 @@
 		/>
 	</Target>
 
+	<!-- DesignTimeBuild is excluded for the same reason as EnsureRepositoryEditorConfigTarget: the
+	     probe ladder and the write decision are pure build-time work with no build output. -->
 	<Target
 		Name="EnsureRepositoryGlobalJsonTarget"
 		BeforeTargets="PrepareForBuild"
 		DependsOnTargets="ResolvePurviewRepoBootstrapModeTarget"
-		Condition="'$(IsCSharpProject)' == 'true' AND '$(DisableAutoCopySdkFiles)' != 'true' AND '$(BootstrapGlobalJsonToRepoRoot)' == 'true' AND '$(PurviewRepoBootstrapMode)' != 'Never'"
+		Condition="'$(IsCSharpProject)' == 'true' AND '$(DisableAutoCopySdkFiles)' != 'true' AND '$(BootstrapGlobalJsonToRepoRoot)' == 'true' AND '$(PurviewRepoBootstrapMode)' != 'Never' AND '$(DesignTimeBuild)' != 'true'"
 		Label="Bootstraps a physical global.json at the repo root for SDK/tool resolution."
 	>
 		<PropertyGroup>
@@ -3212,6 +3208,14 @@
 	     GENERATE ASSEMBLY INFO CLASS
 	     Writes a static AssemblyInfo class to the intermediate output path so
 	     projects have compile-time access to version, company, etc.
+
+	     WriteOnlyWhenDifferent is load-bearing, not tidiness. Both generated
+	     files are compile inputs, so an unconditional rewrite gave them a
+	     fresh timestamp on every build and CoreCompile - whose Inputs are
+	     @(Compile) - could never be up to date. Measured on a 39-project
+	     solution: a no-change rebuild ran 38 Csc invocations totalling 111 s
+	     of a 68 s build. With this one attribute the same rebuild compiles
+	     nothing.
 	     ===================================================================== -->
 	<Target
 		Name="GenerateAssemblyInfoClassTarget"
@@ -3281,6 +3285,7 @@ namespace $(RootNamespace)
 }
 "
 			Overwrite="true"
+			WriteOnlyWhenDifferent="true"
 		/>
 		<ItemGroup>
 			<Compile Include="$(_AssemblyInfoOutputFile)" />
@@ -3297,6 +3302,9 @@ namespace $(RootNamespace)
 	     referencing several assemblies should not need a using per marker. It
 	     is only generated for production projects - a test assembly is the one
 	     doing the asserting, so it has nothing to identify.
+
+	     WriteOnlyWhenDifferent matters here for the same reason it does in
+	     GenerateAssemblyInfoClassTarget: see the note there.
 	     ===================================================================== -->
 	<Target
 		Name="GenerateAssemblyIdentifierClassTarget"
@@ -3335,6 +3343,7 @@ public static partial class $(AssemblyIdentifierClassName)
 }
 "
 			Overwrite="true"
+			WriteOnlyWhenDifferent="true"
 		/>
 		<ItemGroup>
 			<Compile Include="$(_AssemblyIdentifierOutputFile)" />

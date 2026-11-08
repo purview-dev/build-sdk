@@ -222,11 +222,11 @@ public sealed partial class PackagedVersionFallbackTests
 	/// the pack-time stamp rewrites it and where the SDK later looks for it.
 	/// </summary>
 	/// <remarks>
-	/// The <em>version</em> in the tracked file is deliberately not asserted against <c>package.json</c>.
-	/// Packing stamps the version in (see <c>StampPurviewEditorConfigVersionTarget</c>), so requiring the two
-	/// to match by hand would reintroduce exactly the manual step the stamp removes — and a mismatch here
-	/// has no effect on what ships. What matters is that the marker exists and is well formed; without it
-	/// the stamp fails the build rather than packing an unrecognisable file.
+	/// The <em>format</em> is what this test guards, because the pack-time stamp rewrites the line by
+	/// matching that prefix - a malformed marker fails the stamp rather than packing an unrecognisable
+	/// file. The <em>version</em> on it is kept current by <c>just version-sync</c> and asserted by
+	/// <see cref="AdoptionPin_MatchesPackageJson"/>, so a repository reading its own tracked
+	/// <c>.editorconfig</c> is never shown a release-old number.
 	/// </remarks>
 	[Test]
 	public async Task EditorConfigVersionMarker_IsTheFirstLineAndWellFormed(CancellationToken cancellationToken)
@@ -338,6 +338,7 @@ public sealed partial class PackagedVersionFallbackTests
 	[Arguments("README.md")]
 	[Arguments("docs/wiki/Getting-Started.md")]
 	[Arguments("templates/global.json")]
+	[Arguments(".editorconfig")]
 	public async Task AdoptionPin_MatchesPackageJson(string relativePath, CancellationToken cancellationToken)
 	{
 		var path = Path.Combine(RepositoryRoot, relativePath.Replace('/', Path.DirectorySeparatorChar));
