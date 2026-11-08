@@ -42,7 +42,7 @@ A reusable MSBuild SDK NuGet package that delivers standardised .NET project def
     "runner": "Microsoft.Testing.Platform"
   },
   "msbuild-sdks": {
-    "Purview.BuildSdk": "1.2.0"
+    "Purview.BuildSdk": "1.3.0"
   }
 }
 ```
@@ -201,7 +201,7 @@ to a low-importance message) and only a copy that still fails after every retry 
 The bootstrapped `.editorconfig` opens with a version marker:
 
 ```editorconfig
-# Purview.BuildSdk 1.2.0 - managed file, do not edit
+# Purview.BuildSdk 1.3.0 - managed file, do not edit
 ```
 
 That line is how the SDK recognises a file **it** wrote. When the SDK version changes, a file carrying
@@ -290,9 +290,13 @@ dotnet msbuild <project> -t:InstallPurviewSkills    # explicit; delegates to the
 
 Compatibility is pinned by commit: a package's nuspec names the commit it was built from, the CLI
 accepts `owner/repo#<commit>` and records it, so a project on an older package version is never
-advised to install skills describing a newer API. Set `EnablePurviewSkillRecommendations=false` to
-turn the build-time reporting off; it is already silent on CI, during design-time builds, and when
-everything is installed and compatible.
+advised to install skills describing a newer API.
+
+**Nothing about skills runs during a build.** `-t:RecommendPurviewSkills` reports the state and
+`-t:VerifyPurviewSkills` reports it and fails when a referenced package's skills are missing or pinned
+to a different ref — the second is what a CI job calls. Reading the restore graph and the lockfile on
+every build of every project was measured as the largest avoidable cost in an up-to-date build, so it
+no longer happens unless somebody asks for it.
 
 The CLI is launched through a package runner. `PurviewSkillsRunner` defaults to `npx` — which ships
 with Node itself — and also accepts `bunx`, `bun`, `pnpm`, `yarn`, `deno` or `skills`; anything else
@@ -416,9 +420,6 @@ Non-packable projects (including web applications) default `WarnOnPackingNonPack
 
 | Property | Default | Description |
 | -- | -- | -- |
-| `EnablePurviewSkillRecommendations` | `true` | Reports missing or version-drifted agent skills after an ordinary build. Offline; never installs; never fails the build. |
-| `PurviewSkillRecommendationsInCI` | `false` | When `true`, recommendations are reported on CI builds as well. |
-| `PurviewSkillRecommendationStampPath` | `<repo root>/.purview/skill-recommendations.cache` | Overrides the stamp that reports each distinct skill state once per repository. |
 | `PurviewSkillsLockFile` | `<repo root>/skills-lock.json` | Overrides where the skills CLI's lockfile is read from. |
 | `PurviewSkillsSourceFolder` | `<repo root>/skills` | Repository folder holding authored skills. |
 | `PurviewSkillsAgents` | `*` | Agents that `InstallPurviewSkills` installs to, and that recommended commands name. |
@@ -521,9 +522,6 @@ The SDK now exports its properties via `CompilerVisibleProperty`, so analyzers a
 | `PurviewRepoBootstrapCopyFailureAsError` | When `true` (default), a bootstrap write that still fails after every retry is an error. |
 | `PurviewSuppressCopyRetryWarnings` | When `true` (default), built-in copy retry notices (`MSB3026`) are demoted to messages. |
 | `PurviewAutoSdkPack` | When `true`, automatically packs the `Sdk/` folder contents into the NuGet package with the correct root-level paths. |
-| `EnablePurviewSkillRecommendations` | When `true` (default), an ordinary build reports missing or version-drifted agent skills. |
-| `PurviewSkillRecommendationsInCI` | When `true`, skill recommendations are reported on CI builds as well (default `false`). |
-| `PurviewSkillRecommendationStampPath` | Stamp used to report each distinct skill state once (default `<repo root>/.purview/skill-recommendations.cache`). |
 | `PurviewSkillsLockFile` | Where the skills CLI's `skills-lock.json` is read from (default `<repo root>/skills-lock.json`). |
 | `PurviewSkillsSourceFolder` | Repository folder holding authored agent skills (default `<repo root>/skills`). |
 | `PurviewSkillsAgents` | Agents that `InstallPurviewSkills` installs to (default `*`). |

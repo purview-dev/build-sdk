@@ -20,15 +20,12 @@ sealed class PurviewSkillRecommendationTests
 	/// <summary>
 	/// Drives a recommendation target against a fabricated restore graph. The assets file and package
 	/// folder are supplied explicitly so no real restore is needed, and the repository root is pinned
-	/// to the harness solution so the lockfile and the deduplication stamp stay inside the throwaway
-	/// tree.
+	/// to the harness solution so the lockfile stays inside the throwaway tree.
 	/// </summary>
 	/// <remarks>
 	/// <c>BuildingProject</c> is supplied because MSBuild only sets it when the <c>Build</c> target
-	/// actually runs; invoking a target by name leaves it <c>false</c>. Passing the value a real
-	/// build would have is what lets these scenarios exercise the rest of the build-hook gating in
-	/// isolation. That the hook genuinely fires on an ordinary build is covered separately by
-	/// <see cref="AnOrdinaryBuild_ReportsSkillState"/>.
+	/// actually runs; invoking a target by name leaves it <c>false</c>. These targets no longer gate
+	/// on it, but supplying it keeps the invocation shaped like a real build.
 	/// </remarks>
 	static async Task<(int Code, string Output)> RecommendAsync(
 		ProjectHarness harness,
@@ -292,125 +289,48 @@ sealed class PurviewSkillRecommendationTests
 	}
 
 	[Test]
-	public async Task TheBuildHook_ReportsEachDistinctStateOnce(CancellationToken cancellationToken)
+	public async Task VerifyPurviewSkills_FailsWhenSkillsAreMissing(CancellationToken cancellationToken)
 	{
 		using var harness = await ProjectHarness.CreateAsync("SkillConsumer", cancellationToken: cancellationToken);
 		GivenPackageShipping(harness, "purview-alpha");
 
-		var first = await RecommendAsync(
-			harness,
-			"RecommendPurviewSkillsOnBuild",
-			cancellationToken: cancellationToken
-		);
-		var second = await RecommendAsync(
-			harness,
-			"RecommendPurviewSkillsOnBuild",
-			cancellationToken: cancellationToken
-		);
+		var (code, output) = await RecommendAsync(harness, "VerifyPurviewSkills", cancellationToken: cancellationToken);
 
-		await Assert.That(first.Output).Contains("PRSKL0010");
-
-		// A solution has many projects sharing one repository, and a rebuild changes nothing: the
-		// A solution has many projects sharing one repository, and a rebuild changes nothing: the
-		// same advice must not be repeated until the state it describes actually changes.
-		await Assert.That(second.Output).DoesNotContain("PRSKL0010");
-		await Assert
-			.That(File.Exists(Path.Combine(harness.SolutionDirectory, ".purview", "skill-recommendations.cache")))
-			.IsTrue();
-
-		// The explicit target answers the question whenever it is asked, stamp or not.
-		var explicitRun = await RecommendAsync(harness, cancellationToken: cancellationToken);
-		await Assert.That(explicitRun.Output).Contains("PRSKL0010");
+		// This is the gate, not the nag. It is only ever reached because a person or a pipeline
+		// named it, so escalating a missing skill to a failure breaks nobody by surprise.
+		await Assert.That(code).IsNotZero().Because(output);
+		await Assert.That(output).Contains("PRSKL0010");
+		await Assert.That(output).Contains("purview-alpha");
 	}
 
 	[Test]
-	public async Task TheBuildHook_ReportsAgainWhenTheStateChanges(CancellationToken cancellationToken)
+	public async Task VerifyPurviewSkills_FailsWhenTheInstalledSkillIsDrifted(CancellationToken cancellationToken)
 	{
 		using var harness = await ProjectHarness.CreateAsync("SkillConsumer", cancellationToken: cancellationToken);
 		GivenPackageShipping(harness, "purview-alpha");
+		GivenSkillsRestored(harness);
+		SkillPackageFixtures.WriteLockFile(LockFilePath(harness), ("purview-alpha", Source, OtherCommit));
 
-		await RecommendAsync(harness, "RecommendPurviewSkillsOnBuild", cancellationToken: cancellationToken);
+		var (code, output) = await RecommendAsync(harness, "VerifyPurviewSkills", cancellationToken: cancellationToken);
 
-		// A second package starts shipping skills: a different state, so a fresh report.
-		var packagesRoot = Path.Combine(harness.SolutionDirectory, "packages");
-		SkillPackageFixtures.WritePackage(
-			packagesRoot,
-			"Purview.Second",
-			"2.0.0",
-			["purview-second"],
-			"https://github.com/purview-dev/second",
-			"2222222222222222222222222222222222222222"
-		);
-		SkillPackageFixtures.WriteAssetsFile(
-			Path.Combine(harness.SolutionDirectory, "obj", "project.assets.json"),
-			(PackageId, PackageVersion),
-			("Purview.Second", "2.0.0")
-		);
-
-		var (_, output) = await RecommendAsync(
-			harness,
-			"RecommendPurviewSkillsOnBuild",
-			cancellationToken: cancellationToken
-		);
-
-		await Assert.That(output).Contains("purview-second");
+		await Assert.That(code).IsNotZero().Because(output);
+		await Assert.That(output).Contains("PRSKL0011");
 	}
 
 	[Test]
-	public async Task TheBuildHook_StaysSilentOnCI(CancellationToken cancellationToken)
+	public async Task VerifyPurviewSkills_PassesWhenTheInstalledSkillMatchesTheReferencedCommit(
+		CancellationToken cancellationToken
+	)
 	{
 		using var harness = await ProjectHarness.CreateAsync("SkillConsumer", cancellationToken: cancellationToken);
 		GivenPackageShipping(harness, "purview-alpha");
-
-		// CI installs nothing and has nobody to act on the advice.
-		var suppressed = await RecommendAsync(
-			harness,
-			"RecommendPurviewSkillsOnBuild",
-			"-p:ContinuousIntegrationBuild=true",
-			cancellationToken
-		);
-		await Assert.That(suppressed.Output).DoesNotContain("PRSKL");
-
-		// A pipeline that deliberately verifies skill state can opt back in.
-		var opted = await RecommendAsync(
-			harness,
-			"RecommendPurviewSkillsOnBuild",
-			"-p:ContinuousIntegrationBuild=true -p:PurviewSkillRecommendationsInCI=true",
-			cancellationToken
-		);
-		await Assert.That(opted.Output).Contains("PRSKL0010");
-	}
-
-	[Test]
-	public async Task TheBuildHook_StaysSilentDuringADesignTimeBuild(CancellationToken cancellationToken)
-	{
-		using var harness = await ProjectHarness.CreateAsync("SkillConsumer", cancellationToken: cancellationToken);
-		GivenPackageShipping(harness, "purview-alpha");
-
-		// An IDE runs design-time builds constantly; none of them is a moment to advise anybody.
-		var (code, output) = await RecommendAsync(
-			harness,
-			"RecommendPurviewSkillsOnBuild",
-			"-p:DesignTimeBuild=true",
-			cancellationToken
+		GivenSkillsRestored(harness);
+		SkillPackageFixtures.WriteLockFile(
+			LockFilePath(harness),
+			("purview-alpha", Source, SkillPackageFixtures.DefaultCommit)
 		);
 
-		await Assert.That(code).IsZero().Because(output);
-		await Assert.That(output).DoesNotContain("PRSKL");
-	}
-
-	[Test]
-	public async Task Recommendations_CanBeTurnedOff(CancellationToken cancellationToken)
-	{
-		using var harness = await ProjectHarness.CreateAsync("SkillConsumer", cancellationToken: cancellationToken);
-		GivenPackageShipping(harness, "purview-alpha");
-
-		var (code, output) = await RecommendAsync(
-			harness,
-			"RecommendPurviewSkillsOnBuild",
-			"-p:EnablePurviewSkillRecommendations=false",
-			cancellationToken
-		);
+		var (code, output) = await RecommendAsync(harness, "VerifyPurviewSkills", cancellationToken: cancellationToken);
 
 		await Assert.That(code).IsZero().Because(output);
 		await Assert.That(output).DoesNotContain("PRSKL");
@@ -454,7 +374,7 @@ sealed class PurviewSkillRecommendationTests
 	}
 
 	[Test]
-	public async Task AnOrdinaryBuild_ReportsSkillState(CancellationToken cancellationToken)
+	public async Task AnOrdinaryBuild_ReportsNoSkillState(CancellationToken cancellationToken)
 	{
 		using var harness = await ProjectHarness.CreateAsync(
 			"SkillConsumer",
@@ -466,23 +386,23 @@ sealed class PurviewSkillRecommendationTests
 		);
 
 		// An AGENTS.md beside the solution is what makes the throwaway tree look like a repository:
-		// the hook resolves its root by the same walk-up the rest of the SDK uses, and refuses to
-		// fall back to the project folder.
+		// the skill targets resolve their root by the same walk-up the rest of the SDK uses.
 		await File.WriteAllTextAsync(
 			Path.Combine(harness.SolutionDirectory, "AGENTS.md"),
 			"# Test repository\n",
 			cancellationToken
 		);
 
-		// A committed lockfile with nothing restored beside it needs no skill-shipping package to
-		// detect, which makes it the one state a genuine end-to-end build can be checked against.
+		// A committed lockfile with nothing restored beside it is the state that used to produce
+		// PRSKL0014 on every interactive build. An ordinary build must now say nothing at all:
+		// the skills pass is explicit, and a build never reads the restore graph for it.
 		SkillPackageFixtures.WriteLockFile(
 			Path.Combine(harness.SolutionDirectory, "skills-lock.json"),
 			("purview-alpha", Source, SkillPackageFixtures.DefaultCommit)
 		);
 
-		// Verbose, because a recommendation is a high-importance message and the harness builds quiet
-		// by default - at quiet verbosity an assertion about messages would pass for the wrong reason.
+		// Verbose, because at quiet verbosity an assertion about messages would pass for the wrong
+		// reason.
 		var (success, output, errors) = await harness.BuildAsync(
 			restore: true,
 			verbose: true,
@@ -490,7 +410,10 @@ sealed class PurviewSkillRecommendationTests
 		);
 
 		await Assert.That(success).IsTrue().Because(TestHelpers.GenerateError(output, errors));
-		await Assert.That(output + errors).Contains("PRSKL0014");
+		await Assert
+			.That(output + errors)
+			.DoesNotContain("PRSKL")
+			.Because("an ordinary build must not run the skills pass at all");
 	}
 
 	[Test]

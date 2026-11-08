@@ -11,6 +11,95 @@ release summarise what the commits recorded rather than what was written at the 
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-11-08
+
+### Changed (breaking)
+
+- **The skill recommendation hook is gone. No skill work happens during a build.** `RecommendPurviewSkillsOnBuild`
+  (`AfterTargets="Build"`) and its `_PurviewSkillRecommendationBuildSetup` helper are removed. On a
+  39-project solution the hook read and regex-scanned every project's `project.assets.json`
+  (≈500 KB, 256 libraries each), made thousands of failing `Directory.Exists` calls, read the lockfile
+  and walked the repository root — on every build, including a no-change rebuild — and every one of its
+  inputs is repository-scoped, so the per-project cost was pure duplication of one repository-wide
+  answer. Removed rather than defaulted off, because a repository that manages its skills deliberately
+  (any repository with a `skills-lock.json`) was paying twice for an answer it had already acted on.
+  Use `-t:RecommendPurviewSkills` to report and `-t:InstallPurviewSkills` to install.
+
+- **Removed properties:** `EnablePurviewSkillRecommendations`, `PurviewSkillRecommendationsInCI` and
+  `PurviewSkillRecommendationStampPath`. All three existed to gate and deduplicate the hook, including
+  the `<repo root>/.purview/skill-recommendations.cache` stamp. A target a person invokes should answer
+  every time it is asked, so no stamp is needed. They are also no longer compiler-visible.
+
+### Added
+
+- **`VerifyPurviewSkills`** — the skill state as a gate rather than advice. It reports the same
+  classifications as `RecommendPurviewSkills` but escalates `PRSKL0010` (missing) and `PRSKL0011`
+  (drifted) to **errors**, which is what a CI job should call. Those two are always factual and always
+  fixed by one `npx skills add` command. `PRSKL0012` is reported as a warning rather than an error,
+  because it also covers a package published without repository metadata — something only that
+  package's author can fix — and `PRSKL0013`/`PRSKL0014` stay messages, because 0013 is an owner-scoped
+  heuristic and 0014 fires on any clone of a repository that installs skills on demand. Safe because the
+  target is only reachable by name: a build that did not ask is never broken by skill advice.
+
+```bash
+dotnet msbuild <project> -t:VerifyPurviewSkills
+```
+
+### Fixed
+
+- **Incremental builds were broken outright.** `GenerateAssemblyInfoClassTarget` and
+  `GenerateAssemblyIdentifierClassTarget` wrote their generated files with `Overwrite="true"` and no
+  `WriteOnlyWhenDifferent`, giving them a fresh timestamp on every build. Both files are compile inputs,
+  so `CoreCompile` — whose `Inputs` are `@(Compile)` — could never be up to date, and a no-change rebuild
+  recompiled every project. Measured on a 39-project solution: a warm rebuild ran **38** `Csc`
+  invocations totalling **111 s** of a 68 s build. `WriteOnlyWhenDifferent="true"` makes an unchanged
+  build compile nothing. This also restores the value of `AccelerateBuildsInVisualStudio=true`, which
+  defaults to on and was being defeated by the same timestamps.
+
+- **`ValidatePurviewStylePolicy` read every `.editorconfig` in the chain twice** — once to find
+  `root = true` and once to merge it. The SDK's own `.editorconfig` is 2,714 lines / 95 KB, so each
+  project read it twice on every compile. The file is now read once and the lines are shared.
+
+- **Both repository-file bootstraps ran during design-time builds.** `EnsureRepositoryEditorConfigTarget`
+  and `EnsureRepositoryGlobalJsonTarget` were not guarded against `DesignTimeBuild`, and an IDE runs a
+  design-time build for every edit, on every project, for as long as a solution is open. Each pass
+  repeated the repository-root probe ladder and two full reads of the 95 KB `.editorconfig`
+  (0.83 ms of I/O per project, per pass) and could never produce anything a design-time build uses.
+  Both are now skipped when `DesignTimeBuild=true`; a real build still bootstraps them, which is the
+  only thing that ever needed to.
+
+- **`BuildSdk.IntegrationTests` had the same unconditional-rewrite defect**, in its own
+  `WriteSdkSourcePaths` target: `Generated/SdkPaths.cs` was written with `Overwrite="true"` and no
+  `WriteOnlyWhenDifferent`, so that project recompiled on every build even after the two SDK writers
+  were fixed. It is fixed the same way, and a `Release` build of this repository with no changes now
+  runs **zero** `Csc` invocations in 0.85 s.
+
+### Tests
+
+- `IncrementalBuildTests` pins both SDK-generated files: building an unchanged project twice must
+  leave `GeneratedAssemblyInfo.cs` and `GeneratedAssemblyIdentifier.cs` with their original
+  timestamps and content. A rewrite is what breaks incrementality, and a rewrite always moves the
+  timestamp, so the test asserts the timestamp rather than counting compiler invocations.
+
+### Repository
+
+- **The tracked `.editorconfig` marker now self-syncs.** It names the SDK version that wrote the file,
+  and it had drifted to `1.0.7` while `package.json` was on `1.2.x` — misleading for anyone reading the
+  repository, though never wrong for a consumer, because packing stamps the version in. The file is now
+  in `scripts/sync-version.ts`, so `just version-sync` rewrites it along with the quick-start snippets,
+  `AdoptionPin_MatchesPackageJson` asserts it, and a new `just version-sync-check` fails the pre-commit
+  hook when it is stale. `CHANGELOG.md` is deliberately excluded: its marker lines are history and keep
+  the version they shipped with.
+
+### Notes
+
+- `docs/wiki/Performance.md` now carries measured numbers for a 39-project solution instead of a list
+  of things that had not been measured. The headline, measured end to end on `changeops` with this
+  version: a rebuild with **no source changes went from 67.7 s to 7.2 s**, and from **38 `Csc`
+  invocations to 0**. A cold build went from 154.4 s to 103.2 s. Note that the *first* warm build after
+  upgrading is slower than that (27.3 s), because the upgrade invalidates analyzers, `.editorconfig`
+  and compiler state at once; steady state is reached on the next no-change build.
+
 ## [1.2.0] - 2026-10-28
 
 ### Added

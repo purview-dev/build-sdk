@@ -156,29 +156,26 @@ repository it *no longer* references, is reported. A skill from any other owner 
 own and is never mentioned. This is a heuristic, which is why it is a message and why nothing is
 ever removed automatically.
 
-### Staying quiet
+### When it runs
 
-| Situation | Behaviour |
+**Never during a build.** There is no `AfterTargets="Build"` hook: reading the restore graph and
+the lockfile for every project on every build was measured as the largest avoidable cost in an
+otherwise up-to-date build, and its only output was advice. Each target below is reached only
+because somebody named it.
+
+| Target | Behaviour |
 | -- | -- |
-| Everything installed and compatible | No output at all |
-| Design-time build (`DesignTimeBuild=true`) | Skipped |
-| CI build (`ContinuousIntegrationBuild`, `TF_BUILD`, `GITHUB_ACTIONS`, `CI`) | Skipped unless opted in |
-| Non-default target framework in a multi-targeting build | Skipped |
-| Same state as last reported | Skipped |
+| `RecommendPurviewSkills` | Reports the state. Never fails a build. |
+| `VerifyPurviewSkills` | The same report, escalating `PRSKL0010`/`PRSKL0011` to an error. The CI gate. |
+| `InstallPurviewSkills` | Installs what is missing, via the skills CLI. |
+| `ListPurviewSkills` | Lists what the restored packages ship. Installs nothing. |
 
-The last one is deduplication. A solution has many projects sharing one repository, and a rebuild
-changes nothing, so a fingerprint of the reported state is kept in
-`<repo root>/.purview/skill-recommendations.cache`. The same advice is printed once, and again only
-when the state it describes actually changes. The explicit `-t:RecommendPurviewSkills` target
-ignores the stamp and always answers.
+A correctly installed set produces no output at all from either reporting target.
 
 ### Configuration
 
 | Property | Default | Description |
 | -- | -- | -- |
-| `EnablePurviewSkillRecommendations` | `true` | Reports skill state after an ordinary build. |
-| `PurviewSkillRecommendationsInCI` | `false` | Set `true` to report on CI builds too. |
-| `PurviewSkillRecommendationStampPath` | `<repo root>/.purview/skill-recommendations.cache` | Overrides the deduplication stamp. |
 | `PurviewSkillsLockFile` | `<repo root>/skills-lock.json` | Overrides where the CLI's lockfile is read from. |
 | `PurviewSkillsAgents` | `*` | Agents named in the recommended install command. |
 | `PurviewSkillsRunner` | `npx` | Package runner used to launch the CLI. |
@@ -186,6 +183,10 @@ ignores the stamp and always answers.
 | `PurviewSkillsPackage` | `skills@1` | Package spec the executed launcher pins to. |
 | `PurviewSkillsInstallRoot` | *(resolved)* | Overrides the repository root every skill target runs from. |
 | `PurviewRepositoryRootMarkers` | `.git/;.github/;.gitattributes;LICENSE.md;AGENTS.md;.agents/;CLAUDE.md;.claude/;package.json` | Ordered markers that identify a repository root; the first is definitive. |
+
+Removed in this release, with no replacement needed: `EnablePurviewSkillRecommendations`,
+`PurviewSkillRecommendationsInCI` and `PurviewSkillRecommendationStampPath`. They existed to gate and
+deduplicate a build hook that no longer exists.
 
 ## Version compatibility
 

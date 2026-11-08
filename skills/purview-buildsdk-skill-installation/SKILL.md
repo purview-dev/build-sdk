@@ -74,29 +74,40 @@ The caller owns the ref here — append `#<ref>` to pin it. This path needs no r
 | `PRSKL0013` | An orphaned lockfile entry | Message |
 | `PRSKL0014` | Recorded in the lockfile but never restored | Message |
 
-## Recommendations run during an ordinary build
+## Nothing about skills runs during a build
 
-This is the **one** skill feature that does. `RecommendPurviewSkillsOnBuild` runs after `Build` and
-delegates to `RecommendPurviewSkills`, which can also be invoked by name:
+This used to be the opposite: a `RecommendPurviewSkillsOnBuild` hook ran on `AfterTargets="Build"`.
+It was removed after measurement — on a 39-project solution it read and regex-scanned every project's
+`project.assets.json` (≈500 KB, 256 libraries each), made thousands of failing `Directory.Exists`
+calls, read the lockfile and walked the repository root, on every build, to print advice that a
+repository managing its own skills had already acted on. All of its inputs are repository-scoped, so
+the per-project cost bought nothing.
+
+The work is now paid only when somebody names a target:
 
 ```bash
-dotnet msbuild <project> -t:RecommendPurviewSkills
+dotnet msbuild <project> -t:RecommendPurviewSkills   # report, never fail
+dotnet msbuild <project> -t:VerifyPurviewSkills      # report, and fail on PRSKL0010/0011
 ```
 
 `EvaluatePurviewSkillState` joins the skills each restored package ships against the CLI's own
 `skills-lock.json`. Both inputs are local files, so it stays offline and spawns no process.
 
-Four things keep it quiet, and all of them are load-bearing:
+`VerifyPurviewSkills` is the gate to call from CI. It escalates only `PRSKL0010` (missing) and
+`PRSKL0011` (drifted) to errors: both are factual, both are fixed by one command, and neither can fire
+without a referenced package that really ships skills. `PRSKL0012` stays a warning because a package
+published without repository metadata is not the consumer's to fix, and `PRSKL0013`/`PRSKL0014` stay
+messages. Failing over something the caller cannot clear is how a gate gets switched off.
 
-- Design-time builds, CI builds, non-default TFM passes and
-  `EnablePurviewSkillRecommendations=false` are skipped outright.
-  `PurviewSkillRecommendationsInCI=true` re-enables CI.
-- A fingerprint stamp at `<repo root>/.purview/skill-recommendations.cache` means a given state is
-  reported once per repository, not once per project and again on every rebuild. The explicit target
-  ignores the stamp.
+Three things shape the output:
+
 - Missing and drifted are **warnings** (fixable in one command); unverifiable and orphaned are
-  **messages**. No amount of skill advice can break a build using `TreatWarningsAsErrors`.
+  **messages**. `VerifyPurviewSkills` is what turns them into failures.
 - A correctly installed set produces no output at all.
+- There is no deduplication stamp any more. `EnablePurviewSkillRecommendations`,
+  `PurviewSkillRecommendationsInCI` and `PurviewSkillRecommendationStampPath` were retired with the
+  hook: a stamp existed so a per-build hook could report one state once per repository, and a target
+  a person invokes should answer every time it is asked.
 
 Orphan detection is **owner-scoped on purpose**: a lockfile cannot record who asked for an entry, so
 only an entry under an owner the project references — but from a repository it no longer references

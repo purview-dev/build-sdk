@@ -60,6 +60,45 @@ sealed class RepositoryFileSyncTests
 	}
 
 	/// <summary>
+	/// A design-time build writes nothing. It produces no build output, and an IDE runs one for every
+	/// edit, so repeating the repository-root probe ladder and two 95 KB reads per project per pass is
+	/// pure overhead. The next real build bootstraps the files, and external tooling reads them when
+	/// it runs rather than when the IDE re-evaluates.
+	/// </summary>
+	[Test]
+	public async Task DesignTimeBuild_DoesNotBootstrapTheRepositoryFiles(CancellationToken cancellationToken)
+	{
+		using var h = await CreateHarnessAsync(extraProps: null, cancellationToken: cancellationToken);
+
+		var editorConfigPath = Path.Combine(h.SolutionDirectory, ".editorconfig");
+		var globalJsonPath = Path.Combine(h.SolutionDirectory, "global.json");
+
+		// A real build first: it bootstraps both files and, just as importantly, restores so the
+		// design-time pass below has an assets file to read.
+		var (firstSuccess, firstOutput, firstErrors) = await h.BuildAsync(
+			restore: true,
+			verbose: true,
+			cancellationToken
+		);
+		await Assert.That(firstSuccess).IsTrue().Because(TestHelpers.GenerateError(firstOutput, firstErrors));
+		await Assert.That(File.Exists(editorConfigPath)).IsTrue().Because("a real build bootstraps it");
+		await Assert.That(File.Exists(globalJsonPath)).IsTrue().Because("a real build bootstraps it");
+
+		// Remove them, so the design-time pass has something it could do and visibly does not.
+		File.Delete(editorConfigPath);
+		File.Delete(globalJsonPath);
+
+		var (code, output, errors) = await h.RunMSBuildAsync(
+			"-t:Build -p:DesignTimeBuild=true -p:SkipCompilerExecution=true",
+			cancellationToken
+		);
+
+		await Assert.That(code).IsZero().Because(output + errors);
+		await Assert.That(File.Exists(editorConfigPath)).IsFalse();
+		await Assert.That(File.Exists(globalJsonPath)).IsFalse();
+	}
+
+	/// <summary>
 	/// A <c>.editorconfig</c> carrying the SDK's version marker is one the SDK wrote, so a version change
 	/// refreshes it. This is what stops a consuming repository silently running a release-old rule set.
 	/// </summary>

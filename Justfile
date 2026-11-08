@@ -88,13 +88,22 @@ restore *args:
 current_version:
     echo "==> Current version: {{ GREEN }}{{ current_version }}{{ NORMAL }} (defined in package.json and automatically included in the build output through the Purview.BuildSdk package)"
 
-# Rewrite the Purview.BuildSdk pins in the docs and starter template to the version in package.json
+# Rewrite the Purview.BuildSdk pins in the docs, starter template and .editorconfig marker
 #
 # Run after bumping package.json. Packed files are stamped at pack time and need nothing.
 [group('Build and Test')]
 version-sync:
     echo "==> Syncing version pins to {{ GREEN }}{{ current_version }}{{ NORMAL }}"
     bun scripts/sync-version.ts
+
+# Check the version pins without writing anything; non-zero when a pin is stale
+#
+# What the pre-commit hook runs, so a stale .editorconfig marker or quick-start snippet cannot be
+# committed in the first place.
+[group('Build and Test')]
+version-sync-check:
+    echo "==> Checking version pins against {{ GREEN }}{{ current_version }}{{ NORMAL }}"
+    bun scripts/sync-version.ts --check
 
 # Run tests for a specific project with a filter (e.g., "/*/*/*/*/", or "/*/*/*/*[Category=Unit]" to run just unit tests) and configuration (e.g., "Release")
 [group('Build and Test')]

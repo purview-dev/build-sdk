@@ -191,13 +191,31 @@ Two rules are worth knowing the reasoning for. A repository with **no** `skills/
 
 Tests live in `src/tests/SkillsTesting.UnitTests/`, with the repository-level ones in `src/tests/BuildSdk.IntegrationTests/RepositorySkillTests.cs`, `SkillRepositoryRootParityTests.cs` and `RepositorySkillsSelfTests.cs`.
 
-### Recommending skills
+### Checking skills
 
-Installation is explicit, but **recommendation runs during an ordinary build** — it is the one skill feature that does. `RecommendPurviewSkillsOnBuild` (`AfterTargets="Build"`) delegates to `RecommendPurviewSkills`, which can also be invoked by name:
+**Nothing about skills runs during a build.** This used to be the opposite — a
+`RecommendPurviewSkillsOnBuild` hook ran on `AfterTargets="Build"` — and it was removed after
+measurement: on a 39-project solution it read and regex-scanned every project's
+`project.assets.json` (≈500 KB, 256 libraries each), made ~10 000 failing `Directory.Exists` calls,
+read the lockfile and walked the repository root, on every build, to print advice that a repository
+managing its own skills had already acted on. Every input is repository-scoped, so the per-project
+cost was pure duplication. The remaining work is now paid only when somebody asks:
 
 ```bash
-dotnet msbuild <project> -t:RecommendPurviewSkills
+dotnet msbuild <project> -t:RecommendPurviewSkills   # report, never fail
+dotnet msbuild <project> -t:VerifyPurviewSkills      # report, and fail on anything unverifiable
+dotnet msbuild <project> -t:InstallPurviewSkills     # install what is missing
+dotnet msbuild <project> -t:ListPurviewSkills        # what the restored packages ship
 ```
+
+`VerifyPurviewSkills` is the gate a CI job calls. It escalates `PRSKL0010` (missing) and `PRSKL0011`
+(drifted) from warning to **error** — both are factual, both are fixed by one command, and neither can
+fire without a referenced package that really ships skills. `PRSKL0012` stays a warning, because a
+package published without repository metadata is not the consumer's to fix; `PRSKL0013`/`PRSKL0014`
+stay messages, because 0013 is an owner-scoped heuristic and 0014 fires on any clone of a repository
+that installs skills on demand. Failing a build over either would hand people errors they cannot
+clear, which is how a gate gets switched off. The escalation is safe because the target cannot be
+reached by accident: a build that did not ask for it is never broken by skill advice.
 
 `EvaluatePurviewSkillState` (inline task in `Sdk/Sdk.targets`) joins the skills each restored package ships against the CLI's own `skills-lock.json` and classifies every one: satisfied, missing (`PRSKL0010`), ref-drifted (`PRSKL0011`), unverifiable (`PRSKL0012`), orphaned (`PRSKL0013`), or recorded-but-never-restored (`PRSKL0014`). Both inputs are local, so it stays offline and spawns no process.
 
@@ -205,12 +223,11 @@ The lockfile is read directly rather than by parsing `npx skills list --json`, b
 
 Drift **never** recommends `npx skills update`: `update` installs the newest published skill, which is only correct when the newest skill happens to describe the referenced package version. `PRSKL0011` names the referenced package's own commit in a pinned `npx skills add` instead.
 
-Four things keep it quiet, and all of them are load-bearing:
+Three things shape the output, and all of them are load-bearing:
 
-- design-time builds (`DesignTimeBuild`), CI builds (`ContinuousIntegrationBuild`/`TF_BUILD`/`GITHUB_ACTIONS`/`CI` unless `PurviewSkillRecommendationsInCI=true`), non-default TFM passes and `EnablePurviewSkillRecommendations=false` are all skipped outright;
-- a fingerprint stamp (`<repo root>/.purview/skill-recommendations.cache`) means a given state is reported once per repository rather than once per project and again on every rebuild — the explicit target ignores the stamp;
-- missing and drifted are warnings (actionable in one command), while unverifiable and orphaned are messages, so no amount of skill advice can break a build using `TreatWarningsAsErrors`; and
+- missing and drifted are warnings (actionable in one command), while unverifiable and orphaned are messages — and `VerifyPurviewSkills` is what turns them into failures; and
 - a correctly installed set produces no output at all.
+- there is no deduplication stamp any more (`EnablePurviewSkillRecommendations`, `PurviewSkillRecommendationsInCI` and `PurviewSkillRecommendationStampPath` are retired with it). A stamp existed so a per-build hook could report one state once per repository; a target a person invokes should answer every time.
 
 Orphan detection is **owner-scoped on purpose**: a lockfile cannot record who asked for an entry, so only an entry under an owner the project references — but from a repository it no longer references — is reported. A skill from any other owner is the developer's own and is never mentioned.
 
@@ -279,13 +296,16 @@ Prefer `just` tasks:
 - `just pack`
 - `just skills-validate` — the pack-time check over the authored skills
 - `just skills-add <source>` — install a skill from another repository into `.agents/skills/`
-- `just version-sync` — rewrite the `Purview.BuildSdk` pins in the docs and `templates/global.json`
-  after bumping `package.json`
+- `just version-sync` — rewrite the `Purview.BuildSdk` pins in the docs, `templates/global.json` and
+  `.editorconfig` marker after bumping `package.json`
+- `just version-sync-check` — the same check without writing; what the pre-commit hook runs
 
-Nothing packed carries a hand-maintained version. The `.editorconfig` marker and
-`Props/PackedVersion.props` (the `global.json` fallback when the SDK is not in a versioned package
-folder) are stamped at pack time from `$(PackageVersion)`. Only the copy-paste pins in the docs live in
-git, and `PackagedVersionFallbackTests` names each stale one as `file:line`.
+Nothing packed carries a hand-maintained version. `Props/PackedVersion.props` (the `global.json`
+fallback when the SDK is not in a versioned package folder) is stamped at pack time from
+`$(PackageVersion)`. Only the copy-paste pins live in git — the quick-start snippets, the starter
+template, and this repository's own `.editorconfig` marker, so that reading the tracked file never
+shows a release-old number. `PackagedVersionFallbackTests` names each stale one as `file:line`, and
+`just version-sync-check` fails the commit before it can land.
 
 `dotnet` fallback uses `src/BuildSdk.slnx` and `Release`.
 
