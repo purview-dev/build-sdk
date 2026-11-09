@@ -18,6 +18,12 @@ sealed class PurviewSkillTargetIsolationTests
 		"UpdatePurviewSkills",
 		"FixPurviewSkills",
 		"CheckPurviewSkills",
+		// The leader-side halves the public targets hand their work to; reaching one directly is
+		// reaching the work.
+		"_InstallPurviewSkillsCore",
+		"_UpdatePurviewSkillsCore",
+		"_FixPurviewSkillsCore",
+		"_CheckPurviewSkillsCore",
 	];
 
 	static IEnumerable<string> SdkProjectFiles() =>

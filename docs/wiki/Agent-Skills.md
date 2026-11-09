@@ -264,8 +264,11 @@ dotnet msbuild <project> -t:FixPurviewSkills       # remove the CLI's links from
 
 They run **only when named**. Nothing in the SDK hooks or depends on them, and install, update and fix
 refuse to run when pulled into a build, a restore or a design-time build (`PRSKL0009`) — a
-consumer's own `AfterTargets="Build"` hook included. Name one project, not the solution: on a
-solution each target runs once per project. For `just` recipes, see the
+consumer's own `AfterTargets="Build"` hook included. Name the solution: each target runs once
+however many projects it holds, because every project hands the work to the same elected leader
+project and MSBuild's result cache runs it once. Package resolution reads every project in the
+solution, so a package only a test project references is still found; a single project sees only its
+own packages. For `just` recipes, see the
 [`purview-buildsdk-justfile` skill](../../skills/purview-buildsdk-justfile/SKILL.md).
 
 `InstallPurviewSkills` shells out to the CLI rather than reimplementing it, because the CLI owns the
@@ -571,6 +574,7 @@ Verified against the `skills` CLI v1.
 | `PRSKL0014` | `skills-lock.json` exists but no skills have been restored |
 | `PRSKL0015` | An agent skill directory exists for an agent `PurviewSkillsAgents` does not name |
 | `PRSKL0016` | `PurviewSkillsAgents` names an agent with no known skills directory |
+| `PRSKL0017` | Projects in the solution reference one skill-shipping package at different versions |
 
 ## See also
 

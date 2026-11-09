@@ -28,6 +28,15 @@ release summarise what the commits recorded rather than what was written at the 
   `UpdatePurviewSkills` and `FixPurviewSkills` fail with `PRSKL0009` when pulled into a build, a
   restore or a design-time build — including by a consumer's own `AfterTargets="Build"` hook. Run
   them by name.
+- **Skill targets run once per solution.** Pointed at a solution, every skill target used to run in
+  every project — re-adding each source and re-running the CLI once per project, racing on
+  `skills-lock.json`. Each project now hands the work to one elected leader (the first solution
+  project, by path, that imports the SDK), and MSBuild's result cache runs it once. Resolution reads
+  every solution project's restore graph, so a package only a test project references is found
+  without choosing a project for it. Point recipes at the solution; no repository changes are needed
+  otherwise. Two projects on different versions of one skill-shipping package are `PRSKL0017`.
+  Package resolution also works in a multi-targeted project now: its outer build used to fail the
+  per-framework condition and resolve nothing.
 - New skill **`purview-buildsdk-justfile`**: adding or updating `just` recipes that run the skill
   targets, and replacing hand-written skill scripts with them.
 - `just skills-update`, `just skills-fix`; `just skills-check` now runs `CheckPurviewSkills`, and the

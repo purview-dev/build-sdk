@@ -42,8 +42,11 @@ something else pulls them into a build, a restore or a design-time build (`PRSKL
 them into a build, a `*DependsOn` property or a git hook. If skills are changing on their own,
 something has been wired up that should not be.
 
-Name **one project**, never the solution: on a solution each target runs once per project. For
-`just` recipes that run these targets, see `purview-buildsdk-justfile`.
+Name **the solution**. Skills belong to the repository, so each target runs once however many
+projects the solution holds: every project hands the work to the same elected leader, and MSBuild
+runs it once. Package resolution reads every project in the solution, so a package only one project
+references is still found. A single project works too, but sees only its own packages. For `just`
+recipes that run these targets, see `purview-buildsdk-justfile`.
 
 ## How a skill is resolved, and why the version is always right
 
@@ -141,6 +144,7 @@ The caller owns the ref here — append `#<ref>` to pin it. This path needs no r
 | `PRSKL0014` | Recorded in the lockfile but never restored | Message |
 | `PRSKL0015` | An agent skill directory exists for an agent `PurviewSkillsAgents` does not name | `-t:FixPurviewSkills`, then remove anything it kept by hand |
 | `PRSKL0016` | `PurviewSkillsAgents` names an agent with no known skills directory | Warning. Add a `PurviewSkillsAgentDirectory` item |
+| `PRSKL0017` | Projects in the solution reference one skill-shipping package at different versions | Warning. Align the versions; only one version's skills can be installed |
 
 ## Nothing about skills runs during a build
 

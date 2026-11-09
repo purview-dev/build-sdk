@@ -214,6 +214,36 @@ dotnet msbuild <project> -t:FixPurviewSkills         # remove the CLI's links fr
 dotnet msbuild <project> -t:ListPurviewSkills        # what the restored packages ship
 ```
 
+### Once per solution: the leader
+
+Pointed at a solution, MSBuild runs a custom target in **every** project, so each skill target used
+to re-add every source and re-run the CLI once per project. Every public skill target is now a thin
+wrapper: `_ResolvePurviewSkillsProjects` reads the solution's project list from
+`CurrentSolutionConfigurationContents` (the same value in every project, for `.sln` and `.slnx`;
+outside a solution it is the project itself), asks each project for its assets file through
+`_GetPurviewSkillsProjectInfo`, and elects as leader the first, by sorted path, that answered. The
+wrapper then calls `_<Target>Core` on the leader through the `MSBuild` task. MSBuild runs one
+project's target once per set of global properties and returns the cached result to every later
+caller, so the work runs once — no lock and no stamp file.
+
+Four things are load-bearing:
+
+- **The leader is a consumer project, not a `.proj` shipped in the package.** The skill settings live
+  in the consumer's `Directory.Build.props`, which a project in the NuGet cache would never import.
+- **Every wrapper passes identical global properties** (`_PurviewSkillsLeaderRemoveProperties` strips
+  `TargetFramework`/`RuntimeIdentifier`). Anything that varies per caller would give each caller its
+  own cache entry and quietly bring back the fan-out.
+- **The query's reply has its own item type** (`_PurviewSkillsProjectInfoReply`). Asking the calling
+  project runs the query in the caller's own instance, so reusing the caller's item put the caller
+  first in its own list, and every project elected itself.
+- `ResolvePurviewSkillsTarget` resolves across **every** answering project's assets file, so a package
+  only a test project references is found; packages are de-duplicated by id and version, and one id at
+  two versions is `PRSKL0017`. The old per-framework condition is gone: it made a multi-targeted
+  project's outer build resolve nothing.
+
+Tests live in `src/tests/BuildSdk.IntegrationTests/PurviewSkillSolutionTests.cs`, which writes its
+own `.slnx` because the harness's lists projects as `<File>` entries.
+
 ### Updating, checking and fixing
 
 **Install, update and fix run only when named — never automatically.** Two layers, both tested in `PurviewSkillTargetIsolationTests`: no SDK target hooks or depends on them (a structural scan of every `.props`/`.targets` under `Sdk/`, including `*DependsOn` properties), and `_GuardExplicitPurviewSkillsTarget` — first in each one's `DependsOnTargets` — fails with `PRSKL0009` when `BuildingProject`, `DesignTimeBuild` or `MSBuildIsRestoring` is true, which catches a consumer's own `AfterTargets="Build"` hook. Do not add a `BeforeTargets`/`AfterTargets` to any of them, and do not weaken the guard.

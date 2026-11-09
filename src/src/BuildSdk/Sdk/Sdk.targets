@@ -391,6 +391,12 @@
 	     Returns one item per package, with the skill names as metadata, for an
 	     explicit install target to act on. Resolution never runs during a
 	     normal build.
+
+	     Takes every project's assets file at once, because skills belong to
+	     the repository: a package referenced by two projects is one package,
+	     and is reported once. Two projects on *different* versions of one
+	     package are both returned, and named in VersionConflicts, because
+	     only one version's skills can be installed into the repository.
 	     ===================================================================== -->
 	<UsingTask
 		TaskName="ResolvePurviewSkillSources"
@@ -398,10 +404,11 @@
 		AssemblyFile="$([System.IO.Path]::Combine('$(MSBuildToolsPath)', 'Microsoft.Build.Tasks.Core.dll'))"
 	>
 		<ParameterGroup>
-			<ProjectAssetsFile ParameterType="System.String" Required="true" />
+			<ProjectAssetsFiles ParameterType="System.String" Required="true" />
 			<NuGetPackageFolders ParameterType="System.String" Required="false" />
 			<SkillSources ParameterType="Microsoft.Build.Framework.ITaskItem[]" Output="true" />
 			<Unresolvable ParameterType="Microsoft.Build.Framework.ITaskItem[]" Output="true" />
+			<VersionConflicts ParameterType="Microsoft.Build.Framework.ITaskItem[]" Output="true" />
 		</ParameterGroup>
 		<Task>
 			<Using Namespace="System.IO" />
@@ -415,27 +422,37 @@
 				<![CDATA[
 					var resolved = new List<ITaskItem>();
 					var unresolved = new List<ITaskItem>();
+					// One package at one version is one result, however many projects reference it.
+					var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-					if (File.Exists(ProjectAssetsFile))
+					var roots = (NuGetPackageFolders ?? string.Empty)
+						.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries)
+						.Select(root => root.TrimEnd('\\', '/'))
+						.Where(root => root.Length > 0)
+						.Distinct(StringComparer.OrdinalIgnoreCase)
+						.ToArray();
+
+					// Same "libraries" shape DiscoverAgentPackageFolders reads; the version is the
+					// segment after the id, and is reported so a diagnostic can name it.
+					var libraryPattern = new Regex(
+						"\"(?<id>[^\"/]+)/(?<version>[^\"]+)\"\\s*:\\s*\\{[^{}]*?\"type\"\\s*:\\s*\"package\"[^{}]*?\"path\"\\s*:\\s*\"(?<path>[^\"]+)\"",
+						RegexOptions.Singleline
+					);
+					// NuGet writes the repository element on one line; url and commit may appear in
+					// either order, so match the element then pull each attribute out of it.
+					var repositoryElementPattern = new Regex("<repository\\b[^>]*/?>", RegexOptions.IgnoreCase);
+					var urlPattern = new Regex("\\burl\\s*=\\s*\"(?<url>[^\"]*)\"", RegexOptions.IgnoreCase);
+					var commitPattern = new Regex("\\bcommit\\s*=\\s*\"(?<commit>[^\"]*)\"", RegexOptions.IgnoreCase);
+
+					var assetsFiles = (ProjectAssetsFiles ?? string.Empty)
+						.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries)
+						.Select(file => file.Trim())
+						.Where(file => file.Length > 0 && File.Exists(file))
+						.Distinct(StringComparer.OrdinalIgnoreCase);
+
+					foreach (var assetsFile in assetsFiles)
 					{
-						var roots = (NuGetPackageFolders ?? string.Empty)
-							.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries)
-							.Select(root => root.TrimEnd('\\', '/'))
-							.Where(root => root.Length > 0)
-							.ToArray();
-
-						// Same "libraries" shape DiscoverAgentPackageFolders reads; the version is the
-						// segment after the id, and is reported so a diagnostic can name it.
-						var json = File.ReadAllText(ProjectAssetsFile);
-						var libraryPattern = new Regex(
-							"\"(?<id>[^\"/]+)/(?<version>[^\"]+)\"\\s*:\\s*\\{[^{}]*?\"type\"\\s*:\\s*\"package\"[^{}]*?\"path\"\\s*:\\s*\"(?<path>[^\"]+)\"",
-							RegexOptions.Singleline
-						);
-						// NuGet writes the repository element on one line; url and commit may appear in
-						// either order, so match the element then pull each attribute out of it.
-						var repositoryElementPattern = new Regex("<repository\\b[^>]*/?>", RegexOptions.IgnoreCase);
-						var urlPattern = new Regex("\\burl\\s*=\\s*\"(?<url>[^\"]*)\"", RegexOptions.IgnoreCase);
-						var commitPattern = new Regex("\\bcommit\\s*=\\s*\"(?<commit>[^\"]*)\"", RegexOptions.IgnoreCase);
+						var json = File.ReadAllText(assetsFile);
 
 						foreach (Match match in libraryPattern.Matches(json))
 						{
@@ -445,6 +462,8 @@
 
 							var packageId = match.Groups["id"].Value;
 							var packageVersion = match.Groups["version"].Value;
+							if (!seen.Add(packageId + "/" + packageVersion))
+								continue;
 							var normalizedPath = libraryPath.Replace('/', Path.DirectorySeparatorChar);
 
 							foreach (var root in roots)
@@ -531,8 +550,88 @@
 						}
 					}
 
+					VersionConflicts = resolved
+						.Concat(unresolved)
+						.GroupBy(item => item.GetMetadata("PackageId"), StringComparer.OrdinalIgnoreCase)
+						.Where(group => group.Count() > 1)
+						.Select(group =>
+						{
+							var conflict = new TaskItem(group.Key);
+							conflict.SetMetadata(
+								"Versions",
+								string.Join(", ", group.Select(item => item.GetMetadata("PackageVersion")))
+							);
+							return (ITaskItem)conflict;
+						})
+						.ToArray();
+
 					SkillSources = resolved.ToArray();
 					Unresolvable = unresolved.ToArray();
+				]]>
+			</Code>
+		</Task>
+	</UsingTask>
+
+	<!-- =====================================================================
+	     RESOLVE PURVIEW SKILLS PROJECTS
+	     The projects a skill target answers for. Skills belong to the
+	     repository, so a skill target run against a solution must run once
+	     for the whole solution, not once per project.
+
+	     A solution build hands every project the same
+	     CurrentSolutionConfigurationContents, listing every project in the
+	     solution by absolute path - for .sln and .slnx alike - so every
+	     project computes the same list without parsing the solution file.
+	     Outside a solution the list is the project itself.
+
+	     Sorted, so every project in the solution elects the same leader.
+	     ===================================================================== -->
+	<UsingTask
+		TaskName="ResolvePurviewSkillsProjects"
+		TaskFactory="RoslynCodeTaskFactory"
+		AssemblyFile="$([System.IO.Path]::Combine('$(MSBuildToolsPath)', 'Microsoft.Build.Tasks.Core.dll'))"
+	>
+		<ParameterGroup>
+			<SolutionConfiguration ParameterType="System.String" Required="false" />
+			<ProjectPath ParameterType="System.String" Required="true" />
+			<Projects ParameterType="Microsoft.Build.Framework.ITaskItem[]" Output="true" />
+		</ParameterGroup>
+		<Task>
+			<Using Namespace="System.IO" />
+			<Using Namespace="System.Linq" />
+			<Using Namespace="System.Net" />
+			<Using Namespace="System.Text.RegularExpressions" />
+			<Using Namespace="Microsoft.Build.Framework" />
+			<Using Namespace="Microsoft.Build.Utilities" />
+			<Reference Include="$([System.IO.Path]::Combine('$(MSBuildToolsPath)', 'Microsoft.Build.Framework.dll'))" />
+			<Reference Include="$([System.IO.Path]::Combine('$(MSBuildToolsPath)', 'Microsoft.Build.Utilities.Core.dll'))" />
+			<Code Type="Fragment" Language="cs">
+				<![CDATA[
+					var projects = new List<string>();
+
+					foreach (Match element in Regex.Matches(SolutionConfiguration ?? string.Empty, "<ProjectConfiguration\\b[^>]*>"))
+					{
+						// A project the solution configuration does not build is not part of this run.
+						if (Regex.IsMatch(element.Value, "\\bBuildProjectInSolution\\s*=\\s*\"False\"", RegexOptions.IgnoreCase))
+							continue;
+
+						var path = Regex.Match(element.Value, "\\bAbsolutePath\\s*=\\s*\"(?<path>[^\"]+)\"");
+						if (!path.Success)
+							continue;
+
+						var fullPath = Path.GetFullPath(WebUtility.HtmlDecode(path.Groups["path"].Value));
+						if (File.Exists(fullPath))
+							projects.Add(fullPath);
+					}
+
+					if (projects.Count == 0)
+						projects.Add(Path.GetFullPath(ProjectPath));
+
+					Projects = projects
+						.Distinct(StringComparer.OrdinalIgnoreCase)
+						.OrderBy(project => project, StringComparer.OrdinalIgnoreCase)
+						.Select(project => (ITaskItem)new TaskItem(project))
+						.ToArray();
 				]]>
 			</Code>
 		</Task>
@@ -2502,33 +2601,144 @@
 	     of this SDK; it also owns skills-lock.json, so a repository can restore
 	     the same skills later with 'npx skills experimental_install'.
 	     ===================================================================== -->
+	<!-- =====================================================================
+	     ONCE PER REPOSITORY, FROM ANY ENTRY POINT
+	     Every public skill target is a thin wrapper that hands its work to one
+	     project - the leader - via the MSBuild task:
+
+	       dotnet msbuild src/App.slnx -t:UpdatePurviewSkills    runs once
+	       dotnet msbuild src/Any/Any.csproj -t:UpdatePurviewSkills
+
+	     Pointed at a solution, MSBuild runs the target in every project. Each
+	     one elects the same leader - the first solution project, by path, that
+	     imports this SDK - and asks it for the same '_<Target>Core' with the
+	     same global properties. MSBuild runs a project's target once per set
+	     of global properties and hands later callers the cached result, so the
+	     work runs once however many projects asked. No lock and no stamp file.
+
+	     The leader is a real consumer project rather than a file shipped in
+	     this package, because the skill settings live in the consumer's
+	     Directory.Build.props, which a project inside the NuGet cache would
+	     never import.
+
+	     Resolution reads every solution project's restore graph, so a package
+	     only a test project references is still found from any entry point. A
+	     project is asked for its assets file, not built: the cost is one
+	     evaluation per project.
+	     ===================================================================== -->
+	<!-- The reply has its own item type: asking the calling project itself runs this target in the
+	     caller's own instance, and reusing the caller's item would put it in the list twice, first. -->
+	<Target
+		Name="_GetPurviewSkillsProjectInfo"
+		Returns="@(_PurviewSkillsProjectInfoReply)"
+		Label="Reports this project's restore graph to the skill targets."
+	>
+		<ItemGroup>
+			<_PurviewSkillsProjectInfoReply Include="$(MSBuildProjectFullPath)">
+				<ProjectAssetsFile>$(ProjectAssetsFile)</ProjectAssetsFile>
+				<NuGetPackageFolders>$(NuGetPackageFolders)</NuGetPackageFolders>
+			</_PurviewSkillsProjectInfoReply>
+		</ItemGroup>
+	</Target>
+
+	<Target
+		Name="_ResolvePurviewSkillsProjects"
+		Label="Resolves the projects a skill target answers for, and the one project that does the work."
+	>
+		<ResolvePurviewSkillsProjects
+			SolutionConfiguration="$(CurrentSolutionConfigurationContents)"
+			ProjectPath="$(MSBuildProjectFullPath)"
+		>
+			<Output TaskParameter="Projects" ItemName="_PurviewSkillsSolutionProject" />
+		</ResolvePurviewSkillsProjects>
+
+		<!-- SkipNonexistentTargets: a solution can hold projects that do not import this SDK,
+		     and those simply contribute nothing. TargetFramework and RuntimeIdentifier are removed
+		     so a multi-targeted project answers once, from its outer build. -->
+		<MSBuild
+			Projects="@(_PurviewSkillsSolutionProject)"
+			Targets="_GetPurviewSkillsProjectInfo"
+			SkipNonexistentTargets="true"
+			BuildInParallel="true"
+			RemoveProperties="TargetFramework;RuntimeIdentifier"
+		>
+			<Output TaskParameter="TargetOutputs" ItemName="_PurviewSkillsProjectInfo" />
+		</MSBuild>
+
+		<PropertyGroup>
+			<!-- The MSBuild task returns outputs in project order, and the list is sorted. An item
+			     list does not expand inside a property function, hence the intermediate property. -->
+			<_PurviewSkillsAnsweringProjects>@(_PurviewSkillsProjectInfo)</_PurviewSkillsAnsweringProjects>
+			<_PurviewSkillsLeaderProject>$([System.Text.RegularExpressions.Regex]::Match('$(_PurviewSkillsAnsweringProjects)', '^[^;]+').Value)</_PurviewSkillsLeaderProject>
+			<_PurviewSkillsLeaderProject Condition="'$(_PurviewSkillsLeaderProject)' == ''"
+				>$(MSBuildProjectFullPath)</_PurviewSkillsLeaderProject>
+		</PropertyGroup>
+	</Target>
+
 	<Target
 		Name="ResolvePurviewSkillsTarget"
-		Condition="'$(DefaultTargetFramework)' == '' OR '$(TargetFramework)' == '$(DefaultTargetFramework)'"
+		DependsOnTargets="_ResolvePurviewSkillsProjects"
 		Label="Resolves the skills shipped by restored packages to their git source and commit."
 	>
+		<ItemGroup>
+			<_PurviewSkillsUnrestoredProject
+				Include="@(_PurviewSkillsProjectInfo)"
+				Condition="'%(_PurviewSkillsProjectInfo.ProjectAssetsFile)' == '' OR !Exists('%(_PurviewSkillsProjectInfo.ProjectAssetsFile)')"
+			/>
+			<_PurviewSkillsRestoredProject
+				Include="@(_PurviewSkillsProjectInfo)"
+				Exclude="@(_PurviewSkillsUnrestoredProject)"
+			/>
+		</ItemGroup>
+
 		<!-- An explicit PurviewSkillsSource does not come from the restore graph, so it must not
 		     require one: installing from a named repository works in a project that has never
 		     been restored. -->
 		<Error
 			Code="PRSKL0001"
-			Condition="!Exists('$(ProjectAssetsFile)') AND '$(PurviewSkillsSource)' == ''"
-			Text="Cannot resolve Purview skills because '$(ProjectAssetsFile)' does not exist. Run 'dotnet restore' first - skill resolution reads the restore graph and deliberately does not trigger a restore of its own."
+			Condition="'@(_PurviewSkillsUnrestoredProject)' != '' AND '$(PurviewSkillsSource)' == ''"
+			Text="Cannot resolve Purview skills for '%(_PurviewSkillsUnrestoredProject.Identity)' because '%(_PurviewSkillsUnrestoredProject.ProjectAssetsFile)' does not exist. Run 'dotnet restore' first - skill resolution reads the restore graph and deliberately does not trigger a restore of its own."
 		/>
 		<ResolvePurviewSkillSources
-			Condition="Exists('$(ProjectAssetsFile)')"
-			ProjectAssetsFile="$(ProjectAssetsFile)"
-			NuGetPackageFolders="$(NuGetPackageFolders)"
+			Condition="'@(_PurviewSkillsRestoredProject)' != ''"
+			ProjectAssetsFiles="@(_PurviewSkillsRestoredProject->'%(ProjectAssetsFile)')"
+			NuGetPackageFolders="@(_PurviewSkillsRestoredProject->'%(NuGetPackageFolders)')"
 		>
 			<Output TaskParameter="SkillSources" ItemName="PurviewSkillSource" />
 			<Output TaskParameter="Unresolvable" ItemName="PurviewUnresolvableSkillSource" />
+			<Output TaskParameter="VersionConflicts" ItemName="_PurviewSkillsVersionConflict" />
 		</ResolvePurviewSkillSources>
+
+		<!-- Only one version's skills can be installed into the repository, so the projects that
+		     disagree are named rather than one version winning silently. -->
+		<Warning
+			Code="PRSKL0017"
+			Condition="'@(_PurviewSkillsVersionConflict)' != ''"
+			Text="Purview Skills: the projects in this solution reference %(_PurviewSkillsVersionConflict.Identity) at more than one version (%(_PurviewSkillsVersionConflict.Versions)), and the repository can only hold one version's skills. Align the versions - Central Package Management does this for every project at once."
+		/>
 	</Target>
+
+	<!-- Every wrapper below hands the same target to the same leader with the same global
+	     properties, which is what lets MSBuild run it once. -->
+	<PropertyGroup>
+		<_PurviewSkillsLeaderRemoveProperties>TargetFramework;RuntimeIdentifier</_PurviewSkillsLeaderRemoveProperties>
+	</PropertyGroup>
 
 	<Target
 		Name="ListPurviewSkills"
-		DependsOnTargets="ResolvePurviewSkillsRepositoryRoot;ResolvePurviewSkillsTarget"
+		DependsOnTargets="_ResolvePurviewSkillsProjects"
 		Label="Lists the skills shipped by every restored package, without installing anything."
+	>
+		<MSBuild
+			Projects="$(_PurviewSkillsLeaderProject)"
+			Targets="_ListPurviewSkillsCore"
+			RemoveProperties="$(_PurviewSkillsLeaderRemoveProperties)"
+		/>
+	</Target>
+
+	<Target
+		Name="_ListPurviewSkillsCore"
+		DependsOnTargets="ResolvePurviewSkillsRepositoryRoot;ResolvePurviewSkillsTarget"
 	>
 		<Message
 			Importance="High"
@@ -2677,8 +2887,19 @@
 
 	<Target
 		Name="InstallPurviewSkills"
-		DependsOnTargets="_GuardExplicitPurviewSkillsTarget;ResolvePurviewSkillsRepositoryRoot;_PrepareInstallPurviewSkills;_ResolvePurviewSkillsCommand"
+		DependsOnTargets="_GuardExplicitPurviewSkillsTarget;_ResolvePurviewSkillsProjects"
 		Label="Installs the skills shipped by restored packages into the agent directories, via the skills CLI."
+	>
+		<MSBuild
+			Projects="$(_PurviewSkillsLeaderProject)"
+			Targets="_InstallPurviewSkillsCore"
+			RemoveProperties="$(_PurviewSkillsLeaderRemoveProperties)"
+		/>
+	</Target>
+
+	<Target
+		Name="_InstallPurviewSkillsCore"
+		DependsOnTargets="_GuardExplicitPurviewSkillsTarget;ResolvePurviewSkillsRepositoryRoot;_PrepareInstallPurviewSkills;_ResolvePurviewSkillsCommand"
 	>
 		<PropertyGroup>
 			<!-- A failed install is a failed install: the caller asked for it explicitly, so it is
@@ -2824,8 +3045,19 @@
 
 	<Target
 		Name="UpdatePurviewSkills"
-		DependsOnTargets="_GuardExplicitPurviewSkillsTarget;_PrepareUpdatePurviewSkills;_ResolvePurviewSkillsCommand;_UpdatePurviewSkillsSource"
+		DependsOnTargets="_GuardExplicitPurviewSkillsTarget;_ResolvePurviewSkillsProjects"
 		Label="Re-adds every source in skills-lock.json, pinning package skills to their package's commit, then runs 'skills update'."
+	>
+		<MSBuild
+			Projects="$(_PurviewSkillsLeaderProject)"
+			Targets="_UpdatePurviewSkillsCore"
+			RemoveProperties="$(_PurviewSkillsLeaderRemoveProperties)"
+		/>
+	</Target>
+
+	<Target
+		Name="_UpdatePurviewSkillsCore"
+		DependsOnTargets="_GuardExplicitPurviewSkillsTarget;_PrepareUpdatePurviewSkills;_ResolvePurviewSkillsCommand;_UpdatePurviewSkillsSource"
 	>
 		<Message
 			Importance="High"
@@ -2947,9 +3179,17 @@
 
 	<Target
 		Name="CheckPurviewSkills"
-		DependsOnTargets="_EvaluatePurviewSkillDirectories"
+		DependsOnTargets="_ResolvePurviewSkillsProjects"
 		Label="Fails when an agent skill directory exists for an agent PurviewSkillsAgents does not select."
 	>
+		<MSBuild
+			Projects="$(_PurviewSkillsLeaderProject)"
+			Targets="_CheckPurviewSkillsCore"
+			RemoveProperties="$(_PurviewSkillsLeaderRemoveProperties)"
+		/>
+	</Target>
+
+	<Target Name="_CheckPurviewSkillsCore" DependsOnTargets="_EvaluatePurviewSkillDirectories">
 		<Error
 			Code="PRSKL0015"
 			Condition="'@(_PurviewSkillsDirectoryViolation)' != ''"
@@ -2971,8 +3211,19 @@
 
 	<Target
 		Name="FixPurviewSkills"
-		DependsOnTargets="_GuardExplicitPurviewSkillsTarget;_PrepareFixPurviewSkills;_EvaluatePurviewSkillDirectories"
+		DependsOnTargets="_GuardExplicitPurviewSkillsTarget;_ResolvePurviewSkillsProjects"
 		Label="Removes the skills CLI's links from agent skill directories PurviewSkillsAgents does not select."
+	>
+		<MSBuild
+			Projects="$(_PurviewSkillsLeaderProject)"
+			Targets="_FixPurviewSkillsCore"
+			RemoveProperties="$(_PurviewSkillsLeaderRemoveProperties)"
+		/>
+	</Target>
+
+	<Target
+		Name="_FixPurviewSkillsCore"
+		DependsOnTargets="_GuardExplicitPurviewSkillsTarget;_PrepareFixPurviewSkills;_EvaluatePurviewSkillDirectories"
 	>
 		<Message
 			Importance="High"
@@ -3044,9 +3295,19 @@
 
 	<Target
 		Name="RecommendPurviewSkills"
-		DependsOnTargets="_ResolvePurviewSkillRecommendationPaths;ResolvePurviewSkillsTarget"
-		Condition="'$(DefaultTargetFramework)' == '' OR '$(TargetFramework)' == '$(DefaultTargetFramework)'"
+		DependsOnTargets="_ResolvePurviewSkillsProjects"
 		Label="Reports which Purview skills are missing, drifted or unverifiable, and how to fix each."
+	>
+		<MSBuild
+			Projects="$(_PurviewSkillsLeaderProject)"
+			Targets="_RecommendPurviewSkillsCore"
+			RemoveProperties="$(_PurviewSkillsLeaderRemoveProperties)"
+		/>
+	</Target>
+
+	<Target
+		Name="_RecommendPurviewSkillsCore"
+		DependsOnTargets="_ResolvePurviewSkillRecommendationPaths;ResolvePurviewSkillsTarget"
 	>
 		<!-- The unresolved-root guard is on the task, not on the target: a target's Condition is
 		     evaluated before its DependsOnTargets run, so a property one of them computes is still
@@ -3155,10 +3416,17 @@
 	     ===================================================================== -->
 	<Target
 		Name="VerifyPurviewSkills"
-		DependsOnTargets="RecommendPurviewSkills"
-		Condition="'$(DefaultTargetFramework)' == '' OR '$(TargetFramework)' == '$(DefaultTargetFramework)'"
+		DependsOnTargets="_ResolvePurviewSkillsProjects"
 		Label="Fails when a referenced package ships agent skills that are missing or installed from a different ref."
 	>
+		<MSBuild
+			Projects="$(_PurviewSkillsLeaderProject)"
+			Targets="_VerifyPurviewSkillsCore"
+			RemoveProperties="$(_PurviewSkillsLeaderRemoveProperties)"
+		/>
+	</Target>
+
+	<Target Name="_VerifyPurviewSkillsCore" DependsOnTargets="_RecommendPurviewSkillsCore">
 		<Error
 			Code="PRSKL0010"
 			Condition="'@(PurviewMissingSkill)' != ''"

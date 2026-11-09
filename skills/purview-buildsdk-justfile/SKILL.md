@@ -26,10 +26,19 @@ restore or a design-time build (`PRSKL0009`). Keep the Justfile consistent with 
 
 ## Recipes
 
-Add them under one group, after the build recipes. Replace `src/MyApp/MyApp.csproj` as described below.
+Put them in their own file beside the `Justfile`, and import it from the `Justfile`:
 
 ```just
-skills_project := "src/MyApp/MyApp.csproj"
+# Justfile
+import "Justfile.skills.just"
+```
+
+The only line that differs between repositories is `skills_project`. Work it out from the repository
+as described in [Choosing `skills_project`](#choosing-skills_project) — do not ask for it, and do not
+leave a placeholder:
+
+```just
+skills_project := solution_file    # or a path, when the Justfile has no such variable
 
 # Update agent skills: re-add every skills-lock.json source, then 'skills update'
 [group('Agent skills')]
@@ -64,13 +73,37 @@ skills-verify *args:
 
 Only add the recipes the repository will use. `skills-update` and `skills-check` are the usual pair.
 
+### Choosing `skills_project`
+
+Take the first of these that applies:
+
+1. **The `Justfile` already names the solution in a variable** — `solution_file`, `solution`, `sln`
+   or similar, typically used by `build`, `test` and `restore`. Reference it:
+   `skills_project := solution_file`. An imported file shares the importing file's variables, so the
+   skill recipes then follow the solution if it is ever renamed or moved, with nothing to keep in step.
+2. **An existing recipe runs `dotnet build`, `test` or `restore` on a literal solution path.** Use that
+   path. If several recipes repeat it, offer to lift it into a `solution_file` variable and reference
+   that, but do not restructure the `Justfile` unasked.
+3. **No `Justfile`, or one that never names a solution.** Search for `*.slnx` and `*.sln`, ignoring
+   `bin/`, `obj/`, `node_modules/` and `artifacts/`. If there is exactly one, use its path relative to
+   the `Justfile`. With several, prefer the one the CI workflow or README builds; ask only if that
+   still leaves more than one.
+4. **No solution at all.** Name a project that imports the SDK and references every package that
+   ships skills, and say in a comment that it sees only its own packages.
+
+An existing `Justfile.skills.just` pointed at a hand-picked project gets the same treatment: replace
+the project with the solution, chosen as above. Remove any comment explaining why that project was
+picked, because the reason no longer holds.
+
 ### Details that break a recipe if missed
 
-- **Name one project, never the solution.** `dotnet msbuild <solution> -t:UpdatePurviewSkills` runs
-  the target once per project, re-adding every source N times. Every skill target works from the
-  repository root whichever project runs it, so pick one that imports the SDK. If a package ships
-  skills, choose a project that references it: only packages in *that* project's restore graph are
-  pinned to their commit.
+- **Name the solution.** Every skill target runs once for the whole solution, however many projects
+  it holds: each project hands the work to the same elected leader, and MSBuild runs it once. Package
+  resolution reads every project in the solution, so a package only a test project references is
+  still pinned. There is no project to choose and nothing to keep in step as projects come and go.
+  A single project also works, but sees only that project's packages. (SDK releases before this
+  behaviour ran the target once per project; there, name one project that references every package
+  that ships skills.)
 - **Restore first.** The targets read `project.assets.json` and never restore on their own
   (`PRSKL0001`). A fresh clone needs `dotnet restore` (or `just restore`) before `skills-update`.
 - **Quote a multi-target `-t:`.** `"-t:UpdatePurviewSkills;FixPurviewSkills"` — unquoted, `sh` treats
@@ -136,7 +169,8 @@ printed commands with what the old script ran before deleting anything.
    (a PowerShell shell still needs the `-t:` value quoted).
 2. Keep recipe names the repository already uses; change only what they run. If `skills-check`
    already means "report", rename it to `skills-recommend` rather than silently changing its meaning,
-   and say so.
+   and say so. A recipe pointed at a hand-picked "small" project, to avoid running once per project,
+   can point at the solution instead.
 3. Check nothing depends on a changing recipe: `just --list`, then search the Justfile, CI workflows
    and hook configuration for the recipe name.
 4. Verify: `just --list` shows the group, `just skills-update -p:PurviewSkillsDryRun=true` prints the
