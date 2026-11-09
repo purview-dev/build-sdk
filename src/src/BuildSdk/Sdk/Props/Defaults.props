@@ -64,7 +64,8 @@
 		<EnableAssemblyNameGeneration Condition="'$(EnableAssemblyNameGeneration)' == ''"
 			>true</EnableAssemblyNameGeneration>
 		<!-- Skills are checked and installed only by a target a person invokes:
-		     -t:RecommendPurviewSkills, -t:VerifyPurviewSkills, -t:InstallPurviewSkills or
+		     -t:RecommendPurviewSkills, -t:VerifyPurviewSkills, -t:InstallPurviewSkills,
+		     -t:UpdatePurviewSkills, -t:CheckPurviewSkills, -t:FixPurviewSkills or
 		     -t:ListPurviewSkills. There is deliberately no build hook: reading the restore graph
 		     and the lockfile on every build of every project was measured as the largest
 		     avoidable cost in an up-to-date build, and it existed only to print advice. -->
@@ -72,14 +73,21 @@
 		     which is where the CLI writes it for a project-scope install. -->
 		<PurviewSkillsLockFile Condition="'$(PurviewSkillsLockFile)' == ''"></PurviewSkillsLockFile>
 		<!-- The skills CLI is published to npm, and a repository standardises on one package runner.
-		     npx is the default because it ships with Node itself, so it is the one runner a machine
-		     that has Node at all is guaranteed to have. -->
-		<PurviewSkillsRunner Condition="'$(PurviewSkillsRunner)' == ''">npx</PurviewSkillsRunner>
+		     bun is the default ('bun x skills'); set npx, bunx, pnpm, yarn or deno to use another. -->
+		<PurviewSkillsRunner Condition="'$(PurviewSkillsRunner)' == ''">bun</PurviewSkillsRunner>
 		<!-- Probed in order after PurviewSkillsRunner, so a machine without the preferred runner
 		     still installs rather than reporting that nothing was found. A 'skills' already on PATH
 		     is always tried first: it needs no download and works offline. -->
 		<PurviewSkillsRunnerCandidates Condition="'$(PurviewSkillsRunnerCandidates)' == ''"
-			>npx;bunx;bun;pnpm;yarn;deno</PurviewSkillsRunnerCandidates>
+			>bun;npx;bunx;pnpm;yarn;deno</PurviewSkillsRunnerCandidates>
+		<!-- Agents the skill targets install to, comma-separated. Empty passes no agent flag, so the
+		     skills CLI auto-detects; set it (for example 'universal' or 'claude-code,codex') to
+		     choose, and CheckPurviewSkills/FixPurviewSkills then enforce that only those agents'
+		     skill directories exist. -->
+		<PurviewSkillsAgents Condition="'$(PurviewSkillsAgents)' == ''"></PurviewSkillsAgents>
+		<!-- When UpdatePurviewSkills runs 'skills update' after re-adding every lockfile source:
+		     Auto (only when skills-lock.json changed), Always or Never. -->
+		<PurviewSkillsUpdateMode Condition="'$(PurviewSkillsUpdateMode)' == ''">Auto</PurviewSkillsUpdateMode>
 		<!-- Pinned to a major so a future breaking release of the CLI cannot change what the install
 		     target does. Recommendation text deliberately omits the pin: it is a command for a human
 		     to run, not a reproducible invocation. -->

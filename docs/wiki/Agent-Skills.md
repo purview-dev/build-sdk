@@ -2,14 +2,16 @@
 
 [Agent Skills](https://skills.sh/) are folders of `SKILL.md` guidance that coding agents load on
 demand. Purview publishes them in the standard format and installs them with the standard
-[`skills` CLI](https://skills.sh/) — `npx skills add`, `npx skills update`, `npx skills remove`.
+[`skills` CLI](https://skills.sh/) — `bun x skills add`, `bun x skills update`, `bun x skills remove`.
 
 `Purview.BuildSdk` deliberately does **not** reimplement any of that. It knows one thing the CLI
 cannot know: which skills are relevant to the NuGet packages a project actually references, and at
 which version. So the SDK **discovers and recommends**, and the CLI **installs**.
 
-> The SDK recommends commands. It never runs them. Nothing on this page installs, updates or removes
-> a skill as a side effect of a restore, a build, a design-time build or a test run.
+> The reporting targets recommend commands and never run them. Only `InstallPurviewSkills` and
+> `UpdatePurviewSkills`, invoked by name, run the CLI, and only `FixPurviewSkills` deletes anything.
+> Nothing on this page installs, updates or removes a skill as a side effect of
+> a restore, a build, a design-time build or a test run.
 
 ## The boundary
 
@@ -21,11 +23,11 @@ flowchart TD
     SDK["Purview Build SDK"]
     Decision{"Skill status"}
 
-    Add["Suggest: npx skills add owner/repo#commit"]
-    Update["Suggest: pinned re-add<br/>(not a blind npx skills update)"]
-    List["Suggest: npx skills list"]
-    Restore["Suggest: npx skills experimental_install"]
-    Use["Optional: npx skills use"]
+    Add["Suggest: bun x skills add owner/repo#commit"]
+    Update["Suggest: pinned re-add<br/>(not a blind bun x skills update)"]
+    List["Suggest: bun x skills list"]
+    Restore["Suggest: bun x skills experimental_install"]
+    Use["Optional: bun x skills use"]
     OK["No recommendation"]
 
     CLI["Standard skills CLI"]
@@ -56,7 +58,7 @@ flowchart TD
 | Component | Owns |
 | -- | -- |
 | Purview libraries | Their API guidance, authored as skills in their own repository |
-| Skill publication | Making those skills reachable by `npx skills add` |
+| Skill publication | Making those skills reachable by `bun x skills add` |
 | Package-to-skill metadata | Which package ships which skills, and at which commit |
 | Purview Build SDK | Reading package references, evaluating local state, recommending commands |
 | Skills CLI | Installing, updating, removing, source tracking, agent-specific destinations |
@@ -71,9 +73,9 @@ That is the only route. No NuGet package carries skills: a package holds .NET ar
 CLI delivers skills from git.
 
 ```bash
-npx skills add purview-dev/build-sdk                    # every skill
-npx skills add purview-dev/build-sdk --skill purview-buildsdk-testing
-npx skills add purview-dev/build-sdk --list             # see what is there, install nothing
+bun x skills add purview-dev/build-sdk                    # every skill
+bun x skills add purview-dev/build-sdk --skill purview-buildsdk-testing
+bun x skills add purview-dev/build-sdk --list             # see what is there, install nothing
 ```
 
 Skills live **alongside the library they describe**, in that library's repository, rather than in
@@ -82,7 +84,7 @@ which library, and would drift from the libraries it documents.
 
 ## Authoring
 
-`npx skills init <name>` scaffolds a skill; move it under `skills/<name>/` and adapt the frontmatter
+`bun x skills init <name>` scaffolds a skill; move it under `skills/<name>/` and adapt the frontmatter
 to Purview conventions. `ValidatePurviewSkills` runs `BeforeTargets="Pack"`, so a malformed skill
 fails the build of the repository that owns it rather than reaching the CLI, which would silently
 skip it. It checks that:
@@ -115,9 +117,9 @@ reported rather than installed from a guessed default branch.
 
 ## Recommendations
 
-Recommendations are the one part of this feature that runs during an ordinary build. They read the
-restore graph and the CLI's own `skills-lock.json`, both local; they recommend commands and never
-run them; and they never fail a build.
+Recommendations read the restore graph and the CLI's own `skills-lock.json`, both local; they
+recommend commands and never run them; and `RecommendPurviewSkills` never fails a build. They run
+only when a target is named — never during an ordinary build (see [When it runs](#when-it-runs)).
 
 ```bash
 dotnet msbuild <project> -t:RecommendPurviewSkills   # explicit, always reports
@@ -128,11 +130,11 @@ Every skill a referenced package ships is classified:
 | State | Diagnostic | Severity | Recommendation |
 | -- | -- | -- | -- |
 | Installed at the referenced commit | *(none)* | — | — |
-| Not installed | `PRSKL0010` | Warning | `npx skills add "<owner/repo>#<commit>" --skill …` |
+| Not installed | `PRSKL0010` | Warning | `bun x skills add "<owner/repo>#<commit>" --skill …` |
 | Installed from a different ref | `PRSKL0011` | Warning | pinned re-add at the referenced commit |
-| Compatibility unverifiable | `PRSKL0012` | Message | `npx skills list` |
-| From a repository no longer referenced | `PRSKL0013` | Message | `npx skills remove "<name>"` |
-| Lockfile present, nothing restored | `PRSKL0014` | Message | `npx skills experimental_install` |
+| Compatibility unverifiable | `PRSKL0012` | Message | `bun x skills list` |
+| From a repository no longer referenced | `PRSKL0013` | Message | `bun x skills remove "<name>"` |
+| Lockfile present, nothing restored | `PRSKL0014` | Message | `bun x skills experimental_install` |
 
 Severity splits on what a developer can act on. A missing or drifted skill is one command away, so
 it is a warning. An unverifiable one usually is not — a package without SourceLink metadata cannot
@@ -167,7 +169,10 @@ because somebody named it.
 | -- | -- |
 | `RecommendPurviewSkills` | Reports the state. Never fails a build. |
 | `VerifyPurviewSkills` | The same report, escalating `PRSKL0010`/`PRSKL0011` to an error. The CI gate. |
-| `InstallPurviewSkills` | Installs what is missing, via the skills CLI. |
+| `InstallPurviewSkills` | Installs every skill the restored packages ship, pinned to each package's commit, via the skills CLI. |
+| `UpdatePurviewSkills` | Re-adds every source in `skills-lock.json` — package skills at their package's commit — then runs `skills update`. See [Updating](#updating). |
+| `CheckPurviewSkills` | Fails when an agent skill directory exists for an agent `PurviewSkillsAgents` does not name. See [Choosing agents](#choosing-agents). |
+| `FixPurviewSkills` | Removes the CLI's links from those directories, keeping and reporting anything real. |
 | `ListPurviewSkills` | Lists what the restored packages ship. Installs nothing. |
 
 A correctly installed set produces no output at all from either reporting target.
@@ -177,9 +182,11 @@ A correctly installed set produces no output at all from either reporting target
 | Property | Default | Description |
 | -- | -- | -- |
 | `PurviewSkillsLockFile` | `<repo root>/skills-lock.json` | Overrides where the CLI's lockfile is read from. |
-| `PurviewSkillsAgents` | `*` | Agents named in the recommended install command. |
-| `PurviewSkillsRunner` | `npx` | Package runner used to launch the CLI. |
-| `PurviewSkillsRunnerCandidates` | `npx;bunx;bun;pnpm;yarn;deno` | Probed in order after `PurviewSkillsRunner`. |
+| `PurviewSkillsAgents` | *(empty — the CLI auto-detects)* | Agents the skill targets install to and recommended commands name; when set, the only agent skill directories `CheckPurviewSkills` allows. |
+| `PurviewSkillsUpdateMode` | `Auto` | When `UpdatePurviewSkills` runs `skills update`: `Auto` (only when the lockfile changed), `Always` or `Never`. |
+| `PurviewSkillsDryRun` | `false` | Print the install and update commands without running them. |
+| `PurviewSkillsRunner` | `bun` | Package runner used to launch the CLI. |
+| `PurviewSkillsRunnerCandidates` | `bun;npx;bunx;pnpm;yarn;deno` | Probed in order after `PurviewSkillsRunner`. |
 | `PurviewSkillsPackage` | `skills@1` | Package spec the executed launcher pins to. |
 | `PurviewSkillsInstallRoot` | *(resolved)* | Overrides the repository root every skill target runs from. |
 | `PurviewRepositoryRootMarkers` | `.git/;.github/;.gitattributes;LICENSE.md;AGENTS.md;.agents/;CLAUDE.md;.claude/;package.json` | Ordered markers that identify a repository root; the first is definitive. |
@@ -202,19 +209,19 @@ package Purview.Example 1.2.3  →  nuspec commit  0123456…
 skills-lock.json: purview-alpha →  ref           aaaaaaa…   ← drift
 ```
 
-This is why **`npx skills update` is not recommended on drift**. `update` installs the newest
+This is why **`bun x skills update` is not recommended on drift**. `update` installs the newest
 published skill, which is correct only when the newest skill happens to describe the referenced
 package version — something that cannot be known offline, and that is false for any project not on
 the latest package. `PRSKL0011` therefore names the referenced package's own commit instead:
 
 ```bash
-npx skills add "purview-dev/purview-example#0123456789abcdef0123456789abcdef01234567" \
-  --skill "purview-alpha" --agent "*" -y
+bun x skills add "purview-dev/purview-example#0123456789abcdef0123456789abcdef01234567" \
+  --skill "purview-alpha" -y
 ```
 
-`npx skills update` remains the right command when the intent is to track the latest published
-skills — for example right after upgrading the package reference, once the new version is restored
-and the SDK reports the state as compatible again.
+A bare re-add or `bun x skills update` is only right for skills no package version speaks for.
+`UpdatePurviewSkills` does both, but re-adds a package's skills at that package's commit first — and
+`skills update` re-fetches each entry at the ref the lockfile records, so it does not undo the pin.
 
 > Note the repeated `--skill` flag. The CLI does not split a comma-separated value: given one, it
 > matches nothing and reports "No matching skills found".
@@ -223,7 +230,7 @@ and the SDK reports the state as compatible again.
 
 `skills-lock.json` is the CLI's own record of what is installed and where it came from. The SDK
 reads it and introduces **no competing lockfile**. Reading it rather than parsing CLI output is
-deliberate: the JSON listing (`npx skills list --json`) is machine-readable but omits the `ref`, and
+deliberate: the JSON listing (`bun x skills list --json`) is machine-readable but omits the `ref`, and
 the ref is the entire question. The lockfile carries it, and reading a file costs no Node tooling —
 which is what keeps recommendations working on a machine that can build .NET but has no Node.
 
@@ -232,27 +239,105 @@ A lockfile is a record of an install, not proof of one: a fresh clone carries a 
 agent skill directory anywhere at the repository root — and reports `PRSKL0014`:
 
 ```bash
-npx skills experimental_install   # restore everything in skills-lock.json
+bun x skills experimental_install   # restore everything in skills-lock.json
 ```
 
 This command is **experimental**, so it is suggested and never required, never invoked
-automatically, and always offered with the supported fallback (`npx skills add`). Prefer a stable
+automatically, and always offered with the supported fallback (`bun x skills add`). Prefer a stable
 restore command if the CLI gains one. The detection looks for any root dot-folder containing a
 `skills` folder rather than hard-coding agent directories, which belong to the CLI and change
 independently of this SDK. '.agents/' is included in that scan: it is the CLI's universal install location, and nothing else writes there any more.
 
 ## Installing from the SDK
 
-Installation is **explicit**. Neither target has `BeforeTargets`/`AfterTargets`:
+Installation is **explicit**. None of these targets has `BeforeTargets`/`AfterTargets`:
 
 ```bash
 dotnet msbuild <project> -t:ListPurviewSkills      # diagnostics only, installs nothing
 dotnet msbuild <project> -t:InstallPurviewSkills   # delegates to the skills CLI
+dotnet msbuild <project> -t:UpdatePurviewSkills    # re-add every lockfile source, then 'skills update'
+dotnet msbuild <project> -t:CheckPurviewSkills     # only the PurviewSkillsAgents directories exist
+dotnet msbuild <project> -t:FixPurviewSkills       # remove the CLI's links from any other agent directory
 ```
+
+`-p:PurviewSkillsDryRun=true` makes install and update print every command and run none.
+
+They run **only when named**. Nothing in the SDK hooks or depends on them, and install, update and fix
+refuse to run when pulled into a build, a restore or a design-time build (`PRSKL0009`) — a
+consumer's own `AfterTargets="Build"` hook included. Name one project, not the solution: on a
+solution each target runs once per project. For `just` recipes, see the
+[`purview-buildsdk-justfile` skill](../../skills/purview-buildsdk-justfile/SKILL.md).
 
 `InstallPurviewSkills` shells out to the CLI rather than reimplementing it, because the CLI owns the
 agent-specific destinations and their discovery conventions — which differ per agent and change
 independently of this SDK — and owns `skills-lock.json`.
+
+`InstallPurviewSkills` installs every skill the restored packages ship, not only the missing ones.
+Re-running it is idempotent: the CLI skips a skill already installed from the same source and ref.
+
+### Updating
+
+```bash
+dotnet restore                                       # after bumping a PackageReference
+dotnet msbuild <project> -t:RecommendPurviewSkills   # optional: shows PRSKL0011 for what will change
+dotnet msbuild <project> -t:UpdatePurviewSkills
+```
+
+`UpdatePurviewSkills` reads `skills-lock.json` and re-adds each unique source once, naming only the
+skills the lockfile records for it — an update never installs a skill nobody asked for:
+
+| Source | Re-added as |
+| -- | -- |
+| shipped by a restored package | `<owner/repo>#<commit>` — the commit that package version was built from, the same pinned add `PRSKL0011` recommends |
+| anything else | `<source>` — its latest |
+
+Then it runs `skills update -y -p` according to `PurviewSkillsUpdateMode`: `Auto` (default) only when
+the re-adds changed the lockfile, `Always`, or `Never`. Every source is attempted even when one fails;
+each failure is named as `PRSKL0008`, and `skills update` is skipped. No lockfile is `PRSKL0007` —
+install first. A CI job can then call `-t:VerifyPurviewSkills` to confirm nothing is left drifted.
+
+`InstallPurviewSkills` is also enough to move package skills to a new package version: it re-adds
+each at its package's commit, and the CLI skips one already at that ref.
+
+### Choosing agents
+
+`PurviewSkillsAgents` is **empty by default**: no `--agent` is passed and the CLI auto-detects the
+agents installed on the machine (installing to all of them if it detects none). Set it to choose.
+Each agent becomes its own `--agent` flag, because the CLI does not split a comma-separated value.
+
+```xml
+<PropertyGroup>
+  <PurviewSkillsAgents>universal</PurviewSkillsAgents>   <!-- or claude-code;codex -->
+</PropertyGroup>
+```
+
+On a command line, `dotnet msbuild -p:` itself splits on `,` and `;`, so escape the separator
+(`-p:PurviewSkillsAgents=claude-code%2Ccodex`) or quote the whole value
+(`-p:PurviewSkillsAgents=\"claude-code codex\"`); spaces separate agents too.
+
+Once agents are named, `CheckPurviewSkills` enforces them: any agent skill directory at the repository
+root that belongs to an agent not named fails as `PRSKL0015`. Two directories are always allowed —
+`.agents/skills`, the CLI's canonical store that every agent directory links into, and the authored
+`skills/` folder, even though openclaw installs into a root `skills/`. With `PurviewSkillsAgents`
+empty, every agent directory is a legitimate destination and both targets report that there is
+nothing to enforce.
+
+`FixPurviewSkills` removes what is provably the CLI's: links (symlinks, and junctions on Windows) —
+the link only, never its target — and then any folder left empty. A real file is kept and reported,
+because it cannot be told from hand-written content; note that for some agent selections the CLI
+writes copies rather than links, and those are kept too.
+
+The agent-to-directory map is the `PurviewSkillsAgentDirectory` item group, taken from the CLI's
+agent table. The CLI adds agents independently of this SDK, so an agent the map does not know is
+`PRSKL0016` (a warning), fixed by adding an item:
+
+```xml
+<ItemGroup>
+  <PurviewSkillsAgentDirectory Include=".new-agent/skills" Agents="new-agent" />
+</ItemGroup>
+```
+
+### Installing from an explicit source
 
 To install a Purview skill the project has no `PackageReference` for, name the source directly. The
 caller owns the ref in that case; append `#<ref>` to pin it:
@@ -264,14 +349,13 @@ dotnet msbuild <project> -t:InstallPurviewSkills -p:PurviewSkillsSource=purview-
 ### Package runners
 
 The CLI is published to npm, and every package runner spells "run this npm package" its own way.
-`PurviewSkillsRunner` picks one; it defaults to **`npx`**, because npx ships with Node itself and is
-therefore the one runner any machine with Node at all already has.
+`PurviewSkillsRunner` picks one; it defaults to **`bun`** (`bun x skills`).
 
 | `PurviewSkillsRunner` | Executed | Recommended in diagnostics |
 | -- | -- | -- |
-| `npx` *(default)* | `npx -y skills@1` | `npx skills …` |
+| `bun` *(default)* | `bun x skills@1` | `bun x skills …` |
+| `npx` | `npx -y skills@1` | `npx skills …` |
 | `bunx` | `bunx skills@1` | `bunx skills …` |
-| `bun` | `bun x skills@1` | `bun x skills …` |
 | `pnpm` | `pnpm dlx skills@1` | `pnpm dlx skills …` |
 | `yarn` | `yarn dlx skills@1` | `yarn dlx skills …` |
 | `deno` | `deno run -A npm:skills@1` | `deno run -A npm:skills …` |
@@ -289,7 +373,7 @@ most new runners adopt.
 `yarn dlx` needs Yarn 2+; Yarn 1 has no `dlx`. The executed launcher pins the CLI to a major so a
 breaking release cannot change what `InstallPurviewSkills` does — `PurviewSkillsPackage` (default
 `skills@1`) overrides the pin. Recommendation text deliberately drops it: that is a command for a
-person to run, and `npx skills add` is the form they know.
+person to run, and `bun x skills add` is the form they know.
 
 ### Installing in the repository that authors the skills
 
@@ -354,14 +438,14 @@ Installation probes `PATH` rather than assuming the configured runner is present
 
 1. `skills` — used as-is if it is already on `PATH`. No download, works offline.
 2. `$(PurviewSkillsRunner)` — the configured preference.
-3. `$(PurviewSkillsRunnerCandidates)` — `npx;bunx;bun;pnpm;yarn;deno` by default.
+3. `$(PurviewSkillsRunnerCandidates)` — `bun;npx;bunx;pnpm;yarn;deno` by default.
 
 So a machine with bun but no Node still installs, rather than reporting that nothing was found. The
 runner that is actually found wins over the configured preference, because it is the one that can
 really run. `PATH` is read directly rather than by spawning a version check: it is deterministic,
 costs no process, and cannot hang on a cold download.
 
-- Nothing found is `PRSKL0004`, naming the fix rather than surfacing a raw `'npx' is not recognized`.
+- Nothing found is `PRSKL0004`, naming the fix rather than surfacing a raw `'bun' is not recognized`.
 - `PurviewSkillsCommand` overrides the launcher entirely and skips detection.
 
 `ListPurviewSkills` and `RecommendPurviewSkills` **never** error on a missing runner. Resolving,
@@ -424,7 +508,7 @@ unaffected, because it sits below it.
 To consult a skill once without installing it:
 
 ```bash
-npx skills use purview-dev/build-sdk@purview-buildsdk-testing | claude
+bun x skills use purview-dev/build-sdk@purview-buildsdk-testing | claude
 ```
 
 This is a good fit for a one-time operation. It is not a substitute for installing the skills a
@@ -433,12 +517,12 @@ project needs throughout development, and the SDK's recommendations do not sugge
 
 ## npm distribution
 
-`npx skills experimental_sync` discovers skills shipped inside npm packages, by reading
+`bun x skills experimental_sync` discovers skills shipped inside npm packages, by reading
 `node_modules`.
 
 **Purview does not use it, and should not.** Purview libraries ship as NuGet packages; their skills
 are already described by those packages' metadata, and are already installable
-from git by `npx skills add`. Publishing a parallel npm package would mean:
+from git by `bun x skills add`. Publishing a parallel npm package would mean:
 
 - a second release pipeline to version, publish and keep in step with the NuGet one,
 - a `package.json` and a `node_modules` restore in .NET repositories that otherwise need neither,
@@ -457,15 +541,15 @@ Verified against the `skills` CLI v1.
 
 | Command | Purpose | Role here |
 | -- | -- | -- |
-| `npx skills add <source>` | Install skills | The installation workflow; accepts `owner/repo#<ref>` |
-| `npx skills list` | List installed skills | Diagnostics; `--json` is machine-readable but omits `ref` |
-| `npx skills find [query]` | Search for skills | Discovery fallback where no package mapping exists |
-| `npx skills update` | Update to latest | Correct only when latest matches the referenced package |
-| `npx skills remove` | Remove skills | Developer-managed |
-| `npx skills use <source>@<skill>` | Use without installing | One-off guidance |
-| `npx skills experimental_install` | Restore from `skills-lock.json` | Optional bootstrap; experimental |
-| `npx skills init [name]` | Scaffold a skill | Authoring |
-| `npx skills experimental_sync` | Sync from `node_modules` | Not used by Purview — see above |
+| `bun x skills add <source>` | Install skills | The installation workflow; accepts `owner/repo#<ref>` |
+| `bun x skills list` | List installed skills | Diagnostics; `--json` is machine-readable but omits `ref` |
+| `bun x skills find [query]` | Search for skills | Discovery fallback where no package mapping exists |
+| `bun x skills update` | Update to latest | Correct only when latest matches the referenced package |
+| `bun x skills remove` | Remove skills | Developer-managed |
+| `bun x skills use <source>@<skill>` | Use without installing | One-off guidance |
+| `bun x skills experimental_install` | Restore from `skills-lock.json` | Optional bootstrap; experimental |
+| `bun x skills init [name]` | Scaffold a skill | Authoring |
+| `bun x skills experimental_sync` | Sync from `node_modules` | Not used by Purview — see above |
 
 ## Diagnostics
 
@@ -476,11 +560,17 @@ Verified against the `skills` CLI v1.
 | `PRSKL0003` | The repository root could not be resolved, so there is nowhere correct to install |
 | `PRSKL0004` | No package runner was found on `PATH` |
 | `PRSKL0005` | An authored skill is malformed |
+| `PRSKL0006` | `PurviewSkillsUpdateMode` is not `Auto`, `Always` or `Never` |
+| `PRSKL0007` | `UpdatePurviewSkills` found no `skills-lock.json` to update from |
+| `PRSKL0008` | Re-adding a lockfile source failed; `skills update` was skipped |
+| `PRSKL0009` | Install, update or fix was pulled into a build, a restore or a design-time build |
 | `PRSKL0010` | Skills a referenced package ships are not installed |
 | `PRSKL0011` | Installed skills are pinned to a different ref than the referenced package |
 | `PRSKL0012` | Compatibility cannot be verified |
 | `PRSKL0013` | A skill is installed from a repository no longer referenced |
 | `PRSKL0014` | `skills-lock.json` exists but no skills have been restored |
+| `PRSKL0015` | An agent skill directory exists for an agent `PurviewSkillsAgents` does not name |
+| `PRSKL0016` | `PurviewSkillsAgents` names an agent with no known skills directory |
 
 ## See also
 

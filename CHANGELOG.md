@@ -11,6 +11,41 @@ release summarise what the commits recorded rather than what was written at the 
 
 ## [Unreleased]
 
+### Added
+
+- **`UpdatePurviewSkills`** re-adds every unique source in `skills-lock.json`, naming only the skills
+  recorded for it, then runs `skills update -y -p`. A source a restored package ships is re-added at
+  that package's commit, so package skills stay matched to the version referenced; every other source
+  is re-added at latest. `PurviewSkillsUpdateMode` (`Auto` default, `Always`, `Never`) decides when
+  `skills update` runs, and `PurviewSkillsDryRun=true` prints every command without running it (also
+  honoured by `InstallPurviewSkills`). New diagnostics `PRSKL0006`–`PRSKL0008`.
+- **`CheckPurviewSkills` and `FixPurviewSkills`** enforce `PurviewSkillsAgents` when it is set: only
+  those agents' skill directories (plus the canonical `.agents/skills`) may exist at the repository
+  root (`PRSKL0015`). Fix removes the skills CLI's links — never their targets — and folders left
+  empty, and keeps and reports real files. The agent-to-directory map is the extensible
+  `PurviewSkillsAgentDirectory` item group; an unknown agent is `PRSKL0016`.
+- **Install, update and fix are explicit-only, enforced.** `InstallPurviewSkills`,
+  `UpdatePurviewSkills` and `FixPurviewSkills` fail with `PRSKL0009` when pulled into a build, a
+  restore or a design-time build — including by a consumer's own `AfterTargets="Build"` hook. Run
+  them by name.
+- New skill **`purview-buildsdk-justfile`**: adding or updating `just` recipes that run the skill
+  targets, and replacing hand-written skill scripts with them.
+- `just skills-update`, `just skills-fix`; `just skills-check` now runs `CheckPurviewSkills`, and the
+  old recommendation report moved to `just skills-recommend`.
+
+### Changed (breaking)
+
+- **`PurviewSkillsRunner` defaults to `bun`** (`bun x skills@1`) instead of `npx`, and
+  `PurviewSkillsRunnerCandidates` to `bun;npx;bunx;pnpm;yarn;deno`. Recommendation text now reads
+  `bun x skills …`. Set `PurviewSkillsRunner=npx` to keep the previous behaviour.
+- **`PurviewSkillsAgents` defaults to empty instead of `*`**: no `--agent` is passed and the skills CLI
+  auto-detects agents. Set it to choose.
+
+### Fixed
+
+- Several agents in `PurviewSkillsAgents` were passed as one `--agent "a,b"`, which the skills CLI
+  reads as a single agent named `a,b`. Each agent is now its own `--agent` flag.
+
 ## [1.3.0] - 2026-11-08
 
 ### Changed (breaking)

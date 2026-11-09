@@ -158,8 +158,32 @@ skills-list *args:
 
 # Report missing, drifted or unverifiable skills without installing anything
 [group('Agent Skills')]
-skills-check *args:
+skills-recommend *args:
     dotnet msbuild src/src/BuildSdk/BuildSdk.csproj -t:RecommendPurviewSkills -v:n {{ args }}
+
+# Update the agent skills by re-adding every unique source in skills-lock.json, then 'skills update'
+#
+# Skills a referenced package ships are re-added at that package's commit. When PurviewSkillsAgents
+# is set, the agent directories it does not select are cleaned up afterwards (FixPurviewSkills);
+# when it is not, the skills CLI auto-detects agents and the cleanup does nothing.
+#
+#   just skills-update -p:PurviewSkillsUpdateMode=Always -p:PurviewSkillsDryRun=true
+#   just skills-update -p:PurviewSkillsRunner=npx -p:PurviewSkillsAgents=universal
+#
+# Update the agent skills by re-adding every unique source in skills-lock.json
+[group('Agent Skills')]
+skills-update *args:
+    dotnet msbuild src/src/BuildSdk/BuildSdk.csproj "-t:UpdatePurviewSkills;FixPurviewSkills" -v:n {{ args }}
+
+# Check that only the skill directories of the agents in PurviewSkillsAgents exist
+[group('Agent Skills')]
+skills-check *args:
+    dotnet msbuild src/src/BuildSdk/BuildSdk.csproj -t:CheckPurviewSkills -v:n {{ args }}
+
+# Remove the skills CLI's links from agent directories PurviewSkillsAgents does not select
+[group('Agent Skills')]
+skills-fix *args:
+    dotnet msbuild src/src/BuildSdk/BuildSdk.csproj -t:FixPurviewSkills -v:n {{ args }}
 
 # Format the code with CSharpier
 [group('Utilities')]
