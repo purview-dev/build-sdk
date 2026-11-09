@@ -411,10 +411,16 @@
 			<Description>Repository folder holding authored agent skills. Defaults to the repository-root skills/ folder.</Description>
 		</CompilerVisibleProperty>
 		<CompilerVisibleProperty Include="PurviewSkillsAgents">
-			<Description>Comma-separated agents that InstallPurviewSkills installs to. Defaults to '*' (every agent the skills CLI detects).</Description>
+			<Description>Comma-separated agents the skill targets install to. Empty (the default) lets the skills CLI auto-detect; when set, CheckPurviewSkills and FixPurviewSkills allow only those agents' skill directories.</Description>
+		</CompilerVisibleProperty>
+		<CompilerVisibleProperty Include="PurviewSkillsUpdateMode">
+			<Description>When UpdatePurviewSkills runs 'skills update' after re-adding every lockfile source: Auto (only when skills-lock.json changed), Always or Never. Defaults to Auto.</Description>
+		</CompilerVisibleProperty>
+		<CompilerVisibleProperty Include="PurviewSkillsDryRun">
+			<Description>When true, InstallPurviewSkills and UpdatePurviewSkills print the skills CLI commands without running them.</Description>
 		</CompilerVisibleProperty>
 		<CompilerVisibleProperty Include="PurviewSkillsCommand">
-			<Description>Overrides how the skills CLI is invoked. Empty detects 'skills' then 'npx' on PATH.</Description>
+			<Description>Overrides how the skills CLI is invoked. Empty detects 'skills', then PurviewSkillsRunner, then PurviewSkillsRunnerCandidates on PATH.</Description>
 		</CompilerVisibleProperty>
 		<CompilerVisibleProperty Include="PurviewSkillsSource">
 			<Description>Installs from an explicit git source (owner/repo, optionally '#ref') instead of from referenced packages.</Description>
@@ -429,10 +435,10 @@
 			<Description>Ordered markers that identify a repository root, most authoritative first. The first is definitive and searched to the top; the rest resolve nearest-first. A trailing slash marks a directory.</Description>
 		</CompilerVisibleProperty>
 		<CompilerVisibleProperty Include="PurviewSkillsRunner">
-			<Description>Package runner used to launch the skills CLI (npx, bunx, bun, pnpm, yarn, deno, skills, or any other). Defaults to npx.</Description>
+			<Description>Package runner used to launch the skills CLI (bun, npx, bunx, pnpm, yarn, deno, skills, or any other). Defaults to bun ('bun x skills').</Description>
 		</CompilerVisibleProperty>
 		<CompilerVisibleProperty Include="PurviewSkillsRunnerCandidates">
-			<Description>Runners probed on PATH after PurviewSkillsRunner. Defaults to npx;bunx;bun;pnpm;yarn;deno.</Description>
+			<Description>Runners probed on PATH after PurviewSkillsRunner. Defaults to bun;npx;bunx;pnpm;yarn;deno.</Description>
 		</CompilerVisibleProperty>
 		<CompilerVisibleProperty Include="PurviewSkillsPackage">
 			<Description>Package spec the executed launcher pins to. Defaults to skills@1.</Description>

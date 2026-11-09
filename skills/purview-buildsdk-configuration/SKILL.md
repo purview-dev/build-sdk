@@ -105,6 +105,19 @@ the repository; that is gone, along with `EnableAgentFolderInPackage`, `AgentPac
 and the `PurviewAgentFolder*` properties. Skills have exactly one installer, the skills CLI — see
 `purview-buildsdk-skill-installation`.
 
+The skill targets read their settings when they run, so these can go in `Directory.Build.props` or
+on the command line, and a repository-wide choice belongs in `Directory.Build.props`:
+
+| Property | Default | Controls |
+| -- | -- | -- |
+| `PurviewSkillsRunner` | `bun` (`bun x skills`) | Which package runner launches the skills CLI |
+| `PurviewSkillsAgents` | empty — the CLI auto-detects | Agents to install to; when set, the only agent directories `CheckPurviewSkills` allows |
+| `PurviewSkillsUpdateMode` | `Auto` | When `UpdatePurviewSkills` runs `skills update`: `Auto`, `Always`, `Never` |
+| `PurviewSkillsDryRun` | `false` | Install and update print commands instead of running them |
+
+On a command line, `dotnet msbuild -p:` splits values on `,` and `;` — write
+`-p:PurviewSkillsAgents=claude-code%2Ccodex`. For `just` recipes, see `purview-buildsdk-justfile`.
+
 ## Guidance when changing SDK configuration
 
 1. Preserve existing defaults unless the task explicitly changes product behaviour.

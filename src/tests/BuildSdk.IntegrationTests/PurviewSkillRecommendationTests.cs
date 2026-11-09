@@ -86,7 +86,7 @@ sealed class PurviewSkillRecommendationTests
 		await Assert
 			.That(output)
 			.Contains(
-				$"npx skills add \"{Source}#{SkillPackageFixtures.DefaultCommit}\" "
+				$"bun x skills add \"{Source}#{SkillPackageFixtures.DefaultCommit}\" "
 					+ "--skill \"purview-alpha\" --skill \"purview-beta\""
 			);
 	}
@@ -124,11 +124,11 @@ sealed class PurviewSkillRecommendationTests
 		await Assert.That(code).IsZero().Because(output);
 		await Assert.That(output).Contains("PRSKL0011");
 		await Assert.That(output).Contains(OtherCommit);
-		// The recommendation is pinned to the referenced package's own commit. 'npx skills update'
+		// The recommendation is pinned to the referenced package's own commit. 'bun x skills update'
 		// installs the newest published skill regardless of package version, so it is named only to
 		// explain why it is not the recommendation.
-		await Assert.That(output).Contains($"npx skills add \"{Source}#{SkillPackageFixtures.DefaultCommit}\"");
-		await Assert.That(output).Contains("Prefer this over 'npx skills update'");
+		await Assert.That(output).Contains($"bun x skills add \"{Source}#{SkillPackageFixtures.DefaultCommit}\"");
+		await Assert.That(output).Contains("Prefer this over 'bun x skills update'");
 		await Assert.That(output).DoesNotContain("PRSKL0010");
 	}
 
@@ -145,7 +145,7 @@ sealed class PurviewSkillRecommendationTests
 
 		await Assert.That(code).IsZero().Because(output);
 		await Assert.That(output).Contains("PRSKL0012");
-		await Assert.That(output).Contains("npx skills list");
+		await Assert.That(output).Contains("bun x skills list");
 		// Unverifiable is not the same as wrong, so it is never reported as drift or as missing.
 		await Assert.That(output).DoesNotContain("PRSKL0011");
 		await Assert.That(output).DoesNotContain("PRSKL0010");
@@ -191,7 +191,7 @@ sealed class PurviewSkillRecommendationTests
 		await Assert.That(code).IsZero().Because(output);
 		await Assert.That(output).Contains("PRSKL0013");
 		await Assert.That(output).Contains("purview-legacy");
-		await Assert.That(output).Contains("npx skills remove \"purview-legacy\"");
+		await Assert.That(output).Contains("bun x skills remove \"purview-legacy\"");
 		// Removal is the developer's, so it is only ever suggested.
 		await Assert
 			.That(await File.ReadAllTextAsync(LockFilePath(harness), cancellationToken))
@@ -259,9 +259,9 @@ sealed class PurviewSkillRecommendationTests
 
 		await Assert.That(code).IsZero().Because(output);
 		await Assert.That(output).Contains("PRSKL0014");
-		await Assert.That(output).Contains("npx skills experimental_install");
+		await Assert.That(output).Contains("bun x skills experimental_install");
 		// The command is experimental, so the fallback is named alongside it.
-		await Assert.That(output).Contains("npx skills add");
+		await Assert.That(output).Contains("bun x skills add");
 	}
 
 	[Test]
@@ -370,7 +370,7 @@ sealed class PurviewSkillRecommendationTests
 		await Assert.That(code).IsZero().Because(output);
 		await Assert.That(output).DoesNotContain("PRSKL0004");
 		await Assert.That(output).Contains("PRSKL0010");
-		await Assert.That(output).Contains("npx skills add");
+		await Assert.That(output).Contains("bun x skills add");
 	}
 
 	[Test]

@@ -391,6 +391,12 @@
 	     Returns one item per package, with the skill names as metadata, for an
 	     explicit install target to act on. Resolution never runs during a
 	     normal build.
+
+	     Takes every project's assets file at once, because skills belong to
+	     the repository: a package referenced by two projects is one package,
+	     and is reported once. Two projects on *different* versions of one
+	     package are both returned, and named in VersionConflicts, because
+	     only one version's skills can be installed into the repository.
 	     ===================================================================== -->
 	<UsingTask
 		TaskName="ResolvePurviewSkillSources"
@@ -398,10 +404,11 @@
 		AssemblyFile="$([System.IO.Path]::Combine('$(MSBuildToolsPath)', 'Microsoft.Build.Tasks.Core.dll'))"
 	>
 		<ParameterGroup>
-			<ProjectAssetsFile ParameterType="System.String" Required="true" />
+			<ProjectAssetsFiles ParameterType="System.String" Required="true" />
 			<NuGetPackageFolders ParameterType="System.String" Required="false" />
 			<SkillSources ParameterType="Microsoft.Build.Framework.ITaskItem[]" Output="true" />
 			<Unresolvable ParameterType="Microsoft.Build.Framework.ITaskItem[]" Output="true" />
+			<VersionConflicts ParameterType="Microsoft.Build.Framework.ITaskItem[]" Output="true" />
 		</ParameterGroup>
 		<Task>
 			<Using Namespace="System.IO" />
@@ -415,27 +422,37 @@
 				<![CDATA[
 					var resolved = new List<ITaskItem>();
 					var unresolved = new List<ITaskItem>();
+					// One package at one version is one result, however many projects reference it.
+					var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-					if (File.Exists(ProjectAssetsFile))
+					var roots = (NuGetPackageFolders ?? string.Empty)
+						.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries)
+						.Select(root => root.TrimEnd('\\', '/'))
+						.Where(root => root.Length > 0)
+						.Distinct(StringComparer.OrdinalIgnoreCase)
+						.ToArray();
+
+					// Same "libraries" shape DiscoverAgentPackageFolders reads; the version is the
+					// segment after the id, and is reported so a diagnostic can name it.
+					var libraryPattern = new Regex(
+						"\"(?<id>[^\"/]+)/(?<version>[^\"]+)\"\\s*:\\s*\\{[^{}]*?\"type\"\\s*:\\s*\"package\"[^{}]*?\"path\"\\s*:\\s*\"(?<path>[^\"]+)\"",
+						RegexOptions.Singleline
+					);
+					// NuGet writes the repository element on one line; url and commit may appear in
+					// either order, so match the element then pull each attribute out of it.
+					var repositoryElementPattern = new Regex("<repository\\b[^>]*/?>", RegexOptions.IgnoreCase);
+					var urlPattern = new Regex("\\burl\\s*=\\s*\"(?<url>[^\"]*)\"", RegexOptions.IgnoreCase);
+					var commitPattern = new Regex("\\bcommit\\s*=\\s*\"(?<commit>[^\"]*)\"", RegexOptions.IgnoreCase);
+
+					var assetsFiles = (ProjectAssetsFiles ?? string.Empty)
+						.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries)
+						.Select(file => file.Trim())
+						.Where(file => file.Length > 0 && File.Exists(file))
+						.Distinct(StringComparer.OrdinalIgnoreCase);
+
+					foreach (var assetsFile in assetsFiles)
 					{
-						var roots = (NuGetPackageFolders ?? string.Empty)
-							.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries)
-							.Select(root => root.TrimEnd('\\', '/'))
-							.Where(root => root.Length > 0)
-							.ToArray();
-
-						// Same "libraries" shape DiscoverAgentPackageFolders reads; the version is the
-						// segment after the id, and is reported so a diagnostic can name it.
-						var json = File.ReadAllText(ProjectAssetsFile);
-						var libraryPattern = new Regex(
-							"\"(?<id>[^\"/]+)/(?<version>[^\"]+)\"\\s*:\\s*\\{[^{}]*?\"type\"\\s*:\\s*\"package\"[^{}]*?\"path\"\\s*:\\s*\"(?<path>[^\"]+)\"",
-							RegexOptions.Singleline
-						);
-						// NuGet writes the repository element on one line; url and commit may appear in
-						// either order, so match the element then pull each attribute out of it.
-						var repositoryElementPattern = new Regex("<repository\\b[^>]*/?>", RegexOptions.IgnoreCase);
-						var urlPattern = new Regex("\\burl\\s*=\\s*\"(?<url>[^\"]*)\"", RegexOptions.IgnoreCase);
-						var commitPattern = new Regex("\\bcommit\\s*=\\s*\"(?<commit>[^\"]*)\"", RegexOptions.IgnoreCase);
+						var json = File.ReadAllText(assetsFile);
 
 						foreach (Match match in libraryPattern.Matches(json))
 						{
@@ -445,6 +462,8 @@
 
 							var packageId = match.Groups["id"].Value;
 							var packageVersion = match.Groups["version"].Value;
+							if (!seen.Add(packageId + "/" + packageVersion))
+								continue;
 							var normalizedPath = libraryPath.Replace('/', Path.DirectorySeparatorChar);
 
 							foreach (var root in roots)
@@ -531,8 +550,88 @@
 						}
 					}
 
+					VersionConflicts = resolved
+						.Concat(unresolved)
+						.GroupBy(item => item.GetMetadata("PackageId"), StringComparer.OrdinalIgnoreCase)
+						.Where(group => group.Count() > 1)
+						.Select(group =>
+						{
+							var conflict = new TaskItem(group.Key);
+							conflict.SetMetadata(
+								"Versions",
+								string.Join(", ", group.Select(item => item.GetMetadata("PackageVersion")))
+							);
+							return (ITaskItem)conflict;
+						})
+						.ToArray();
+
 					SkillSources = resolved.ToArray();
 					Unresolvable = unresolved.ToArray();
+				]]>
+			</Code>
+		</Task>
+	</UsingTask>
+
+	<!-- =====================================================================
+	     RESOLVE PURVIEW SKILLS PROJECTS
+	     The projects a skill target answers for. Skills belong to the
+	     repository, so a skill target run against a solution must run once
+	     for the whole solution, not once per project.
+
+	     A solution build hands every project the same
+	     CurrentSolutionConfigurationContents, listing every project in the
+	     solution by absolute path - for .sln and .slnx alike - so every
+	     project computes the same list without parsing the solution file.
+	     Outside a solution the list is the project itself.
+
+	     Sorted, so every project in the solution elects the same leader.
+	     ===================================================================== -->
+	<UsingTask
+		TaskName="ResolvePurviewSkillsProjects"
+		TaskFactory="RoslynCodeTaskFactory"
+		AssemblyFile="$([System.IO.Path]::Combine('$(MSBuildToolsPath)', 'Microsoft.Build.Tasks.Core.dll'))"
+	>
+		<ParameterGroup>
+			<SolutionConfiguration ParameterType="System.String" Required="false" />
+			<ProjectPath ParameterType="System.String" Required="true" />
+			<Projects ParameterType="Microsoft.Build.Framework.ITaskItem[]" Output="true" />
+		</ParameterGroup>
+		<Task>
+			<Using Namespace="System.IO" />
+			<Using Namespace="System.Linq" />
+			<Using Namespace="System.Net" />
+			<Using Namespace="System.Text.RegularExpressions" />
+			<Using Namespace="Microsoft.Build.Framework" />
+			<Using Namespace="Microsoft.Build.Utilities" />
+			<Reference Include="$([System.IO.Path]::Combine('$(MSBuildToolsPath)', 'Microsoft.Build.Framework.dll'))" />
+			<Reference Include="$([System.IO.Path]::Combine('$(MSBuildToolsPath)', 'Microsoft.Build.Utilities.Core.dll'))" />
+			<Code Type="Fragment" Language="cs">
+				<![CDATA[
+					var projects = new List<string>();
+
+					foreach (Match element in Regex.Matches(SolutionConfiguration ?? string.Empty, "<ProjectConfiguration\\b[^>]*>"))
+					{
+						// A project the solution configuration does not build is not part of this run.
+						if (Regex.IsMatch(element.Value, "\\bBuildProjectInSolution\\s*=\\s*\"False\"", RegexOptions.IgnoreCase))
+							continue;
+
+						var path = Regex.Match(element.Value, "\\bAbsolutePath\\s*=\\s*\"(?<path>[^\"]+)\"");
+						if (!path.Success)
+							continue;
+
+						var fullPath = Path.GetFullPath(WebUtility.HtmlDecode(path.Groups["path"].Value));
+						if (File.Exists(fullPath))
+							projects.Add(fullPath);
+					}
+
+					if (projects.Count == 0)
+						projects.Add(Path.GetFullPath(ProjectPath));
+
+					Projects = projects
+						.Distinct(StringComparer.OrdinalIgnoreCase)
+						.OrderBy(project => project, StringComparer.OrdinalIgnoreCase)
+						.Select(project => (ITaskItem)new TaskItem(project))
+						.ToArray();
 				]]>
 			</Code>
 		</Task>
@@ -607,9 +706,17 @@
 				<![CDATA[
 					var sources = SkillSources ?? new ITaskItem[0];
 					var unpinnable = UnresolvableSkillSources ?? new ITaskItem[0];
-					var agents = string.IsNullOrEmpty(Agents) ? "*" : Agents;
-					// How the repository launches the CLI - 'npx skills', 'pnpm dlx skills', and so on.
-					var cli = string.IsNullOrEmpty(CommandPrefix) ? "npx skills" : CommandPrefix;
+					// No agents named means no '--agent' at all: the CLI auto-detects them. It does not
+					// split a comma-separated value, so each named agent gets its own flag.
+					var agentArguments = string.Concat(
+						(Agents ?? string.Empty)
+							.Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries)
+							.Select(agent => agent.Trim())
+							.Where(agent => agent.Length > 0)
+							.Select(agent => " --agent \"" + agent + "\"")
+					);
+					// How the repository launches the CLI - 'bun x skills', 'npx skills', and so on.
+					var cli = string.IsNullOrEmpty(CommandPrefix) ? "bun x skills" : CommandPrefix;
 
 					// ---- Read the CLI's lockfile -------------------------------------------------
 					// Entries are flat objects, so one regex over the 'skills' object is enough. A
@@ -786,7 +893,7 @@
 						// matches nothing when given one comma-separated value.
 						var commandFor = new Func<List<string>, string>(selected =>
 							cli + " add \"" + sourceWithRef + "\" --skill \""
-								+ string.Join("\" --skill \"", selected) + "\" --agent \"" + agents + "\" -y");
+								+ string.Join("\" --skill \"", selected) + "\"" + agentArguments + " -y");
 
 						var addItem = new Func<List<ITaskItem>, List<string>, ITaskItem>((bucket, selected) =>
 						{
@@ -875,6 +982,336 @@
 					// No stamp and no fingerprint: this task is reached only by a target a person
 					// invokes, so reporting every time is the point. The fingerprint existed to stop
 					// a per-build hook repeating itself once per project; that hook is gone.
+				]]>
+			</Code>
+		</Task>
+	</UsingTask>
+
+	<!-- =====================================================================
+	     READ LOCKFILE SOURCES
+	     Turns the CLI's skills-lock.json into the set of 'skills add' calls
+	     that refresh it: one per unique source, naming only the skills the
+	     lockfile records for that source, so an update never installs a
+	     skill nobody asked for.
+
+	     A source a restored package ships is pinned to the commit that package
+	     version was built from, exactly as InstallPurviewSkills pins it -
+	     re-adding it unpinned would install the newest skill and turn a
+	     satisfied entry into PRSKL0011 drift. Every other source is re-added
+	     as recorded but without its ref, which is what "update" means for a
+	     skill no package version speaks for.
+
+	     Also returns a hash of the lockfile, so the caller can tell whether a
+	     refresh changed anything without comparing file contents in a
+	     Condition, where a quote in the JSON would break the expression.
+	     ===================================================================== -->
+	<UsingTask
+		TaskName="ReadPurviewSkillsLockSources"
+		TaskFactory="RoslynCodeTaskFactory"
+		AssemblyFile="$([System.IO.Path]::Combine('$(MSBuildToolsPath)', 'Microsoft.Build.Tasks.Core.dll'))"
+	>
+		<ParameterGroup>
+			<LockFilePath ParameterType="System.String" Required="true" />
+			<SkillSources ParameterType="Microsoft.Build.Framework.ITaskItem[]" Required="false" />
+			<LockFileFound ParameterType="System.Boolean" Output="true" />
+			<LockFileHash ParameterType="System.String" Output="true" />
+			<UpdateSources ParameterType="Microsoft.Build.Framework.ITaskItem[]" Output="true" />
+		</ParameterGroup>
+		<Task>
+			<Using Namespace="System.IO" />
+			<Using Namespace="System.Linq" />
+			<Using Namespace="System.Security.Cryptography" />
+			<Using Namespace="System.Text" />
+			<Using Namespace="System.Text.RegularExpressions" />
+			<Using Namespace="Microsoft.Build.Framework" />
+			<Using Namespace="Microsoft.Build.Utilities" />
+			<Reference Include="$([System.IO.Path]::Combine('$(MSBuildToolsPath)', 'Microsoft.Build.Framework.dll'))" />
+			<Reference Include="$([System.IO.Path]::Combine('$(MSBuildToolsPath)', 'Microsoft.Build.Utilities.Core.dll'))" />
+			<Code Type="Fragment" Language="cs">
+				<![CDATA[
+					var updates = new List<ITaskItem>();
+					LockFileHash = string.Empty;
+					LockFileFound = File.Exists(LockFilePath);
+
+					var lockText = string.Empty;
+					if (LockFileFound)
+					{
+						try { lockText = File.ReadAllText(LockFilePath); }
+						catch (IOException) { LockFileFound = false; }
+						catch (UnauthorizedAccessException) { LockFileFound = false; }
+					}
+
+					if (LockFileFound)
+					{
+						using (var sha = SHA256.Create())
+						{
+							LockFileHash = string.Concat(
+								sha.ComputeHash(Encoding.UTF8.GetBytes(lockText)).Select(value => value.ToString("x2"))
+							);
+						}
+
+						// Same reading as EvaluatePurviewSkillState: walk to the brace that closes the
+						// 'skills' object, then one regex per flat entry.
+						var namesBySource = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+						var skillsKey = lockText.IndexOf("\"skills\"", StringComparison.Ordinal);
+						var open = skillsKey < 0 ? -1 : lockText.IndexOf('{', skillsKey);
+						if (open >= 0)
+						{
+							var depth = 0;
+							var inString = false;
+							var escaped = false;
+							var close = -1;
+							for (var index = open; index < lockText.Length; index++)
+							{
+								var character = lockText[index];
+								if (escaped) { escaped = false; continue; }
+								if (character == '\\' && inString) { escaped = true; continue; }
+								if (character == '"') { inString = !inString; continue; }
+								if (inString) continue;
+								if (character == '{') depth++;
+								else if (character == '}')
+								{
+									depth--;
+									if (depth == 0) { close = index; break; }
+								}
+							}
+
+							if (close > open)
+							{
+								var body = lockText.Substring(open, close - open + 1);
+								var entryPattern = new Regex("\"(?<name>[^\"]+)\"\\s*:\\s*\\{(?<entry>[^{}]*)\\}", RegexOptions.Singleline);
+								var sourcePattern = new Regex("\"source\"\\s*:\\s*\"(?<value>[^\"]*)\"");
+
+								foreach (Match entry in entryPattern.Matches(body))
+								{
+									var sourceMatch = sourcePattern.Match(entry.Groups["entry"].Value);
+									var source = sourceMatch.Success ? sourceMatch.Groups["value"].Value.Trim() : string.Empty;
+									if (source.Length == 0)
+										continue;
+
+									List<string> names;
+									if (!namesBySource.TryGetValue(source, out names))
+										namesBySource[source] = names = new List<string>();
+									names.Add(entry.Groups["name"].Value);
+								}
+							}
+						}
+
+						var packages = SkillSources ?? new ITaskItem[0];
+						foreach (var pair in namesBySource.OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase))
+						{
+							var package = packages.FirstOrDefault(item =>
+								string.Equals(item.GetMetadata("Source"), pair.Key, StringComparison.OrdinalIgnoreCase));
+
+							ITaskItem created;
+							if (package != null)
+							{
+								created = new TaskItem(package.GetMetadata("SourceWithRef"));
+								created.SetMetadata("Skills", package.GetMetadata("Skills"));
+								created.SetMetadata("Origin", package.GetMetadata("PackageId") + " " + package.GetMetadata("PackageVersion"));
+							}
+							else
+							{
+								created = new TaskItem(pair.Key);
+								created.SetMetadata(
+									"Skills",
+									string.Join(";", pair.Value.OrderBy(name => name, StringComparer.OrdinalIgnoreCase))
+								);
+								created.SetMetadata("Origin", "skills-lock.json");
+							}
+
+							updates.Add(created);
+						}
+					}
+
+					UpdateSources = updates.ToArray();
+				]]>
+			</Code>
+		</Task>
+	</UsingTask>
+
+	<!-- =====================================================================
+	     ENFORCE AGENT SKILL DIRECTORIES
+	     When PurviewSkillsAgents names agents, the only agent skill
+	     directories that should exist at the repository root are theirs, plus
+	     '.agents/skills' - the CLI's canonical store, which every agent
+	     directory links into. Anything else is reported, and with Fix set,
+	     removed as far as is safe.
+
+	     "Safe" is narrow on purpose. The CLI installs by linking each agent's
+	     directory into the canonical store, so a link (a symlink, or a
+	     junction on Windows) is the CLI's and is deleted - the link only,
+	     never its target. A real file is not provably the CLI's and is kept
+	     and reported. A directory is emptied of links, then removed only if
+	     nothing real is left in it.
+
+	     With no agents named the CLI auto-detects, every agent directory is a
+	     legitimate destination, and this reports nothing.
+	     ===================================================================== -->
+	<UsingTask
+		TaskName="EnforcePurviewSkillDirectories"
+		TaskFactory="RoslynCodeTaskFactory"
+		AssemblyFile="$([System.IO.Path]::Combine('$(MSBuildToolsPath)', 'Microsoft.Build.Tasks.Core.dll'))"
+	>
+		<ParameterGroup>
+			<RepositoryRoot ParameterType="System.String" Required="true" />
+			<Agents ParameterType="System.String" Required="false" />
+			<AgentDirectories ParameterType="Microsoft.Build.Framework.ITaskItem[]" Required="false" />
+			<ProtectedDirectories ParameterType="Microsoft.Build.Framework.ITaskItem[]" Required="false" />
+			<Fix ParameterType="System.Boolean" Required="false" />
+			<Violations ParameterType="Microsoft.Build.Framework.ITaskItem[]" Output="true" />
+			<Removed ParameterType="Microsoft.Build.Framework.ITaskItem[]" Output="true" />
+			<UnknownAgents ParameterType="Microsoft.Build.Framework.ITaskItem[]" Output="true" />
+		</ParameterGroup>
+		<Task>
+			<Using Namespace="System.IO" />
+			<Using Namespace="System.Linq" />
+			<Using Namespace="Microsoft.Build.Framework" />
+			<Using Namespace="Microsoft.Build.Utilities" />
+			<Reference Include="$([System.IO.Path]::Combine('$(MSBuildToolsPath)', 'Microsoft.Build.Framework.dll'))" />
+			<Reference Include="$([System.IO.Path]::Combine('$(MSBuildToolsPath)', 'Microsoft.Build.Utilities.Core.dll'))" />
+			<Code Type="Fragment" Language="cs">
+				<![CDATA[
+					var violations = new List<ITaskItem>();
+					var removed = new List<ITaskItem>();
+					var unknown = new List<ITaskItem>();
+					var windows = Path.DirectorySeparatorChar == '\\';
+					var pathComparer = windows ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+
+					var selected = (Agents ?? string.Empty)
+						.Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries)
+						.Select(agent => agent.Trim())
+						.Where(agent => agent.Length > 0)
+						.ToList();
+
+					// '*' is every agent, so every directory is allowed.
+					if (selected.Count > 0 && !selected.Contains("*"))
+					{
+						var root = Path.GetFullPath(RepositoryRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+						var toRelative = new Func<string, string>(full =>
+							full.Substring(root.Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar).Replace('\\', '/'));
+
+						var directories = (AgentDirectories ?? new ITaskItem[0])
+							.Select(item => new
+							{
+								Relative = item.ItemSpec.Replace('\\', '/').Trim('/'),
+								Agents = (item.GetMetadata("Agents") ?? string.Empty)
+									.Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries)
+									.Select(agent => agent.Trim())
+									.ToArray(),
+							})
+							.Where(directory => directory.Relative.Length > 0)
+							.ToList();
+
+						var known = new HashSet<string>(directories.SelectMany(directory => directory.Agents), StringComparer.OrdinalIgnoreCase);
+						foreach (var agent in selected.Where(agent => !known.Contains(agent)))
+							unknown.Add(new TaskItem(agent));
+
+						var allowed = new HashSet<string>(pathComparer) { ".agents/skills" };
+						foreach (var directory in directories)
+						{
+							if (directory.Agents.Any(agent => selected.Contains(agent, StringComparer.OrdinalIgnoreCase)))
+								allowed.Add(directory.Relative);
+						}
+
+						var protectedPaths = new HashSet<string>(
+							(ProtectedDirectories ?? new ITaskItem[0])
+								.Where(item => !string.IsNullOrWhiteSpace(item.ItemSpec))
+								.Select(item => Path.GetFullPath(item.ItemSpec).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)),
+							pathComparer
+						);
+
+						// GetAttributes does not follow a link, so a dangling one still counts as present.
+						var exists = new Func<string, bool>(path =>
+						{
+							try { File.GetAttributes(path); return true; }
+							catch (IOException) { return false; }
+							catch (UnauthorizedAccessException) { return false; }
+						});
+
+						var deleteLink = new Action<string, FileAttributes>((path, attributes) =>
+						{
+							// On Windows a directory link or junction is removed by RemoveDirectory, which
+							// removes the link and never its target. On Unix, unlink does the same for any
+							// symlink, whatever it points at.
+							if (windows && (attributes & FileAttributes.Directory) != 0)
+								Directory.Delete(path, false);
+							else
+								File.Delete(path);
+						});
+
+						var kept = new List<string>();
+						Action<string> prune = null;
+						prune = path =>
+						{
+							var attributes = File.GetAttributes(path);
+							if ((attributes & FileAttributes.ReparsePoint) != 0)
+							{
+								deleteLink(path, attributes);
+								removed.Add(new TaskItem(toRelative(path)));
+								return;
+							}
+
+							if ((attributes & FileAttributes.Directory) == 0)
+							{
+								kept.Add(toRelative(path));
+								return;
+							}
+
+							foreach (var child in Directory.GetFileSystemEntries(path).OrderBy(child => child, StringComparer.Ordinal))
+								prune(child);
+
+							if (Directory.GetFileSystemEntries(path).Length == 0)
+							{
+								Directory.Delete(path, false);
+								removed.Add(new TaskItem(toRelative(path)));
+							}
+						};
+
+						foreach (var directory in directories
+							.Where(directory => !allowed.Contains(directory.Relative))
+							.GroupBy(directory => directory.Relative, pathComparer)
+							.OrderBy(group => group.Key, StringComparer.Ordinal))
+						{
+							var full = Path.GetFullPath(Path.Combine(root, directory.Key.Replace('/', Path.DirectorySeparatorChar)));
+							if (protectedPaths.Contains(full) || !exists(full))
+								continue;
+
+							kept.Clear();
+							if (Fix)
+							{
+								prune(full);
+
+								// A folder that only ever held the agent's skills is left empty; remove it too,
+								// but never climb to the repository root.
+								var parent = Path.GetDirectoryName(full);
+								while (!exists(full) && parent != null && parent.Length > root.Length
+									&& Directory.Exists(parent) && Directory.GetFileSystemEntries(parent).Length == 0)
+								{
+									Directory.Delete(parent, false);
+									removed.Add(new TaskItem(toRelative(parent)));
+									parent = Path.GetDirectoryName(parent);
+								}
+
+								if (!exists(full))
+									continue;
+							}
+
+							var violation = new TaskItem(directory.Key);
+							violation.SetMetadata("Agents", string.Join(", ", directory.SelectMany(entry => entry.Agents)));
+							// The CLI copies rather than links for some agent selections, so a kept folder can
+							// hold every file of every skill; name enough to recognise, then count the rest.
+							violation.SetMetadata(
+								"Kept",
+								string.Join(", ", kept.Take(5)) + (kept.Count > 5 ? " and " + (kept.Count - 5) + " more" : string.Empty)
+							);
+							violations.Add(violation);
+						}
+					}
+
+					Violations = violations.ToArray();
+					Removed = removed.ToArray();
+					UnknownAgents = unknown.ToArray();
 				]]>
 			</Code>
 		</Task>
@@ -2070,6 +2507,86 @@
 	</ItemGroup>
 
 	<!-- =====================================================================
+	     AGENT SKILL DIRECTORIES
+	     Where the skills CLI writes a project-scope install for each agent,
+	     taken from its own agent table (skills 1.7.6, docs/agents.md). Only
+	     CheckPurviewSkills and FixPurviewSkills read this, and only when
+	     PurviewSkillsAgents is set: with no agents named the CLI auto-detects,
+	     so every one of these is a legitimate destination and there is no
+	     layout to enforce.
+
+	     '.agents/skills' is always allowed whichever agents are selected,
+	     because it is the CLI's canonical store - every other agent directory
+	     links into it.
+
+	     The CLI adds agents independently of this SDK. Add an item for a new
+	     one rather than waiting for a release:
+
+	       <PurviewSkillsAgentDirectory Include=".new-agent/skills" Agents="new-agent" />
+	     ===================================================================== -->
+	<ItemGroup>
+		<PurviewSkillsAgentDirectory
+			Include=".agents/skills"
+			Agents="amp;antigravity;antigravity-cli;cline;codex;cursor;deepagents;dexto;droid;firebender;fx;gemini-cli;github-copilot;kilo;kimi-code-cli;loaf;opencode;pi;promptscript;replit;sarvam-code;universal;warp;zed"
+		/>
+		<PurviewSkillsAgentDirectory Include=".adal/skills" Agents="adal" />
+		<PurviewSkillsAgentDirectory Include=".aider-desk/skills" Agents="aider-desk" />
+		<PurviewSkillsAgentDirectory Include=".augment/skills" Agents="augment" />
+		<PurviewSkillsAgentDirectory Include=".autohand/skills" Agents="autohand-code" />
+		<PurviewSkillsAgentDirectory Include=".bob/skills" Agents="bob" />
+		<PurviewSkillsAgentDirectory Include=".claude/skills" Agents="claude-code" />
+		<PurviewSkillsAgentDirectory Include=".codeartsdoer/skills" Agents="codearts-agent" />
+		<PurviewSkillsAgentDirectory Include=".codebuddy/skills" Agents="codebuddy" />
+		<PurviewSkillsAgentDirectory Include=".codemaker/skills" Agents="codemaker" />
+		<PurviewSkillsAgentDirectory Include=".codestudio/skills" Agents="codestudio" />
+		<PurviewSkillsAgentDirectory Include=".commandcode/skills" Agents="command-code" />
+		<PurviewSkillsAgentDirectory Include=".continue/skills" Agents="continue" />
+		<PurviewSkillsAgentDirectory Include=".cortex/skills" Agents="cortex" />
+		<PurviewSkillsAgentDirectory Include=".crush/skills" Agents="crush" />
+		<PurviewSkillsAgentDirectory Include=".devin/skills" Agents="devin" />
+		<PurviewSkillsAgentDirectory Include=".forge/skills" Agents="forgecode" />
+		<PurviewSkillsAgentDirectory Include=".goose/skills" Agents="goose" />
+		<PurviewSkillsAgentDirectory Include=".grok/skills" Agents="grok" />
+		<PurviewSkillsAgentDirectory Include=".hermes/skills" Agents="hermes-agent" />
+		<PurviewSkillsAgentDirectory Include=".iflow/skills" Agents="iflow-cli" />
+		<PurviewSkillsAgentDirectory Include=".inferencesh/skills" Agents="inference-sh" />
+		<PurviewSkillsAgentDirectory Include=".jazz/skills" Agents="jazz" />
+		<PurviewSkillsAgentDirectory Include=".junie/skills" Agents="junie" />
+		<PurviewSkillsAgentDirectory Include=".kimchi/skills" Agents="kimchi" />
+		<PurviewSkillsAgentDirectory Include=".kiro/skills" Agents="kiro-cli" />
+		<PurviewSkillsAgentDirectory Include=".kode/skills" Agents="kode" />
+		<PurviewSkillsAgentDirectory Include=".lingma/skills" Agents="lingma" />
+		<PurviewSkillsAgentDirectory Include=".mcpjam/skills" Agents="mcpjam" />
+		<PurviewSkillsAgentDirectory Include=".minimax/skills" Agents="minimax-code" />
+		<PurviewSkillsAgentDirectory Include=".moxby/skills" Agents="moxby" />
+		<PurviewSkillsAgentDirectory Include=".mux/skills" Agents="mux" />
+		<PurviewSkillsAgentDirectory Include=".neovate/skills" Agents="neovate" />
+		<PurviewSkillsAgentDirectory Include=".ona/skills" Agents="ona" />
+		<PurviewSkillsAgentDirectory Include=".openhands/skills" Agents="openhands" />
+		<PurviewSkillsAgentDirectory Include=".pochi/skills" Agents="pochi" />
+		<PurviewSkillsAgentDirectory Include=".posit/assistant/skills" Agents="posit-assistant" />
+		<PurviewSkillsAgentDirectory Include=".qoder/skills" Agents="qoder;qoder-cn" />
+		<PurviewSkillsAgentDirectory Include=".qwen/skills" Agents="qwen-code" />
+		<PurviewSkillsAgentDirectory Include=".reasonix/skills" Agents="reasonix" />
+		<PurviewSkillsAgentDirectory Include=".roo/skills" Agents="roo" />
+		<PurviewSkillsAgentDirectory Include=".rovodev/skills" Agents="rovodev" />
+		<PurviewSkillsAgentDirectory Include=".tabnine/agent/skills" Agents="tabnine-cli" />
+		<PurviewSkillsAgentDirectory Include=".terramind/skills" Agents="terramind" />
+		<PurviewSkillsAgentDirectory Include=".tinycloud/skills" Agents="tinycloud" />
+		<PurviewSkillsAgentDirectory Include=".trae/skills" Agents="trae;trae-cn" />
+		<PurviewSkillsAgentDirectory Include=".vibe/skills" Agents="mistral-vibe" />
+		<PurviewSkillsAgentDirectory Include=".windsurf/skills" Agents="windsurf" />
+		<PurviewSkillsAgentDirectory Include=".zcode/skills" Agents="zcode" />
+		<PurviewSkillsAgentDirectory Include=".zencoder/skills" Agents="zencoder;zenflow" />
+		<PurviewSkillsAgentDirectory Include="agent/skills" Agents="eve" />
+		<PurviewSkillsAgentDirectory Include="data/skills" Agents="astrbot" />
+		<!-- openclaw installs into a root 'skills/' - the folder this SDK treats as authored skills.
+		     It is listed so that selecting openclaw is not reported as an unknown agent, but the
+		     authored folder is protected and never reported or removed. -->
+		<PurviewSkillsAgentDirectory Include="skills" Agents="openclaw" />
+	</ItemGroup>
+
+	<!-- =====================================================================
 	     EXPLICIT SKILL INSTALLATION
 	     Neither target has BeforeTargets/AfterTargets, so neither runs during
 	     restore, build, a design-time build or a test run. Installing agent
@@ -2084,33 +2601,144 @@
 	     of this SDK; it also owns skills-lock.json, so a repository can restore
 	     the same skills later with 'npx skills experimental_install'.
 	     ===================================================================== -->
+	<!-- =====================================================================
+	     ONCE PER REPOSITORY, FROM ANY ENTRY POINT
+	     Every public skill target is a thin wrapper that hands its work to one
+	     project - the leader - via the MSBuild task:
+
+	       dotnet msbuild src/App.slnx -t:UpdatePurviewSkills    runs once
+	       dotnet msbuild src/Any/Any.csproj -t:UpdatePurviewSkills
+
+	     Pointed at a solution, MSBuild runs the target in every project. Each
+	     one elects the same leader - the first solution project, by path, that
+	     imports this SDK - and asks it for the same '_<Target>Core' with the
+	     same global properties. MSBuild runs a project's target once per set
+	     of global properties and hands later callers the cached result, so the
+	     work runs once however many projects asked. No lock and no stamp file.
+
+	     The leader is a real consumer project rather than a file shipped in
+	     this package, because the skill settings live in the consumer's
+	     Directory.Build.props, which a project inside the NuGet cache would
+	     never import.
+
+	     Resolution reads every solution project's restore graph, so a package
+	     only a test project references is still found from any entry point. A
+	     project is asked for its assets file, not built: the cost is one
+	     evaluation per project.
+	     ===================================================================== -->
+	<!-- The reply has its own item type: asking the calling project itself runs this target in the
+	     caller's own instance, and reusing the caller's item would put it in the list twice, first. -->
+	<Target
+		Name="_GetPurviewSkillsProjectInfo"
+		Returns="@(_PurviewSkillsProjectInfoReply)"
+		Label="Reports this project's restore graph to the skill targets."
+	>
+		<ItemGroup>
+			<_PurviewSkillsProjectInfoReply Include="$(MSBuildProjectFullPath)">
+				<ProjectAssetsFile>$(ProjectAssetsFile)</ProjectAssetsFile>
+				<NuGetPackageFolders>$(NuGetPackageFolders)</NuGetPackageFolders>
+			</_PurviewSkillsProjectInfoReply>
+		</ItemGroup>
+	</Target>
+
+	<Target
+		Name="_ResolvePurviewSkillsProjects"
+		Label="Resolves the projects a skill target answers for, and the one project that does the work."
+	>
+		<ResolvePurviewSkillsProjects
+			SolutionConfiguration="$(CurrentSolutionConfigurationContents)"
+			ProjectPath="$(MSBuildProjectFullPath)"
+		>
+			<Output TaskParameter="Projects" ItemName="_PurviewSkillsSolutionProject" />
+		</ResolvePurviewSkillsProjects>
+
+		<!-- SkipNonexistentTargets: a solution can hold projects that do not import this SDK,
+		     and those simply contribute nothing. TargetFramework and RuntimeIdentifier are removed
+		     so a multi-targeted project answers once, from its outer build. -->
+		<MSBuild
+			Projects="@(_PurviewSkillsSolutionProject)"
+			Targets="_GetPurviewSkillsProjectInfo"
+			SkipNonexistentTargets="true"
+			BuildInParallel="true"
+			RemoveProperties="TargetFramework;RuntimeIdentifier"
+		>
+			<Output TaskParameter="TargetOutputs" ItemName="_PurviewSkillsProjectInfo" />
+		</MSBuild>
+
+		<PropertyGroup>
+			<!-- The MSBuild task returns outputs in project order, and the list is sorted. An item
+			     list does not expand inside a property function, hence the intermediate property. -->
+			<_PurviewSkillsAnsweringProjects>@(_PurviewSkillsProjectInfo)</_PurviewSkillsAnsweringProjects>
+			<_PurviewSkillsLeaderProject>$([System.Text.RegularExpressions.Regex]::Match('$(_PurviewSkillsAnsweringProjects)', '^[^;]+').Value)</_PurviewSkillsLeaderProject>
+			<_PurviewSkillsLeaderProject Condition="'$(_PurviewSkillsLeaderProject)' == ''"
+				>$(MSBuildProjectFullPath)</_PurviewSkillsLeaderProject>
+		</PropertyGroup>
+	</Target>
+
 	<Target
 		Name="ResolvePurviewSkillsTarget"
-		Condition="'$(DefaultTargetFramework)' == '' OR '$(TargetFramework)' == '$(DefaultTargetFramework)'"
+		DependsOnTargets="_ResolvePurviewSkillsProjects"
 		Label="Resolves the skills shipped by restored packages to their git source and commit."
 	>
+		<ItemGroup>
+			<_PurviewSkillsUnrestoredProject
+				Include="@(_PurviewSkillsProjectInfo)"
+				Condition="'%(_PurviewSkillsProjectInfo.ProjectAssetsFile)' == '' OR !Exists('%(_PurviewSkillsProjectInfo.ProjectAssetsFile)')"
+			/>
+			<_PurviewSkillsRestoredProject
+				Include="@(_PurviewSkillsProjectInfo)"
+				Exclude="@(_PurviewSkillsUnrestoredProject)"
+			/>
+		</ItemGroup>
+
 		<!-- An explicit PurviewSkillsSource does not come from the restore graph, so it must not
 		     require one: installing from a named repository works in a project that has never
 		     been restored. -->
 		<Error
 			Code="PRSKL0001"
-			Condition="!Exists('$(ProjectAssetsFile)') AND '$(PurviewSkillsSource)' == ''"
-			Text="Cannot resolve Purview skills because '$(ProjectAssetsFile)' does not exist. Run 'dotnet restore' first - skill resolution reads the restore graph and deliberately does not trigger a restore of its own."
+			Condition="'@(_PurviewSkillsUnrestoredProject)' != '' AND '$(PurviewSkillsSource)' == ''"
+			Text="Cannot resolve Purview skills for '%(_PurviewSkillsUnrestoredProject.Identity)' because '%(_PurviewSkillsUnrestoredProject.ProjectAssetsFile)' does not exist. Run 'dotnet restore' first - skill resolution reads the restore graph and deliberately does not trigger a restore of its own."
 		/>
 		<ResolvePurviewSkillSources
-			Condition="Exists('$(ProjectAssetsFile)')"
-			ProjectAssetsFile="$(ProjectAssetsFile)"
-			NuGetPackageFolders="$(NuGetPackageFolders)"
+			Condition="'@(_PurviewSkillsRestoredProject)' != ''"
+			ProjectAssetsFiles="@(_PurviewSkillsRestoredProject->'%(ProjectAssetsFile)')"
+			NuGetPackageFolders="@(_PurviewSkillsRestoredProject->'%(NuGetPackageFolders)')"
 		>
 			<Output TaskParameter="SkillSources" ItemName="PurviewSkillSource" />
 			<Output TaskParameter="Unresolvable" ItemName="PurviewUnresolvableSkillSource" />
+			<Output TaskParameter="VersionConflicts" ItemName="_PurviewSkillsVersionConflict" />
 		</ResolvePurviewSkillSources>
+
+		<!-- Only one version's skills can be installed into the repository, so the projects that
+		     disagree are named rather than one version winning silently. -->
+		<Warning
+			Code="PRSKL0017"
+			Condition="'@(_PurviewSkillsVersionConflict)' != ''"
+			Text="Purview Skills: the projects in this solution reference %(_PurviewSkillsVersionConflict.Identity) at more than one version (%(_PurviewSkillsVersionConflict.Versions)), and the repository can only hold one version's skills. Align the versions - Central Package Management does this for every project at once."
+		/>
 	</Target>
+
+	<!-- Every wrapper below hands the same target to the same leader with the same global
+	     properties, which is what lets MSBuild run it once. -->
+	<PropertyGroup>
+		<_PurviewSkillsLeaderRemoveProperties>TargetFramework;RuntimeIdentifier</_PurviewSkillsLeaderRemoveProperties>
+	</PropertyGroup>
 
 	<Target
 		Name="ListPurviewSkills"
-		DependsOnTargets="ResolvePurviewSkillsRepositoryRoot;ResolvePurviewSkillsTarget"
+		DependsOnTargets="_ResolvePurviewSkillsProjects"
 		Label="Lists the skills shipped by every restored package, without installing anything."
+	>
+		<MSBuild
+			Projects="$(_PurviewSkillsLeaderProject)"
+			Targets="_ListPurviewSkillsCore"
+			RemoveProperties="$(_PurviewSkillsLeaderRemoveProperties)"
+		/>
+	</Target>
+
+	<Target
+		Name="_ListPurviewSkillsCore"
+		DependsOnTargets="ResolvePurviewSkillsRepositoryRoot;ResolvePurviewSkillsTarget"
 	>
 		<Message
 			Importance="High"
@@ -2156,49 +2784,41 @@
 		/>
 	</Target>
 
+	<!-- PurviewSkillsAgents names the agents to install to. Empty - the default - passes no
+	     agent flag at all, so the skills CLI auto-detects the agents installed on this machine.
+	     Separate several with ',', ';' or spaces. 'dotnet msbuild -p:' itself splits on ',' and ';',
+	     so on a command line escape the separator or quote the whole value:
+	       -p:PurviewSkillsAgents=claude-code%2Ccodex
+	       -p:PurviewSkillsAgents=\"claude-code codex\"
+	     The CLI does not split a comma-separated value, so each agent becomes its own agent flag. -->
 	<Target
-		Name="InstallPurviewSkills"
-		DependsOnTargets="ResolvePurviewSkillsRepositoryRoot;ResolvePurviewSkillsTarget"
-		Label="Installs the skills shipped by restored packages into the agent directories, via the skills CLI."
+		Name="_ResolvePurviewSkillsAgents"
+		Label="Normalises PurviewSkillsAgents into a ';' list and the '--agent' arguments for the skills CLI."
 	>
 		<PropertyGroup>
-			<!-- '*' installs to every agent the CLI detects. Narrow it with
-			     -p:PurviewSkillsAgents=claude-code,codex for a single agent. -->
-			<PurviewSkillsAgents Condition="'$(PurviewSkillsAgents)' == ''">*</PurviewSkillsAgents>
-			<!-- A failed install is a failed install: the caller asked for it explicitly, so it is
-			     reported rather than swallowed. Set true to continue past one package's failure. -->
-			<PurviewSkillsContinueOnError Condition="'$(PurviewSkillsContinueOnError)' == ''"
-				>false</PurviewSkillsContinueOnError>
+			<_PurviewSkillsAgentList>$([System.Text.RegularExpressions.Regex]::Replace('$(PurviewSkillsAgents)', '^[\s,;&quot;'']+|[\s,;&quot;'']+$', ''))</_PurviewSkillsAgentList>
+			<_PurviewSkillsAgentList>$([System.Text.RegularExpressions.Regex]::Replace('$(_PurviewSkillsAgentList)', '[\s,;]+', ';'))</_PurviewSkillsAgentList>
+			<_PurviewSkillsAgentArguments></_PurviewSkillsAgentArguments>
+			<_PurviewSkillsAgentArguments Condition="'$(_PurviewSkillsAgentList)' != ''"
+				> --agent &quot;$(_PurviewSkillsAgentList.Replace(';', '&quot; --agent &quot;'))&quot;</_PurviewSkillsAgentArguments>
 		</PropertyGroup>
+	</Target>
 
-		<!-- PurviewSkillsSource installs straight from a git source, bypassing package resolution:
-		       -t:InstallPurviewSkills -p:PurviewSkillsSource=purview-dev/engineering-playbook
-		     Useful for a repository that wants a Purview skill it has no PackageReference for. The
-		     caller owns the ref in that case; append '#<ref>' to pin it. -->
-		<ItemGroup Condition="'$(PurviewSkillsSource)' != ''">
-			<PurviewSkillSource Include="$(PurviewSkillsSource)">
-				<SourceWithRef>$(PurviewSkillsSource)</SourceWithRef>
-				<Skills>*</Skills>
-				<PackageId>(explicit source)</PackageId>
-			</PurviewSkillSource>
-		</ItemGroup>
+	<!-- Detect before invoking, so a missing runner is an actionable message rather than a shell
+	     error. Only when a calling target has set _PurviewSkillsCommandRequired: resolving nothing
+	     must not require Node to be present.
 
-		<Message
-			Importance="High"
-			Condition="'@(PurviewSkillSource)' == ''"
-			Text="No restored package ships installable agent skills. Run -t:ListPurviewSkills for detail."
-		/>
-
-		<!-- Detect before invoking, so a missing runner is an actionable message rather than a shell
-		     error. Only when there is actually something to install: resolving nothing must not
-		     require Node to be present.
-
-		     'skills' on PATH is tried first because it needs no download at all, then the configured
-		     runner, then the remaining candidates - so a machine with bun but no Node still installs
-		     rather than reporting that nothing was found. -->
+	     'skills' on PATH is tried first because it needs no download at all, then the configured
+	     runner, then the remaining candidates - so a machine with Node but no bun still installs
+	     rather than reporting that nothing was found. -->
+	<Target
+		Name="_ResolvePurviewSkillsCommand"
+		DependsOnTargets="_ResolvePurviewSkillsAgents"
+		Label="Resolves the command that launches the skills CLI."
+	>
 		<DetectPurviewSkillsCli
 			CommandNames="skills;$(PurviewSkillsRunner);$(PurviewSkillsRunnerCandidates)"
-			Condition="'@(PurviewSkillSource)' != '' AND '$(PurviewSkillsCommand)' == ''"
+			Condition="'$(_PurviewSkillsCommandRequired)' == 'true' AND '$(PurviewSkillsCommand)' == ''"
 		>
 			<Output TaskParameter="FoundCommand" PropertyName="_PurviewSkillsCliCommand" />
 			<Output TaskParameter="FoundPath" PropertyName="_PurviewSkillsCliPath" />
@@ -2215,14 +2835,83 @@
 
 		<Message
 			Importance="High"
-			Condition="'@(PurviewSkillSource)' != '' AND '$(_PurviewSkillsCliPath)' != ''"
+			Condition="'$(_PurviewSkillsCommandRequired)' == 'true' AND '$(_PurviewSkillsCliPath)' != ''"
 			Text="Using the skills CLI via '$(PurviewSkillsCommand)' ($(_PurviewSkillsCliPath))."
 		/>
 
+		<!-- A dry run prints commands rather than running them, so it must work on a machine with
+		     no runner at all: it shows the configured runner's launcher instead of failing. -->
+		<PropertyGroup Condition="'$(PurviewSkillsCommand)' == '' AND '$(PurviewSkillsDryRun)' == 'true'">
+			<PurviewSkillsCommand>@(PurviewSkillsRunnerLauncher->WithMetadataValue('Identity', '$(PurviewSkillsRunner)')->'%(Exec)')</PurviewSkillsCommand>
+			<PurviewSkillsCommand Condition="'$(PurviewSkillsCommand)' == ''"
+				>$(PurviewSkillsRunner) $(PurviewSkillsPackage)</PurviewSkillsCommand>
+		</PropertyGroup>
+
 		<Error
 			Code="PRSKL0004"
-			Condition="'@(PurviewSkillSource)' != '' AND '$(PurviewSkillsCommand)' == ''"
-			Text="Cannot install agent skills: none of 'skills', '$(PurviewSkillsRunner)' or '$(PurviewSkillsRunnerCandidates)' was found on PATH. Install Node.js (which provides npx), or any of bun, pnpm, yarn or deno, or install the CLI globally with 'npm install -g skills', then re-run this target. To resolve and report skills without installing, use -t:ListPurviewSkills, which needs no Node tooling. To choose a runner, set -p:PurviewSkillsRunner=&lt;npx|bunx|pnpm|yarn|deno&gt;; to override the launcher entirely, set -p:PurviewSkillsCommand=&lt;command&gt;."
+			Condition="'$(_PurviewSkillsCommandRequired)' == 'true' AND '$(PurviewSkillsCommand)' == ''"
+			Text="Cannot run the skills CLI: none of 'skills', '$(PurviewSkillsRunner)' or '$(PurviewSkillsRunnerCandidates)' was found on PATH. Install Bun (which provides 'bun x') or Node.js (which provides npx), or any of pnpm, yarn or deno, or install the CLI globally with 'npm install -g skills', then re-run this target. To resolve and report skills without installing, use -t:ListPurviewSkills, which needs no Node tooling. To choose a runner, set -p:PurviewSkillsRunner=&lt;bun|npx|bunx|pnpm|yarn|deno&gt;; to override the launcher entirely, set -p:PurviewSkillsCommand=&lt;command&gt;."
+		/>
+	</Target>
+
+	<!-- InstallPurviewSkills, UpdatePurviewSkills and FixPurviewSkills change the repository, so they
+	     run only when a person names them: none has BeforeTargets/AfterTargets, nothing in this SDK
+	     depends on them (PurviewSkillTargetIsolationTests enforces both), and this guard refuses to
+	     run when something else has pulled one into a build, a restore or a design-time build - a
+	     consumer's own AfterTargets="Build" hook included. -->
+	<Target Name="_GuardExplicitPurviewSkillsTarget">
+		<Error
+			Code="PRSKL0009"
+			Condition="'$(DesignTimeBuild)' == 'true' OR '$(BuildingProject)' == 'true' OR '$(MSBuildIsRestoring)' == 'true'"
+			Text="InstallPurviewSkills, UpdatePurviewSkills and FixPurviewSkills never run as part of a build, a restore or a design-time build. Run the target on its own, for example: dotnet msbuild &lt;project&gt; -t:UpdatePurviewSkills. If a target in this repository hooks one of them, remove the hook."
+		/>
+	</Target>
+
+	<Target Name="_PrepareInstallPurviewSkills" DependsOnTargets="ResolvePurviewSkillsTarget">
+		<!-- PurviewSkillsSource installs straight from a git source, bypassing package resolution:
+		       -t:InstallPurviewSkills -p:PurviewSkillsSource=purview-dev/engineering-playbook
+		     Useful for a repository that wants a Purview skill it has no PackageReference for. The
+		     caller owns the ref in that case; append '#<ref>' to pin it. -->
+		<ItemGroup Condition="'$(PurviewSkillsSource)' != ''">
+			<PurviewSkillSource Include="$(PurviewSkillsSource)">
+				<SourceWithRef>$(PurviewSkillsSource)</SourceWithRef>
+				<Skills>*</Skills>
+				<PackageId>(explicit source)</PackageId>
+			</PurviewSkillSource>
+		</ItemGroup>
+		<PropertyGroup>
+			<_PurviewSkillsCommandRequired Condition="'@(PurviewSkillSource)' != ''"
+				>true</_PurviewSkillsCommandRequired>
+		</PropertyGroup>
+	</Target>
+
+	<Target
+		Name="InstallPurviewSkills"
+		DependsOnTargets="_GuardExplicitPurviewSkillsTarget;_ResolvePurviewSkillsProjects"
+		Label="Installs the skills shipped by restored packages into the agent directories, via the skills CLI."
+	>
+		<MSBuild
+			Projects="$(_PurviewSkillsLeaderProject)"
+			Targets="_InstallPurviewSkillsCore"
+			RemoveProperties="$(_PurviewSkillsLeaderRemoveProperties)"
+		/>
+	</Target>
+
+	<Target
+		Name="_InstallPurviewSkillsCore"
+		DependsOnTargets="_GuardExplicitPurviewSkillsTarget;ResolvePurviewSkillsRepositoryRoot;_PrepareInstallPurviewSkills;_ResolvePurviewSkillsCommand"
+	>
+		<PropertyGroup>
+			<!-- A failed install is a failed install: the caller asked for it explicitly, so it is
+			     reported rather than swallowed. Set true to continue past one package's failure. -->
+			<PurviewSkillsContinueOnError Condition="'$(PurviewSkillsContinueOnError)' == ''"
+				>false</PurviewSkillsContinueOnError>
+		</PropertyGroup>
+
+		<Message
+			Importance="High"
+			Condition="'@(PurviewSkillSource)' == ''"
+			Text="No restored package ships installable agent skills. Run -t:ListPurviewSkills for detail."
 		/>
 
 		<!-- One invocation per package. '-y' keeps it non-interactive, and re-running is idempotent:
@@ -2242,9 +2931,14 @@
 			Text="Cannot install agent skills: the repository root could not be resolved. The skills CLI writes skills-lock.json and the agent directories, and both belong to the repository rather than to a project, so this target will not fall back to the project folder. Set -p:PurviewSkillsInstallRoot=&lt;path&gt; (or RepoRoot), or add an AGENTS.md at the repository root."
 		/>
 
+		<Message
+			Importance="High"
+			Condition="'@(PurviewSkillSource)' != '' AND '$(PurviewSkillsDryRun)' == 'true'"
+			Text="Agent skills (dry run): $(PurviewSkillsCommand) add &quot;%(PurviewSkillSource.SourceWithRef)&quot; --skill &quot;$([System.String]::Copy('%(PurviewSkillSource.Skills)').Replace(';', '&quot; --skill &quot;'))&quot;$(_PurviewSkillsAgentArguments) -y"
+		/>
 		<Exec
-			Condition="'@(PurviewSkillSource)' != '' AND '$(_PurviewSkillsRepositoryRoot)' != ''"
-			Command="$(PurviewSkillsCommand) add &quot;%(PurviewSkillSource.SourceWithRef)&quot; --skill &quot;$([System.String]::Copy('%(PurviewSkillSource.Skills)').Replace(';', '&quot; --skill &quot;'))&quot; --agent &quot;$(PurviewSkillsAgents)&quot; -y"
+			Condition="'@(PurviewSkillSource)' != '' AND '$(_PurviewSkillsRepositoryRoot)' != '' AND '$(PurviewSkillsDryRun)' != 'true'"
+			Command="$(PurviewSkillsCommand) add &quot;%(PurviewSkillSource.SourceWithRef)&quot; --skill &quot;$([System.String]::Copy('%(PurviewSkillSource.Skills)').Replace(';', '&quot; --skill &quot;'))&quot;$(_PurviewSkillsAgentArguments) -y"
 			WorkingDirectory="$(_PurviewSkillsRepositoryRoot)"
 			ContinueOnError="$(PurviewSkillsContinueOnError)"
 			StandardOutputImportance="High"
@@ -2254,6 +2948,298 @@
 			Code="PRSKL0002"
 			Condition="'@(PurviewUnresolvableSkillSource)' != ''"
 			Text="%(PurviewUnresolvableSkillSource.PackageId) %(PurviewUnresolvableSkillSource.PackageVersion) ships %(PurviewUnresolvableSkillSource.SkillCount) skill(s) that cannot be installed reproducibly because %(PurviewUnresolvableSkillSource.Reason). Install them explicitly with a pinned ref, or ask the package author to publish it with repository metadata."
+		/>
+	</Target>
+
+	<!-- =====================================================================
+	     UPDATE INSTALLED SKILLS — explicit only
+
+	       -t:UpdatePurviewSkills
+
+	     Re-adds every unique source recorded in skills-lock.json, then runs
+	     'skills update -y -p' to refresh what the re-adds did not touch. A
+	     source a restored package ships is re-added at that package's commit,
+	     so an update after a package upgrade lands on the matching skills and
+	     never moves a package's skills past the version referenced. 'skills
+	     update' re-fetches each entry at the ref the lockfile records, so it
+	     cannot undo that pin.
+
+	     PurviewSkillsUpdateMode decides when 'skills update' runs:
+	       Auto    only when the re-adds changed skills-lock.json (default)
+	       Always  every time
+	       Never   not at all
+	     PurviewSkillsDryRun=true prints every command and runs none of them.
+
+	     Every source is attempted even when one fails, and each failure is
+	     reported by name, so one unreachable repository does not hide the
+	     state of the rest. 'skills update' is skipped after any failure.
+	     ===================================================================== -->
+	<Target
+		Name="_PrepareUpdatePurviewSkills"
+		DependsOnTargets="ResolvePurviewSkillsRepositoryRoot;ResolvePurviewSkillsTarget"
+	>
+		<Error
+			Code="PRSKL0003"
+			Condition="'$(_PurviewSkillsRepositoryRoot)' == ''"
+			Text="Cannot update agent skills: the repository root could not be resolved. skills-lock.json and the agent directories belong to the repository rather than to a project, so this target will not fall back to the project folder. Set -p:PurviewSkillsInstallRoot=&lt;path&gt; (or RepoRoot), or add an AGENTS.md at the repository root."
+		/>
+		<PropertyGroup>
+			<PurviewSkillsLockFile Condition="'$(PurviewSkillsLockFile)' == ''"
+				>$([MSBuild]::NormalizePath('$(_PurviewSkillsRepositoryRoot)', 'skills-lock.json'))</PurviewSkillsLockFile>
+			<PurviewSkillsUpdateMode Condition="'$(PurviewSkillsUpdateMode)' == ''">Auto</PurviewSkillsUpdateMode>
+		</PropertyGroup>
+		<Error
+			Code="PRSKL0006"
+			Condition="'$(PurviewSkillsUpdateMode)' != 'Auto' AND '$(PurviewSkillsUpdateMode)' != 'Always' AND '$(PurviewSkillsUpdateMode)' != 'Never'"
+			Text="PurviewSkillsUpdateMode is '$(PurviewSkillsUpdateMode)'. Use Auto (run 'skills update' only when the lockfile changed), Always or Never."
+		/>
+		<ReadPurviewSkillsLockSources LockFilePath="$(PurviewSkillsLockFile)" SkillSources="@(PurviewSkillSource)">
+			<Output TaskParameter="LockFileFound" PropertyName="_PurviewSkillsUpdateLockFileFound" />
+			<Output TaskParameter="LockFileHash" PropertyName="_PurviewSkillsLockHashBefore" />
+			<Output TaskParameter="UpdateSources" ItemName="_PurviewSkillsUpdateSource" />
+		</ReadPurviewSkillsLockSources>
+		<Error
+			Code="PRSKL0007"
+			Condition="'$(_PurviewSkillsUpdateLockFileFound)' != 'true'"
+			Text="Cannot update agent skills: '$(PurviewSkillsLockFile)' does not exist. Update re-adds the sources the skills CLI recorded there; install skills first with -t:InstallPurviewSkills."
+		/>
+		<PropertyGroup>
+			<_PurviewSkillsCommandRequired Condition="'@(_PurviewSkillsUpdateSource)' != ''"
+				>true</_PurviewSkillsCommandRequired>
+		</PropertyGroup>
+	</Target>
+
+	<!-- Target batching, one run per source, so a failure is attributed to the source that caused
+	     it rather than to whichever batch happened to run last. -->
+	<Target
+		Name="_UpdatePurviewSkillsSource"
+		Condition="'@(_PurviewSkillsUpdateSource)' != ''"
+		Outputs="%(_PurviewSkillsUpdateSource.Identity)"
+	>
+		<PropertyGroup>
+			<_PurviewSkillsUpdateCommand>$(PurviewSkillsCommand) add &quot;%(_PurviewSkillsUpdateSource.Identity)&quot; --skill &quot;$([System.String]::Copy('%(_PurviewSkillsUpdateSource.Skills)').Replace(';', '&quot; --skill &quot;'))&quot;$(_PurviewSkillsAgentArguments) -y</_PurviewSkillsUpdateCommand>
+			<_PurviewSkillsUpdateExitCode>0</_PurviewSkillsUpdateExitCode>
+		</PropertyGroup>
+		<Message
+			Importance="High"
+			Text="Agent skills: %(_PurviewSkillsUpdateSource.Origin) -> $(_PurviewSkillsUpdateCommand)"
+		/>
+		<Exec
+			Condition="'$(PurviewSkillsDryRun)' != 'true'"
+			Command="$(_PurviewSkillsUpdateCommand)"
+			WorkingDirectory="$(_PurviewSkillsRepositoryRoot)"
+			IgnoreExitCode="true"
+			StandardOutputImportance="High"
+		>
+			<Output TaskParameter="ExitCode" PropertyName="_PurviewSkillsUpdateExitCode" />
+		</Exec>
+		<ItemGroup>
+			<_PurviewSkillsUpdateFailure
+				Include="%(_PurviewSkillsUpdateSource.Identity)"
+				Condition="'$(_PurviewSkillsUpdateExitCode)' != '0'"
+			>
+				<ExitCode>$(_PurviewSkillsUpdateExitCode)</ExitCode>
+			</_PurviewSkillsUpdateFailure>
+		</ItemGroup>
+	</Target>
+
+	<Target
+		Name="UpdatePurviewSkills"
+		DependsOnTargets="_GuardExplicitPurviewSkillsTarget;_ResolvePurviewSkillsProjects"
+		Label="Re-adds every source in skills-lock.json, pinning package skills to their package's commit, then runs 'skills update'."
+	>
+		<MSBuild
+			Projects="$(_PurviewSkillsLeaderProject)"
+			Targets="_UpdatePurviewSkillsCore"
+			RemoveProperties="$(_PurviewSkillsLeaderRemoveProperties)"
+		/>
+	</Target>
+
+	<Target
+		Name="_UpdatePurviewSkillsCore"
+		DependsOnTargets="_GuardExplicitPurviewSkillsTarget;_PrepareUpdatePurviewSkills;_ResolvePurviewSkillsCommand;_UpdatePurviewSkillsSource"
+	>
+		<Message
+			Importance="High"
+			Condition="'@(_PurviewSkillsUpdateSource)' == ''"
+			Text="Agent skills: no sources recorded in $(PurviewSkillsLockFile)."
+		/>
+		<!-- ErrorAndContinue so every failed source is named, not just the first; everything below
+		     is then skipped by its condition. -->
+		<Error
+			Code="PRSKL0008"
+			Condition="'@(_PurviewSkillsUpdateFailure)' != ''"
+			ContinueOnError="ErrorAndContinue"
+			Text="Agent skills: re-adding '%(_PurviewSkillsUpdateFailure.Identity)' failed with exit code %(_PurviewSkillsUpdateFailure.ExitCode). 'skills update' was skipped."
+		/>
+		<PropertyGroup>
+			<_PurviewSkillsUpdateFailed Condition="'@(_PurviewSkillsUpdateFailure)' != ''"
+				>true</_PurviewSkillsUpdateFailed>
+		</PropertyGroup>
+
+		<PropertyGroup>
+			<_PurviewSkillsUpdateCommand>$(PurviewSkillsCommand) update -y -p</_PurviewSkillsUpdateCommand>
+		</PropertyGroup>
+		<Message
+			Importance="High"
+			Condition="'@(_PurviewSkillsUpdateSource)' != '' AND '$(PurviewSkillsDryRun)' == 'true'"
+			Text="Agent skills: dry run, @(_PurviewSkillsUpdateSource->Count()) source(s), nothing changed. 'skills update' would run per PurviewSkillsUpdateMode=$(PurviewSkillsUpdateMode): $(_PurviewSkillsUpdateCommand)"
+		/>
+
+		<ReadPurviewSkillsLockSources
+			Condition="'@(_PurviewSkillsUpdateSource)' != '' AND '$(PurviewSkillsDryRun)' != 'true' AND '$(_PurviewSkillsUpdateFailed)' != 'true'"
+			LockFilePath="$(PurviewSkillsLockFile)"
+		>
+			<Output TaskParameter="LockFileHash" PropertyName="_PurviewSkillsLockHashAfter" />
+		</ReadPurviewSkillsLockSources>
+		<PropertyGroup Condition="'@(_PurviewSkillsUpdateSource)' != '' AND '$(PurviewSkillsDryRun)' != 'true' AND '$(_PurviewSkillsUpdateFailed)' != 'true'">
+			<_PurviewSkillsRunUpdate>false</_PurviewSkillsRunUpdate>
+			<_PurviewSkillsRunUpdate Condition="'$(PurviewSkillsUpdateMode)' == 'Always'">true</_PurviewSkillsRunUpdate>
+			<_PurviewSkillsRunUpdate
+				Condition="'$(PurviewSkillsUpdateMode)' == 'Auto' AND '$(_PurviewSkillsLockHashAfter)' != '$(_PurviewSkillsLockHashBefore)'"
+				>true</_PurviewSkillsRunUpdate>
+		</PropertyGroup>
+
+		<Message
+			Importance="High"
+			Condition="'@(_PurviewSkillsUpdateSource)' != '' AND '$(PurviewSkillsDryRun)' != 'true' AND '$(_PurviewSkillsUpdateFailed)' != 'true' AND '$(_PurviewSkillsRunUpdate)' != 'true'"
+			Text="Agent skills: @(_PurviewSkillsUpdateSource->Count()) source(s) refreshed; skipped '$(_PurviewSkillsUpdateCommand)' (PurviewSkillsUpdateMode=$(PurviewSkillsUpdateMode))."
+		/>
+		<Message
+			Importance="High"
+			Condition="'$(_PurviewSkillsRunUpdate)' == 'true'"
+			Text="Agent skills: $(_PurviewSkillsUpdateCommand)"
+		/>
+		<Exec
+			Condition="'$(_PurviewSkillsRunUpdate)' == 'true'"
+			Command="$(_PurviewSkillsUpdateCommand)"
+			WorkingDirectory="$(_PurviewSkillsRepositoryRoot)"
+			StandardOutputImportance="High"
+		/>
+		<Message
+			Importance="High"
+			Condition="'$(_PurviewSkillsRunUpdate)' == 'true'"
+			Text="Agent skills: @(_PurviewSkillsUpdateSource->Count()) source(s) refreshed and updated."
+		/>
+	</Target>
+
+	<!-- =====================================================================
+	     CHECK AND FIX AGENT SKILL DIRECTORIES — explicit only
+
+	       -t:CheckPurviewSkills   report, and fail on any unexpected directory
+	       -t:FixPurviewSkills     remove the CLI's links from those directories
+
+	     Enforced only when PurviewSkillsAgents names agents: then the only
+	     agent skill directories allowed at the repository root are those
+	     agents' and '.agents/skills'. With PurviewSkillsAgents empty the CLI
+	     auto-detects, and both targets say so and do nothing else.
+
+	     The authored skills folder is never reported or touched, even though
+	     one agent (openclaw) installs into a root 'skills/'.
+	     ===================================================================== -->
+	<Target
+		Name="_EvaluatePurviewSkillDirectories"
+		DependsOnTargets="ResolvePurviewSkillsRepositoryRoot;_ResolvePurviewSkillsAgents"
+	>
+		<Error
+			Code="PRSKL0003"
+			Condition="'$(_PurviewSkillsRepositoryRoot)' == ''"
+			Text="Cannot check agent skill directories: the repository root could not be resolved. Set -p:PurviewSkillsInstallRoot=&lt;path&gt; (or RepoRoot), or add an AGENTS.md at the repository root."
+		/>
+		<Message
+			Importance="High"
+			Condition="'$(_PurviewSkillsAgentList)' == ''"
+			Text="Agent skills: PurviewSkillsAgents is not set, so the skills CLI auto-detects agents and every agent skill directory is expected. Set it (for example -p:PurviewSkillsAgents=universal) to enforce a layout."
+		/>
+		<ItemGroup>
+			<_PurviewSkillsProtectedDirectory Include="$([MSBuild]::NormalizeDirectory('$(_PurviewSkillsRepositoryRoot)', 'skills'))" />
+			<_PurviewSkillsProtectedDirectory
+				Include="$(PurviewSkillsSourceFolder)"
+				Condition="'$(PurviewSkillsSourceFolder)' != ''"
+			/>
+		</ItemGroup>
+		<EnforcePurviewSkillDirectories
+			Condition="'$(_PurviewSkillsAgentList)' != ''"
+			RepositoryRoot="$(_PurviewSkillsRepositoryRoot)"
+			Agents="$(_PurviewSkillsAgentList)"
+			AgentDirectories="@(PurviewSkillsAgentDirectory)"
+			ProtectedDirectories="@(_PurviewSkillsProtectedDirectory)"
+			Fix="$(_PurviewSkillsFixDirectories)"
+		>
+			<Output TaskParameter="Violations" ItemName="_PurviewSkillsDirectoryViolation" />
+			<Output TaskParameter="Removed" ItemName="_PurviewSkillsDirectoryRemoved" />
+			<Output TaskParameter="UnknownAgents" ItemName="_PurviewSkillsUnknownAgent" />
+		</EnforcePurviewSkillDirectories>
+		<Warning
+			Code="PRSKL0016"
+			Condition="'@(_PurviewSkillsUnknownAgent)' != ''"
+			Text="Agent skills: PurviewSkillsAgents names '%(_PurviewSkillsUnknownAgent.Identity)', which has no known skills directory, so none is allowed for it. Add &lt;PurviewSkillsAgentDirectory Include=&quot;.agent/skills&quot; Agents=&quot;%(_PurviewSkillsUnknownAgent.Identity)&quot; /&gt; if the skills CLI supports it."
+		/>
+	</Target>
+
+	<Target
+		Name="CheckPurviewSkills"
+		DependsOnTargets="_ResolvePurviewSkillsProjects"
+		Label="Fails when an agent skill directory exists for an agent PurviewSkillsAgents does not select."
+	>
+		<MSBuild
+			Projects="$(_PurviewSkillsLeaderProject)"
+			Targets="_CheckPurviewSkillsCore"
+			RemoveProperties="$(_PurviewSkillsLeaderRemoveProperties)"
+		/>
+	</Target>
+
+	<Target Name="_CheckPurviewSkillsCore" DependsOnTargets="_EvaluatePurviewSkillDirectories">
+		<Error
+			Code="PRSKL0015"
+			Condition="'@(_PurviewSkillsDirectoryViolation)' != ''"
+			ContinueOnError="ErrorAndContinue"
+			Text="Agent skills: '%(_PurviewSkillsDirectoryViolation.Identity)' is the skills directory for %(_PurviewSkillsDirectoryViolation.Agents), which PurviewSkillsAgents ($(_PurviewSkillsAgentList)) does not select. Remove it with -t:FixPurviewSkills."
+		/>
+		<Message
+			Importance="High"
+			Condition="'$(_PurviewSkillsAgentList)' != '' AND '@(_PurviewSkillsDirectoryViolation)' == ''"
+			Text="Agent skills: only the directories for $(_PurviewSkillsAgentList) exist."
+		/>
+	</Target>
+
+	<Target Name="_PrepareFixPurviewSkills">
+		<PropertyGroup>
+			<_PurviewSkillsFixDirectories>true</_PurviewSkillsFixDirectories>
+		</PropertyGroup>
+	</Target>
+
+	<Target
+		Name="FixPurviewSkills"
+		DependsOnTargets="_GuardExplicitPurviewSkillsTarget;_ResolvePurviewSkillsProjects"
+		Label="Removes the skills CLI's links from agent skill directories PurviewSkillsAgents does not select."
+	>
+		<MSBuild
+			Projects="$(_PurviewSkillsLeaderProject)"
+			Targets="_FixPurviewSkillsCore"
+			RemoveProperties="$(_PurviewSkillsLeaderRemoveProperties)"
+		/>
+	</Target>
+
+	<Target
+		Name="_FixPurviewSkillsCore"
+		DependsOnTargets="_GuardExplicitPurviewSkillsTarget;_PrepareFixPurviewSkills;_EvaluatePurviewSkillDirectories"
+	>
+		<Message
+			Importance="High"
+			Condition="'@(_PurviewSkillsDirectoryRemoved)' != ''"
+			Text="Agent skills: removed %(_PurviewSkillsDirectoryRemoved.Identity)"
+		/>
+		<Error
+			Code="PRSKL0015"
+			Condition="'@(_PurviewSkillsDirectoryViolation)' != ''"
+			ContinueOnError="ErrorAndContinue"
+			Text="Agent skills: '%(_PurviewSkillsDirectoryViolation.Identity)' is the skills directory for %(_PurviewSkillsDirectoryViolation.Agents), which PurviewSkillsAgents ($(_PurviewSkillsAgentList)) does not select, and still holds content the skills CLI did not create: %(_PurviewSkillsDirectoryViolation.Kept). Remove it by hand."
+		/>
+		<Message
+			Importance="High"
+			Condition="'$(_PurviewSkillsAgentList)' != '' AND '@(_PurviewSkillsDirectoryViolation)' == ''"
+			Text="Agent skills: @(_PurviewSkillsDirectoryRemoved->Count()) path(s) removed; only the directories for $(_PurviewSkillsAgentList) exist."
 		/>
 	</Target>
 
@@ -2286,7 +3272,7 @@
 	     ===================================================================== -->
 	<Target
 		Name="_ResolvePurviewSkillRecommendationPaths"
-		DependsOnTargets="ResolvePurviewSkillsRepositoryRoot"
+		DependsOnTargets="ResolvePurviewSkillsRepositoryRoot;_ResolvePurviewSkillsAgents"
 		Label="Resolves the repository-level lockfile path skill recommendations read."
 	>
 		<PropertyGroup>
@@ -2298,7 +3284,6 @@
 			<PurviewSkillsLockFile
 				Condition="'$(PurviewSkillsLockFile)' == '' AND '$(_PurviewSkillRecommendationRoot)' != ''"
 				>$([MSBuild]::NormalizePath('$(_PurviewSkillRecommendationRoot)', 'skills-lock.json'))</PurviewSkillsLockFile>
-			<PurviewSkillsAgents Condition="'$(PurviewSkillsAgents)' == ''">*</PurviewSkillsAgents>
 			<!-- Recommendation text is written against the *configured* runner, not a detected one:
 			     advice costs no PATH probe, and the command a developer copies should be the one
 			     their repository standardised on. -->
@@ -2310,9 +3295,19 @@
 
 	<Target
 		Name="RecommendPurviewSkills"
-		DependsOnTargets="_ResolvePurviewSkillRecommendationPaths;ResolvePurviewSkillsTarget"
-		Condition="'$(DefaultTargetFramework)' == '' OR '$(TargetFramework)' == '$(DefaultTargetFramework)'"
+		DependsOnTargets="_ResolvePurviewSkillsProjects"
 		Label="Reports which Purview skills are missing, drifted or unverifiable, and how to fix each."
+	>
+		<MSBuild
+			Projects="$(_PurviewSkillsLeaderProject)"
+			Targets="_RecommendPurviewSkillsCore"
+			RemoveProperties="$(_PurviewSkillsLeaderRemoveProperties)"
+		/>
+	</Target>
+
+	<Target
+		Name="_RecommendPurviewSkillsCore"
+		DependsOnTargets="_ResolvePurviewSkillRecommendationPaths;ResolvePurviewSkillsTarget"
 	>
 		<!-- The unresolved-root guard is on the task, not on the target: a target's Condition is
 		     evaluated before its DependsOnTargets run, so a property one of them computes is still
@@ -2323,7 +3318,7 @@
 			SkillSources="@(PurviewSkillSource)"
 			UnresolvableSkillSources="@(PurviewUnresolvableSkillSource)"
 			LockFilePath="$(PurviewSkillsLockFile)"
-			Agents="$(PurviewSkillsAgents)"
+			Agents="$(_PurviewSkillsAgentList)"
 			RepositoryRoot="$(_PurviewSkillRecommendationRoot)"
 		>
 			<Output TaskParameter="Missing" ItemName="PurviewMissingSkill" />
@@ -2394,7 +3389,10 @@
 
 	       -t:RecommendPurviewSkills   report the state, never fail
 	       -t:VerifyPurviewSkills      the same state, as a build failure
-	       -t:InstallPurviewSkills     install what is missing
+	       -t:InstallPurviewSkills     install or update, pinned to each package's commit
+	       -t:UpdatePurviewSkills      re-add every lockfile source, then 'skills update'
+	       -t:CheckPurviewSkills       only the selected agents' skill directories exist
+	       -t:FixPurviewSkills         remove the CLI's links from any other agent directory
 	       -t:ListPurviewSkills        what the restored packages ship
 
 	     VerifyPurviewSkills is what a CI job calls. Because it is invoked by
@@ -2418,10 +3416,17 @@
 	     ===================================================================== -->
 	<Target
 		Name="VerifyPurviewSkills"
-		DependsOnTargets="RecommendPurviewSkills"
-		Condition="'$(DefaultTargetFramework)' == '' OR '$(TargetFramework)' == '$(DefaultTargetFramework)'"
+		DependsOnTargets="_ResolvePurviewSkillsProjects"
 		Label="Fails when a referenced package ships agent skills that are missing or installed from a different ref."
 	>
+		<MSBuild
+			Projects="$(_PurviewSkillsLeaderProject)"
+			Targets="_VerifyPurviewSkillsCore"
+			RemoveProperties="$(_PurviewSkillsLeaderRemoveProperties)"
+		/>
+	</Target>
+
+	<Target Name="_VerifyPurviewSkillsCore" DependsOnTargets="_RecommendPurviewSkillsCore">
 		<Error
 			Code="PRSKL0010"
 			Condition="'@(PurviewMissingSkill)' != ''"

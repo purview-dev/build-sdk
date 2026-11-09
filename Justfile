@@ -1,5 +1,7 @@
 set quiet
 
+import "Justfile.skills.just"
+
 solution_file := "src/BuildSdk.slnx"
 build_configuration := "Debug"
 artifacts_folder := "./artifacts"
@@ -121,45 +123,6 @@ test-linux:
 pack artifact_folder=artifacts_folder *args:
     echo "==> Packing {{ BLUE }}{{ solution_file }}{{ NORMAL }} ({{ GREEN }}{{ current_version }}{{ NORMAL }}) to {{ YELLOW }}{{ artifact_folder }}{{ NORMAL }}"
     dotnet pack "{{ solution_file }}" --configuration "{{ build_configuration }}" --output "{{ artifact_folder }}" {{ args }}
-
-# Install skills from another repository into .agents/skills/, through the skills CLI
-#
-# This repository's *own* skills are not installed here. They are authored at skills/<name>/SKILL.md
-# for other repositories to install, and are read from that path - AGENTS.md links to it, and
-# `npx skills add purview-dev/build-sdk` is how a consumer gets them. .agents/skills/ is reserved for
-# skills installed from other sources, and skills-lock.json is the committed record of those.
-#
-# This goes through the SDK's own InstallPurviewSkills target rather than calling the CLI directly,
-# so the repository exercises the path it ships to consumers.
-#
-#   just skills-add purview-dev/engineering-playbook
-#
-# Install skills from another repository into .agents/skills/ (append '#<ref>' to pin)
-[group('Agent Skills')]
-skills-add source *args:
-    echo "==> Installing skills from {{ BLUE }}{{ source }}{{ NORMAL }} into the agent directories"
-    dotnet msbuild src/src/BuildSdk/BuildSdk.csproj -t:InstallPurviewSkills -p:PurviewSkillsSource={{ source }} {{ args }}
-
-# Validate the authored skills in skills/ against the Agent Skills specification
-#
-# The same check the pack runs (PRSKL0005). The broader rule set - names, descriptions, optional
-# fields, bundled links, body size - runs as RepositorySkillTests in `just test`.
-#
-# Validate the authored skills in skills/ against the Agent Skills specification
-[group('Agent Skills')]
-skills-validate *args:
-    echo "==> Validating authored skills in {{ BLUE }}skills/{{ NORMAL }}"
-    dotnet msbuild src/src/BuildSdk/BuildSdk.csproj -t:ValidatePurviewSkills -v:n {{ args }}
-
-# Report which skills the restored packages ship, and whether a runner is available
-[group('Agent Skills')]
-skills-list *args:
-    dotnet msbuild src/src/BuildSdk/BuildSdk.csproj -t:ListPurviewSkills -v:n {{ args }}
-
-# Report missing, drifted or unverifiable skills without installing anything
-[group('Agent Skills')]
-skills-check *args:
-    dotnet msbuild src/src/BuildSdk/BuildSdk.csproj -t:RecommendPurviewSkills -v:n {{ args }}
 
 # Format the code with CSharpier
 [group('Utilities')]

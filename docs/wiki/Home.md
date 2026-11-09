@@ -56,9 +56,10 @@ repo root inherits everything automatically.
   (`PDS0001`, `PDS0005`, `PDS0006`, `PDS0007`), plus IDE code fixes for naming and extensions-namespace
   conventions.
 - **Agent skills** — the SDK resolves which skills a restored package ships and the exact commit it was
-  built from, and reports what is missing or has drifted (`PRSKL0010`–`PRSKL0014`) during an ordinary
-  build. Installing them is a separate, explicit step (`dotnet msbuild -t:InstallPurviewSkills`) that
-  delegates to the skills CLI. The SDK itself writes nothing into an agent directory: the build-time
+  built from, and reports what is missing or has drifted (`PRSKL0010`–`PRSKL0014`) when asked
+  (`-t:RecommendPurviewSkills`, or `-t:VerifyPurviewSkills` in CI) — never during an ordinary build.
+  Installing or updating them is a separate, explicit step (`dotnet msbuild -t:InstallPurviewSkills`)
+  that delegates to the skills CLI. The SDK itself writes nothing into an agent directory: the build-time
   `.agents/**` mirror was removed outright, because the CLI owns those paths and two writers on one set
   of paths meant the mirror silently overwriting a pinned install.
 

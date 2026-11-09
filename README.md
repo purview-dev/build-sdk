@@ -42,7 +42,7 @@ A reusable MSBuild SDK NuGet package that delivers standardised .NET project def
     "runner": "Microsoft.Testing.Platform"
   },
   "msbuild-sdks": {
-    "Purview.BuildSdk": "1.3.0"
+    "Purview.BuildSdk": "1.3.1"
   }
 }
 ```
@@ -201,7 +201,7 @@ to a low-importance message) and only a copy that still fails after every retry 
 The bootstrapped `.editorconfig` opens with a version marker:
 
 ```editorconfig
-# Purview.BuildSdk 1.3.0 - managed file, do not edit
+# Purview.BuildSdk 1.3.1 - managed file, do not edit
 ```
 
 That line is how the SDK recognises a file **it** wrote. When the SDK version changes, a file carrying
@@ -283,10 +283,20 @@ and recommends the command that fixes the difference. It never installs, updates
 as a side effect of a restore or a build.
 
 ```bash
-npx skills add purview-dev/build-sdk                # install, the ordinary way
+bun x skills add purview-dev/build-sdk              # install, the ordinary way
 dotnet msbuild <project> -t:RecommendPurviewSkills  # what is missing, drifted or unverifiable
 dotnet msbuild <project> -t:InstallPurviewSkills    # explicit; delegates to the CLI
+dotnet msbuild <project> -t:UpdatePurviewSkills     # re-add every skills-lock.json source, then 'skills update'
+dotnet msbuild <project> -t:CheckPurviewSkills      # only the PurviewSkillsAgents directories exist
+dotnet msbuild <project> -t:FixPurviewSkills        # remove the CLI's links from any other agent directory
 ```
+
+These run only when named: install, update and fix fail with `PRSKL0009` if anything pulls them into
+a build, a restore or a design-time build. `UpdatePurviewSkills` re-adds each source a restored package ships at the commit that package version
+was built from, so after upgrading a package reference it lands on the matching skills. Every other
+source is re-added at its latest. `PurviewSkillsAgents` is empty by default, so the CLI auto-detects
+agents; set it (for example `universal`) to choose, and `CheckPurviewSkills`/`FixPurviewSkills` then
+enforce that only those agents' skill directories exist.
 
 Compatibility is pinned by commit: a package's nuspec names the commit it was built from, the CLI
 accepts `owner/repo#<commit>` and records it, so a project on an older package version is never
@@ -298,8 +308,8 @@ to a different ref — the second is what a CI job calls. Reading the restore gr
 every build of every project was measured as the largest avoidable cost in an up-to-date build, so it
 no longer happens unless somebody asks for it.
 
-The CLI is launched through a package runner. `PurviewSkillsRunner` defaults to `npx` — which ships
-with Node itself — and also accepts `bunx`, `bun`, `pnpm`, `yarn`, `deno` or `skills`; anything else
+The CLI is launched through a package runner. `PurviewSkillsRunner` defaults to `bun` (`bun x
+skills`) and also accepts `npx`, `bunx`, `pnpm`, `yarn`, `deno` or `skills`; anything else
 falls through to `<runner> skills@1`. Because `skills-lock.json` and the agent directories belong to
 the repository rather than to a project, every skill target runs **from the repository root,
 always**, and reports `PRSKL0003` rather than falling back to a project folder when that root cannot
@@ -422,9 +432,11 @@ Non-packable projects (including web applications) default `WarnOnPackingNonPack
 | -- | -- | -- |
 | `PurviewSkillsLockFile` | `<repo root>/skills-lock.json` | Overrides where the skills CLI's lockfile is read from. |
 | `PurviewSkillsSourceFolder` | `<repo root>/skills` | Repository folder holding authored skills. |
-| `PurviewSkillsAgents` | `*` | Agents that `InstallPurviewSkills` installs to, and that recommended commands name. |
-| `PurviewSkillsRunner` | `npx` | Package runner used to launch the skills CLI (`npx`, `bunx`, `bun`, `pnpm`, `yarn`, `deno`, `skills`, or any other). |
-| `PurviewSkillsRunnerCandidates` | `npx;bunx;bun;pnpm;yarn;deno` | Runners probed on `PATH` after `PurviewSkillsRunner`. |
+| `PurviewSkillsAgents` | *(empty — the CLI auto-detects)* | Comma-separated agents the skill targets install to, and that recommended commands name. When set, `CheckPurviewSkills`/`FixPurviewSkills` allow only those agents' skill directories. |
+| `PurviewSkillsUpdateMode` | `Auto` | When `UpdatePurviewSkills` runs `skills update`: `Auto` (only when `skills-lock.json` changed), `Always` or `Never`. |
+| `PurviewSkillsDryRun` | `false` | When `true`, `InstallPurviewSkills` and `UpdatePurviewSkills` print the CLI commands without running them. |
+| `PurviewSkillsRunner` | `bun` | Package runner used to launch the skills CLI (`bun`, `npx`, `bunx`, `pnpm`, `yarn`, `deno`, `skills`, or any other). |
+| `PurviewSkillsRunnerCandidates` | `bun;npx;bunx;pnpm;yarn;deno` | Runners probed on `PATH` after `PurviewSkillsRunner`. |
 | `PurviewSkillsPackage` | `skills@1` | Package spec the executed launcher pins to. |
 | `PurviewSkillsInstallRoot` | *(resolved)* | Overrides the repository root every skill target runs from. |
 | `PurviewRepositoryRootMarkers` | `.git/;.github/;.gitattributes;LICENSE.md;AGENTS.md;.agents/;CLAUDE.md;.claude/;package.json` | Ordered markers identifying a repository root. The first is definitive and searched to the top; the rest resolve nearest-first. |
@@ -524,9 +536,11 @@ The SDK now exports its properties via `CompilerVisibleProperty`, so analyzers a
 | `PurviewAutoSdkPack` | When `true`, automatically packs the `Sdk/` folder contents into the NuGet package with the correct root-level paths. |
 | `PurviewSkillsLockFile` | Where the skills CLI's `skills-lock.json` is read from (default `<repo root>/skills-lock.json`). |
 | `PurviewSkillsSourceFolder` | Repository folder holding authored agent skills (default `<repo root>/skills`). |
-| `PurviewSkillsAgents` | Agents that `InstallPurviewSkills` installs to (default `*`). |
-| `PurviewSkillsRunner` | Package runner used to launch the skills CLI (default `npx`; also `bunx`, `bun`, `pnpm`, `yarn`, `deno`, `skills`). |
-| `PurviewSkillsRunnerCandidates` | Runners probed on `PATH` after `PurviewSkillsRunner` (default `npx;bunx;bun;pnpm;yarn;deno`). |
+| `PurviewSkillsAgents` | Comma-separated agents the skill targets install to (default empty: the CLI auto-detects). |
+| `PurviewSkillsUpdateMode` | When `UpdatePurviewSkills` runs `skills update`: `Auto` (default), `Always` or `Never`. |
+| `PurviewSkillsDryRun` | When `true`, `InstallPurviewSkills` and `UpdatePurviewSkills` print commands without running them. |
+| `PurviewSkillsRunner` | Package runner used to launch the skills CLI (default `bun`; also `npx`, `bunx`, `pnpm`, `yarn`, `deno`, `skills`). |
+| `PurviewSkillsRunnerCandidates` | Runners probed on `PATH` after `PurviewSkillsRunner` (default `bun;npx;bunx;pnpm;yarn;deno`). |
 | `PurviewSkillsPackage` | Package spec the executed launcher pins to (default `skills@1`). |
 | `PurviewSkillsInstallRoot` | Overrides the repository root every skill target runs from. |
 | `PurviewRepositoryRootMarkers` | Ordered markers identifying a repository root (default `.git/;.github/;.gitattributes;LICENSE.md;AGENTS.md;.agents/;CLAUDE.md;.claude/;package.json`). |

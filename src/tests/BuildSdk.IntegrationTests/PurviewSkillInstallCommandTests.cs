@@ -139,7 +139,7 @@ sealed class PurviewSkillInstallCommandTests
 	}
 
 	[Test]
-	public async Task SkillsRunner_DefaultsToNpx(CancellationToken cancellationToken)
+	public async Task SkillsRunner_DefaultsToBun(CancellationToken cancellationToken)
 	{
 		using var harness = await ProjectHarness.CreateAsync("SkillRunner", cancellationToken: cancellationToken);
 
@@ -149,8 +149,31 @@ sealed class PurviewSkillInstallCommandTests
 		);
 
 		await Assert.That(exitCode).IsZero().Because(TestHelpers.GenerateError(stdOut, stdErr));
-		// npx ships with Node itself, so it is the one runner a machine with Node at all has.
-		await Assert.That(stdOut.Trim()).IsEqualTo("npx");
+		await Assert.That(stdOut.Trim()).IsEqualTo("bun");
+	}
+
+	[Test]
+	public async Task InstallPurviewSkills_WithoutAgents_LetsTheCliAutoDetect(CancellationToken cancellationToken)
+	{
+		using var harness = await ProjectHarness.CreateAsync("SkillInstaller", cancellationToken: cancellationToken);
+
+		var packagesRoot = Path.Combine(harness.SolutionDirectory, "packages");
+		WriteFakePackage(packagesRoot, "Purview.Example", "1.2.3", ["purview-alpha"]);
+
+		var assetsPath = Path.Combine(harness.SolutionDirectory, "obj", "project.assets.json");
+		WriteAssetsFile(assetsPath, "Purview.Example", "1.2.3");
+
+		var (exitCode, stdOut, stdErr) = await harness.RunMSBuildAsync(
+			"-t:InstallPurviewSkills -v:n "
+				+ $"-p:ProjectAssetsFile=\"{assetsPath}\" -p:NuGetPackageFolders=\"{packagesRoot}\" "
+				+ $"-p:PurviewSkillsInstallRoot=\"{harness.SolutionDirectory}\" "
+				+ "-p:PurviewSkillsCommand=echo",
+			cancellationToken
+		);
+
+		await Assert.That(exitCode).IsZero().Because(TestHelpers.GenerateError(stdOut, stdErr));
+		await Assert.That(stdOut).Contains("--skill \"purview-alpha\" -y");
+		await Assert.That(stdOut).DoesNotContain("--agent");
 	}
 
 	/// <summary>
