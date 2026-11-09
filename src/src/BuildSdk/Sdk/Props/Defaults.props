@@ -85,9 +85,6 @@
 		     choose, and CheckPurviewSkills/FixPurviewSkills then enforce that only those agents'
 		     skill directories exist. -->
 		<PurviewSkillsAgents Condition="'$(PurviewSkillsAgents)' == ''"></PurviewSkillsAgents>
-		<!-- When UpdatePurviewSkills runs 'skills update' after re-adding every lockfile source:
-		     Auto (only when skills-lock.json changed), Always or Never. -->
-		<PurviewSkillsUpdateMode Condition="'$(PurviewSkillsUpdateMode)' == ''">Auto</PurviewSkillsUpdateMode>
 		<!-- Pinned to a major so a future breaking release of the CLI cannot change what the install
 		     target does. Recommendation text deliberately omits the pin: it is a command for a human
 		     to run, not a reproducible invocation. -->

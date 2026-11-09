@@ -286,7 +286,7 @@ as a side effect of a restore or a build.
 bun x skills add purview-dev/build-sdk              # install, the ordinary way
 dotnet msbuild <project> -t:RecommendPurviewSkills  # what is missing, drifted or unverifiable
 dotnet msbuild <project> -t:InstallPurviewSkills    # explicit; delegates to the CLI
-dotnet msbuild <project> -t:UpdatePurviewSkills     # re-add every skills-lock.json source, then 'skills update'
+dotnet msbuild <project> -t:UpdatePurviewSkills     # re-add every skills-lock.json source: refresh, and add new skills
 dotnet msbuild <project> -t:CheckPurviewSkills      # only the PurviewSkillsAgents directories exist
 dotnet msbuild <project> -t:FixPurviewSkills        # remove the CLI's links from any other agent directory
 ```
@@ -433,7 +433,6 @@ Non-packable projects (including web applications) default `WarnOnPackingNonPack
 | `PurviewSkillsLockFile` | `<repo root>/skills-lock.json` | Overrides where the skills CLI's lockfile is read from. |
 | `PurviewSkillsSourceFolder` | `<repo root>/skills` | Repository folder holding authored skills. |
 | `PurviewSkillsAgents` | *(empty — the CLI auto-detects)* | Comma-separated agents the skill targets install to, and that recommended commands name. When set, `CheckPurviewSkills`/`FixPurviewSkills` allow only those agents' skill directories. |
-| `PurviewSkillsUpdateMode` | `Auto` | When `UpdatePurviewSkills` runs `skills update`: `Auto` (only when `skills-lock.json` changed), `Always` or `Never`. |
 | `PurviewSkillsDryRun` | `false` | When `true`, `InstallPurviewSkills` and `UpdatePurviewSkills` print the CLI commands without running them. |
 | `PurviewSkillsRunner` | `bun` | Package runner used to launch the skills CLI (`bun`, `npx`, `bunx`, `pnpm`, `yarn`, `deno`, `skills`, or any other). |
 | `PurviewSkillsRunnerCandidates` | `bun;npx;bunx;pnpm;yarn;deno` | Runners probed on `PATH` after `PurviewSkillsRunner`. |
@@ -537,7 +536,6 @@ The SDK now exports its properties via `CompilerVisibleProperty`, so analyzers a
 | `PurviewSkillsLockFile` | Where the skills CLI's `skills-lock.json` is read from (default `<repo root>/skills-lock.json`). |
 | `PurviewSkillsSourceFolder` | Repository folder holding authored agent skills (default `<repo root>/skills`). |
 | `PurviewSkillsAgents` | Comma-separated agents the skill targets install to (default empty: the CLI auto-detects). |
-| `PurviewSkillsUpdateMode` | When `UpdatePurviewSkills` runs `skills update`: `Auto` (default), `Always` or `Never`. |
 | `PurviewSkillsDryRun` | When `true`, `InstallPurviewSkills` and `UpdatePurviewSkills` print commands without running them. |
 | `PurviewSkillsRunner` | Package runner used to launch the skills CLI (default `bun`; also `npx`, `bunx`, `pnpm`, `yarn`, `deno`, `skills`). |
 | `PurviewSkillsRunnerCandidates` | Runners probed on `PATH` after `PurviewSkillsRunner` (default `bun;npx;bunx;pnpm;yarn;deno`). |

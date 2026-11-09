@@ -170,7 +170,7 @@ because somebody named it.
 | `RecommendPurviewSkills` | Reports the state. Never fails a build. |
 | `VerifyPurviewSkills` | The same report, escalating `PRSKL0010`/`PRSKL0011` to an error. The CI gate. |
 | `InstallPurviewSkills` | Installs every skill the restored packages ship, pinned to each package's commit, via the skills CLI. |
-| `UpdatePurviewSkills` | Re-adds every source in `skills-lock.json` — package skills at their package's commit — then runs `skills update`. See [Updating](#updating). |
+| `UpdatePurviewSkills` | Re-adds every source in `skills-lock.json` — package skills at their package's commit — refreshing installed skills and adding new ones. See [Updating](#updating). |
 | `CheckPurviewSkills` | Fails when an agent skill directory exists for an agent `PurviewSkillsAgents` does not name. See [Choosing agents](#choosing-agents). |
 | `FixPurviewSkills` | Removes the CLI's links from those directories, keeping and reporting anything real. |
 | `ListPurviewSkills` | Lists what the restored packages ship. Installs nothing. |
@@ -183,7 +183,6 @@ A correctly installed set produces no output at all from either reporting target
 | -- | -- | -- |
 | `PurviewSkillsLockFile` | `<repo root>/skills-lock.json` | Overrides where the CLI's lockfile is read from. |
 | `PurviewSkillsAgents` | *(empty — the CLI auto-detects)* | Agents the skill targets install to and recommended commands name; when set, the only agent skill directories `CheckPurviewSkills` allows. |
-| `PurviewSkillsUpdateMode` | `Auto` | When `UpdatePurviewSkills` runs `skills update`: `Auto` (only when the lockfile changed), `Always` or `Never`. |
 | `PurviewSkillsDryRun` | `false` | Print the install and update commands without running them. |
 | `PurviewSkillsRunner` | `bun` | Package runner used to launch the CLI. |
 | `PurviewSkillsRunnerCandidates` | `bun;npx;bunx;pnpm;yarn;deno` | Probed in order after `PurviewSkillsRunner`. |
@@ -219,9 +218,9 @@ bun x skills add "purview-dev/purview-example#0123456789abcdef0123456789abcdef01
   --skill "purview-alpha" -y
 ```
 
-A bare re-add or `bun x skills update` is only right for skills no package version speaks for.
-`UpdatePurviewSkills` does both, but re-adds a package's skills at that package's commit first — and
-`skills update` re-fetches each entry at the ref the lockfile records, so it does not undo the pin.
+A re-add at latest is only right for skills no package version speaks for. `UpdatePurviewSkills`
+re-adds those at latest and a package's skills at that package's commit, and never runs
+`skills update`.
 
 > Note the repeated `--skill` flag. The CLI does not split a comma-separated value: given one, it
 > matches nothing and reports "No matching skills found".
@@ -255,7 +254,7 @@ Installation is **explicit**. None of these targets has `BeforeTargets`/`AfterTa
 ```bash
 dotnet msbuild <project> -t:ListPurviewSkills      # diagnostics only, installs nothing
 dotnet msbuild <project> -t:InstallPurviewSkills   # delegates to the skills CLI
-dotnet msbuild <project> -t:UpdatePurviewSkills    # re-add every lockfile source, then 'skills update'
+dotnet msbuild <project> -t:UpdatePurviewSkills    # re-add every lockfile source: refresh, and add new skills
 dotnet msbuild <project> -t:CheckPurviewSkills     # only the PurviewSkillsAgents directories exist
 dotnet msbuild <project> -t:FixPurviewSkills       # remove the CLI's links from any other agent directory
 ```
@@ -276,7 +275,7 @@ agent-specific destinations and their discovery conventions — which differ per
 independently of this SDK — and owns `skills-lock.json`.
 
 `InstallPurviewSkills` installs every skill the restored packages ship, not only the missing ones.
-Re-running it is idempotent: the CLI skips a skill already installed from the same source and ref.
+Re-running it is safe: the CLI reinstalls each skill it is given, replacing the installed copy.
 
 ### Updating
 
@@ -286,21 +285,23 @@ dotnet msbuild <project> -t:RecommendPurviewSkills   # optional: shows PRSKL0011
 dotnet msbuild <project> -t:UpdatePurviewSkills
 ```
 
-`UpdatePurviewSkills` reads `skills-lock.json` and re-adds each unique source once, naming only the
-skills the lockfile records for it — an update never installs a skill nobody asked for:
+`UpdatePurviewSkills` reads `skills-lock.json` and re-adds each unique source once. It updates with
+`skills add` rather than `skills update`, so a skill a source has gained since the last install is
+added as well as the installed ones refreshed:
 
 | Source | Re-added as |
 | -- | -- |
-| shipped by a restored package | `<owner/repo>#<commit>` — the commit that package version was built from, the same pinned add `PRSKL0011` recommends |
-| anything else | `<source>` — its latest |
+| shipped by a restored package | `<owner/repo>#<commit>`, naming every skill that package version ships — the commit it was built from, the same pinned add `PRSKL0011` recommends |
+| anything else | `<source> --skill "*"` — its latest, with every skill it has |
 
-Then it runs `skills update -y -p` according to `PurviewSkillsUpdateMode`: `Auto` (default) only when
-the re-adds changed the lockfile, `Always`, or `Never`. Every source is attempted even when one fails;
-each failure is named as `PRSKL0008`, and `skills update` is skipped. No lockfile is `PRSKL0007` —
+That is the whole update. `skills add` reinstalls every skill it selects, so one re-add refreshes the
+installed skills and adds the new ones; `skills update` would only re-fetch what the lockfile
+already lists, and is never run. Every source is attempted even when one fails, and each failure is
+named as `PRSKL0008`. No lockfile is `PRSKL0007` —
 install first. A CI job can then call `-t:VerifyPurviewSkills` to confirm nothing is left drifted.
 
 `InstallPurviewSkills` is also enough to move package skills to a new package version: it re-adds
-each at its package's commit, and the CLI skips one already at that ref.
+each at its package's commit.
 
 ### Choosing agents
 
@@ -563,9 +564,9 @@ Verified against the `skills` CLI v1.
 | `PRSKL0003` | The repository root could not be resolved, so there is nowhere correct to install |
 | `PRSKL0004` | No package runner was found on `PATH` |
 | `PRSKL0005` | An authored skill is malformed |
-| `PRSKL0006` | `PurviewSkillsUpdateMode` is not `Auto`, `Always` or `Never` |
+| `PRSKL0006` | Retired, with `PurviewSkillsUpdateMode`: update no longer runs `skills update` |
 | `PRSKL0007` | `UpdatePurviewSkills` found no `skills-lock.json` to update from |
-| `PRSKL0008` | Re-adding a lockfile source failed; `skills update` was skipped |
+| `PRSKL0008` | Re-adding a lockfile source failed |
 | `PRSKL0009` | Install, update or fix was pulled into a build, a restore or a design-time build |
 | `PRSKL0010` | Skills a referenced package ships are not installed |
 | `PRSKL0011` | Installed skills are pinned to a different ref than the referenced package |

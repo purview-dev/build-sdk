@@ -40,7 +40,7 @@ leave a placeholder:
 ```just
 skills_project := solution_file    # or a path, when the Justfile has no such variable
 
-# Update agent skills: re-add every skills-lock.json source, then 'skills update'
+# Update agent skills: re-add every skills-lock.json source, refreshing installed skills and adding new ones
 [group('Agent skills')]
 skills-update *args:
     dotnet msbuild "{{ skills_project }}" "-t:UpdatePurviewSkills;FixPurviewSkills" -v:n {{ args }}
@@ -135,7 +135,6 @@ Useful properties to pass through `*args`:
 | Property | Effect |
 | -- | -- |
 | `PurviewSkillsDryRun=true` | Print every CLI command; run none |
-| `PurviewSkillsUpdateMode=Always` | Run `skills update` even when the lockfile did not change (`Auto` default, `Never`) |
 | `PurviewSkillsRunner=npx` | Launch the CLI through another runner (`bunx`, `pnpm`, `yarn`, `deno`) |
 | `PurviewSkillsSource=owner/repo#ref` | `skills-install` from an explicit source with no package behind it |
 
@@ -146,7 +145,7 @@ Repositories often carry their own scripts for this. The SDK targets replace the
 | Hand-written | Replace with |
 | -- | -- |
 | `scripts/update-agent-skills.ts`, `"skills:update"` | `skills-update` (`UpdatePurviewSkills`) |
-| `--update` / `--no-update` | `-p:PurviewSkillsUpdateMode=Always` / `Never` |
+| `--update` / `--no-update` | Nothing: the re-add refreshes installed skills and adds new ones, so there is no separate `skills update` step to switch |
 | `--dry-run` | `-p:PurviewSkillsDryRun=true` |
 | `scripts/ensure-universal-skills.ts check`, `"skills:check"` | `skills-check` with `PurviewSkillsAgents=universal` |
 | `scripts/ensure-universal-skills.ts fix`, `"skills:fix"` | `skills-fix` |
@@ -156,8 +155,9 @@ Two behaviours differ, deliberately — mention them when migrating:
 
 - A source a referenced package ships is re-added **at that package's commit**, not at latest, so its
   skills keep matching the package version. Other sources are re-added at latest, as before.
-- Only the skills `skills-lock.json` records for a source are re-added, not `-s '*'`, so an update
-  never installs a skill nobody chose.
+- Update is `skills add`, not `skills update`, so it also installs skills a source has **gained**: a
+  package source gets every skill its referenced version ships, and any other source is re-added with
+  `--skill "*"`.
 
 After switching, delete the scripts and their `package.json` entries, and remove `package.json`
 itself if nothing else uses it. Run `just skills-update -p:PurviewSkillsDryRun=true` and compare the

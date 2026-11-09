@@ -413,9 +413,6 @@
 		<CompilerVisibleProperty Include="PurviewSkillsAgents">
 			<Description>Comma-separated agents the skill targets install to. Empty (the default) lets the skills CLI auto-detect; when set, CheckPurviewSkills and FixPurviewSkills allow only those agents' skill directories.</Description>
 		</CompilerVisibleProperty>
-		<CompilerVisibleProperty Include="PurviewSkillsUpdateMode">
-			<Description>When UpdatePurviewSkills runs 'skills update' after re-adding every lockfile source: Auto (only when skills-lock.json changed), Always or Never. Defaults to Auto.</Description>
-		</CompilerVisibleProperty>
 		<CompilerVisibleProperty Include="PurviewSkillsDryRun">
 			<Description>When true, InstallPurviewSkills and UpdatePurviewSkills print the skills CLI commands without running them.</Description>
 		</CompilerVisibleProperty>
