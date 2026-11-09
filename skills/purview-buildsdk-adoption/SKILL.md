@@ -106,7 +106,7 @@ cleaning them up are separate targets a person runs by name — `InstallPurviewS
 repository refuse to run inside a build (`PRSKL0009`). Do not hook them into one. The skills CLI does
 the installing, through `bun x` by default; with `PurviewSkillsAgents` unset it auto-detects agents.
 
-If the repository uses `just`, add recipes for them — see `purview-buildsdk-justfile`. For what each
+If the repository uses `just`, add recipes for them — see `purview-buildsdk-skills-justfile`. For what each
 target does and the `PRSKL*` diagnostics, see `purview-buildsdk-skill-installation`.
 
 ## Constraints

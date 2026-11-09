@@ -76,13 +76,17 @@ sealed class PurviewSkillUpdateTests
 		await Assert
 			.That(output)
 			.Contains($"add \"{PackageSource}#{SkillPackageFixtures.DefaultCommit}\" --skill \"purview-alpha\"");
-		// Every other source is re-added once, naming only the skills the lockfile records for it.
-		await Assert.That(output).Contains($"add \"{OtherSource}\" --skill \"frontend-design\" --skill \"web-design\"");
+		// Every other source is re-added once, with every skill it has, so a skill the repository has
+		// gained since the last install comes in too.
+		await Assert.That(output).Contains($"add \"{OtherSource}\" --skill \"*\"");
+		await Assert.That(output).DoesNotContain("--skill \"web-design\"");
 		await Assert.That(output).DoesNotContain(OldCommit + "\" --skill");
 		// No agents named: the CLI auto-detects, so no agent flag is passed.
 		await Assert.That(output).DoesNotContain("--agent");
-		// 'echo' leaves the lockfile untouched, so Auto skips 'skills update'.
-		await Assert.That(output).Contains("skipped 'echo update -y -p'");
+		// The re-adds are the whole update: 'skills add' refreshes installed skills and adds new ones,
+		// so 'skills update' is never run.
+		await Assert.That(output).Contains("2 source(s) refreshed.");
+		await Assert.That(output).DoesNotContain("echo update");
 	}
 
 	[Test]
@@ -106,21 +110,31 @@ sealed class PurviewSkillUpdateTests
 	}
 
 	[Test]
-	public async Task Update_ModeAlways_RunsSkillsUpdate(CancellationToken cancellationToken)
+	public async Task Update_AddsASkillThePackageHasGained(CancellationToken cancellationToken)
 	{
 		using var harness = await ProjectHarness.CreateAsync("SkillUpdate", cancellationToken: cancellationToken);
 		GivenInstalledSkills(harness);
+		// The referenced version now ships a second skill the lockfile has never recorded.
+		SkillPackageFixtures.WritePackage(
+			Path.Combine(harness.SolutionDirectory, "packages"),
+			PackageId,
+			PackageVersion,
+			["purview-alpha", "purview-beta"]
+		);
 
 		var (code, output) = await RunAsync(
 			harness,
 			"UpdatePurviewSkills",
-			"-p:PurviewSkillsCommand=echo -p:PurviewSkillsUpdateMode=Always",
+			"-p:PurviewSkillsCommand=echo",
 			cancellationToken
 		);
 
 		await Assert.That(code).IsZero().Because(output);
-		await Assert.That(output).Contains("Agent skills: echo update -y -p");
-		await Assert.That(output).Contains("refreshed and updated");
+		await Assert
+			.That(output)
+			.Contains(
+				$"add \"{PackageSource}#{SkillPackageFixtures.DefaultCommit}\" --skill \"purview-alpha\" --skill \"purview-beta\""
+			);
 	}
 
 	[Test]
@@ -143,7 +157,7 @@ sealed class PurviewSkillUpdateTests
 	}
 
 	[Test]
-	public async Task Update_AFailedSource_IsNamed_AndSkillsUpdateIsSkipped(CancellationToken cancellationToken)
+	public async Task Update_EveryFailedSource_IsNamed(CancellationToken cancellationToken)
 	{
 		using var harness = await ProjectHarness.CreateAsync("SkillUpdate", cancellationToken: cancellationToken);
 		GivenInstalledSkills(harness);
@@ -152,7 +166,7 @@ sealed class PurviewSkillUpdateTests
 		var (code, output) = await RunAsync(
 			harness,
 			"UpdatePurviewSkills",
-			"\"-p:PurviewSkillsCommand=dotnet purview-no-such-command\" -p:PurviewSkillsUpdateMode=Always",
+			"\"-p:PurviewSkillsCommand=dotnet purview-no-such-command\"",
 			cancellationToken
 		);
 
@@ -160,7 +174,7 @@ sealed class PurviewSkillUpdateTests
 		await Assert.That(output).Contains("PRSKL0008");
 		await Assert.That(output).Contains($"re-adding '{OtherSource}' failed");
 		await Assert.That(output).Contains($"re-adding '{PackageSource}#{SkillPackageFixtures.DefaultCommit}' failed");
-		await Assert.That(output).DoesNotContain("Agent skills: dotnet purview-no-such-command update");
+		await Assert.That(output).DoesNotContain("source(s) refreshed.");
 	}
 
 	[Test]

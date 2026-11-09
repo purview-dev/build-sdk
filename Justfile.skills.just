@@ -48,13 +48,14 @@ skills-list *args:
 skills-recommend *args:
     dotnet msbuild "{{ skills_project }}" -t:RecommendPurviewSkills -v:n {{ args }}
 
-# Update the agent skills by re-adding every unique source in skills-lock.json, then 'skills update'
+# Update the agent skills by re-adding every unique source in skills-lock.json
 #
-# Skills a referenced package ships are re-added at that package's commit. When PurviewSkillsAgents
+# The re-add refreshes installed skills and adds any a source has gained; 'skills update' is never
+# run. Skills a referenced package ships are re-added at that package's commit. When PurviewSkillsAgents
 # is set, the agent directories it does not select are cleaned up afterwards (FixPurviewSkills);
 # when it is not, the skills CLI auto-detects agents and the cleanup does nothing.
 #
-#   just skills-update -p:PurviewSkillsUpdateMode=Always -p:PurviewSkillsDryRun=true
+#   just skills-update -p:PurviewSkillsDryRun=true
 #   just skills-update -p:PurviewSkillsRunner=npx -p:PurviewSkillsAgents=universal
 #
 # Update the agent skills by re-adding every unique source in skills-lock.json

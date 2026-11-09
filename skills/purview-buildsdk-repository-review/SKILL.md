@@ -101,7 +101,7 @@ reference that ships skills:
 - **Hand-written skill scripts** (`update-agent-skills.ts`, `ensure-universal-skills.ts`,
   `package.json` `skills:*` entries) are an incremental opportunity: the SDK targets replace them, and
   pin package skills to their package's commit where the scripts install latest. See
-  `purview-buildsdk-justfile`.
+  `purview-buildsdk-skills-justfile`.
 - **Drift**: run `dotnet msbuild <project> -t:RecommendPurviewSkills` and quote any `PRSKL0010`/`PRSKL0011`.
 - **Layout**: if `PurviewSkillsAgents` is set, run `-t:CheckPurviewSkills` and quote any `PRSKL0015`.
   If it is not set, every agent directory is legitimate — that is acceptable variance, not a finding.

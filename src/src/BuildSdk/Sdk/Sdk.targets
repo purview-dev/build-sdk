@@ -990,20 +990,17 @@
 	<!-- =====================================================================
 	     READ LOCKFILE SOURCES
 	     Turns the CLI's skills-lock.json into the set of 'skills add' calls
-	     that refresh it: one per unique source, naming only the skills the
-	     lockfile records for that source, so an update never installs a
-	     skill nobody asked for.
+	     that refresh it: one per unique source. Update is 'add', not 'skills
+	     update', so that it brings in skills a source has gained as well as
+	     refreshing the ones already installed.
 
 	     A source a restored package ships is pinned to the commit that package
-	     version was built from, exactly as InstallPurviewSkills pins it -
-	     re-adding it unpinned would install the newest skill and turn a
-	     satisfied entry into PRSKL0011 drift. Every other source is re-added
-	     as recorded but without its ref, which is what "update" means for a
-	     skill no package version speaks for.
-
-	     Also returns a hash of the lockfile, so the caller can tell whether a
-	     refresh changed anything without comparing file contents in a
-	     Condition, where a quote in the JSON would break the expression.
+	     version was built from, exactly as InstallPurviewSkills pins it, and
+	     names every skill that package version ships - re-adding it unpinned
+	     would install the newest skill and turn a satisfied entry into
+	     PRSKL0011 drift. Every other source is re-added at latest with every
+	     skill it has (the skill name '*'), which is what "update" means for a
+	     source no package version speaks for.
 	     ===================================================================== -->
 	<UsingTask
 		TaskName="ReadPurviewSkillsLockSources"
@@ -1014,14 +1011,11 @@
 			<LockFilePath ParameterType="System.String" Required="true" />
 			<SkillSources ParameterType="Microsoft.Build.Framework.ITaskItem[]" Required="false" />
 			<LockFileFound ParameterType="System.Boolean" Output="true" />
-			<LockFileHash ParameterType="System.String" Output="true" />
 			<UpdateSources ParameterType="Microsoft.Build.Framework.ITaskItem[]" Output="true" />
 		</ParameterGroup>
 		<Task>
 			<Using Namespace="System.IO" />
 			<Using Namespace="System.Linq" />
-			<Using Namespace="System.Security.Cryptography" />
-			<Using Namespace="System.Text" />
 			<Using Namespace="System.Text.RegularExpressions" />
 			<Using Namespace="Microsoft.Build.Framework" />
 			<Using Namespace="Microsoft.Build.Utilities" />
@@ -1030,7 +1024,6 @@
 			<Code Type="Fragment" Language="cs">
 				<![CDATA[
 					var updates = new List<ITaskItem>();
-					LockFileHash = string.Empty;
 					LockFileFound = File.Exists(LockFilePath);
 
 					var lockText = string.Empty;
@@ -1043,13 +1036,6 @@
 
 					if (LockFileFound)
 					{
-						using (var sha = SHA256.Create())
-						{
-							LockFileHash = string.Concat(
-								sha.ComputeHash(Encoding.UTF8.GetBytes(lockText)).Select(value => value.ToString("x2"))
-							);
-						}
-
 						// Same reading as EvaluatePurviewSkillState: walk to the brace that closes the
 						// 'skills' object, then one regex per flat entry.
 						var namesBySource = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
@@ -1112,11 +1098,10 @@
 							}
 							else
 							{
+								// Every skill the source has now, not just the ones recorded: re-adding is
+								// how an update picks up a skill the source has gained since.
 								created = new TaskItem(pair.Key);
-								created.SetMetadata(
-									"Skills",
-									string.Join(";", pair.Value.OrderBy(name => name, StringComparer.OrdinalIgnoreCase))
-								);
+								created.SetMetadata("Skills", "*");
 								created.SetMetadata("Origin", "skills-lock.json");
 							}
 
@@ -2914,8 +2899,8 @@
 			Text="No restored package ships installable agent skills. Run -t:ListPurviewSkills for detail."
 		/>
 
-		<!-- One invocation per package. '-y' keeps it non-interactive, and re-running is idempotent:
-		     the CLI skips a skill already installed from the same source and ref.
+		<!-- One invocation per package. '-y' keeps it non-interactive, and re-running is safe: the
+		     CLI reinstalls every skill it is given, replacing an installed copy with the same content.
 
 		     The skills are named explicitly rather than installed with '*', so a source repository
 		     that also holds skills this package does not ship contributes only what was resolved.
@@ -2956,23 +2941,22 @@
 
 	       -t:UpdatePurviewSkills
 
-	     Re-adds every unique source recorded in skills-lock.json, then runs
-	     'skills update -y -p' to refresh what the re-adds did not touch. A
-	     source a restored package ships is re-added at that package's commit,
-	     so an update after a package upgrade lands on the matching skills and
-	     never moves a package's skills past the version referenced. 'skills
-	     update' re-fetches each entry at the ref the lockfile records, so it
-	     cannot undo that pin.
+	     Re-adds every unique source recorded in skills-lock.json, and that is
+	     the whole update. 'skills add' reinstalls every skill it selects -
+	     the CLI cleans each skill's folder and copies it again (skills 1.7.6,
+	     installSkillForAgent) - so one re-add both refreshes the installed
+	     skills and adds any the source has gained. 'skills update' would only
+	     re-fetch entries already in the lockfile, so it adds nothing a re-add
+	     has not already done, and is never run.
 
-	     PurviewSkillsUpdateMode decides when 'skills update' runs:
-	       Auto    only when the re-adds changed skills-lock.json (default)
-	       Always  every time
-	       Never   not at all
+	     A source a restored package ships is re-added at that package's
+	     commit, so an update after a package upgrade lands on the matching
+	     skills and never moves a package's skills past the version referenced.
 	     PurviewSkillsDryRun=true prints every command and runs none of them.
 
 	     Every source is attempted even when one fails, and each failure is
 	     reported by name, so one unreachable repository does not hide the
-	     state of the rest. 'skills update' is skipped after any failure.
+	     state of the rest.
 	     ===================================================================== -->
 	<Target
 		Name="_PrepareUpdatePurviewSkills"
@@ -2986,16 +2970,9 @@
 		<PropertyGroup>
 			<PurviewSkillsLockFile Condition="'$(PurviewSkillsLockFile)' == ''"
 				>$([MSBuild]::NormalizePath('$(_PurviewSkillsRepositoryRoot)', 'skills-lock.json'))</PurviewSkillsLockFile>
-			<PurviewSkillsUpdateMode Condition="'$(PurviewSkillsUpdateMode)' == ''">Auto</PurviewSkillsUpdateMode>
 		</PropertyGroup>
-		<Error
-			Code="PRSKL0006"
-			Condition="'$(PurviewSkillsUpdateMode)' != 'Auto' AND '$(PurviewSkillsUpdateMode)' != 'Always' AND '$(PurviewSkillsUpdateMode)' != 'Never'"
-			Text="PurviewSkillsUpdateMode is '$(PurviewSkillsUpdateMode)'. Use Auto (run 'skills update' only when the lockfile changed), Always or Never."
-		/>
 		<ReadPurviewSkillsLockSources LockFilePath="$(PurviewSkillsLockFile)" SkillSources="@(PurviewSkillSource)">
 			<Output TaskParameter="LockFileFound" PropertyName="_PurviewSkillsUpdateLockFileFound" />
-			<Output TaskParameter="LockFileHash" PropertyName="_PurviewSkillsLockHashBefore" />
 			<Output TaskParameter="UpdateSources" ItemName="_PurviewSkillsUpdateSource" />
 		</ReadPurviewSkillsLockSources>
 		<Error
@@ -3046,7 +3023,7 @@
 	<Target
 		Name="UpdatePurviewSkills"
 		DependsOnTargets="_GuardExplicitPurviewSkillsTarget;_ResolvePurviewSkillsProjects"
-		Label="Re-adds every source in skills-lock.json, pinning package skills to their package's commit, then runs 'skills update'."
+		Label="Re-adds every source in skills-lock.json, pinning package skills to their package's commit."
 	>
 		<MSBuild
 			Projects="$(_PurviewSkillsLeaderProject)"
@@ -3064,62 +3041,22 @@
 			Condition="'@(_PurviewSkillsUpdateSource)' == ''"
 			Text="Agent skills: no sources recorded in $(PurviewSkillsLockFile)."
 		/>
-		<!-- ErrorAndContinue so every failed source is named, not just the first; everything below
-		     is then skipped by its condition. -->
+		<!-- ErrorAndContinue so every failed source is named, not just the first. -->
 		<Error
 			Code="PRSKL0008"
 			Condition="'@(_PurviewSkillsUpdateFailure)' != ''"
 			ContinueOnError="ErrorAndContinue"
-			Text="Agent skills: re-adding '%(_PurviewSkillsUpdateFailure.Identity)' failed with exit code %(_PurviewSkillsUpdateFailure.ExitCode). 'skills update' was skipped."
+			Text="Agent skills: re-adding '%(_PurviewSkillsUpdateFailure.Identity)' failed with exit code %(_PurviewSkillsUpdateFailure.ExitCode)."
 		/>
-		<PropertyGroup>
-			<_PurviewSkillsUpdateFailed Condition="'@(_PurviewSkillsUpdateFailure)' != ''"
-				>true</_PurviewSkillsUpdateFailed>
-		</PropertyGroup>
-
-		<PropertyGroup>
-			<_PurviewSkillsUpdateCommand>$(PurviewSkillsCommand) update -y -p</_PurviewSkillsUpdateCommand>
-		</PropertyGroup>
 		<Message
 			Importance="High"
 			Condition="'@(_PurviewSkillsUpdateSource)' != '' AND '$(PurviewSkillsDryRun)' == 'true'"
-			Text="Agent skills: dry run, @(_PurviewSkillsUpdateSource->Count()) source(s), nothing changed. 'skills update' would run per PurviewSkillsUpdateMode=$(PurviewSkillsUpdateMode): $(_PurviewSkillsUpdateCommand)"
-		/>
-
-		<ReadPurviewSkillsLockSources
-			Condition="'@(_PurviewSkillsUpdateSource)' != '' AND '$(PurviewSkillsDryRun)' != 'true' AND '$(_PurviewSkillsUpdateFailed)' != 'true'"
-			LockFilePath="$(PurviewSkillsLockFile)"
-		>
-			<Output TaskParameter="LockFileHash" PropertyName="_PurviewSkillsLockHashAfter" />
-		</ReadPurviewSkillsLockSources>
-		<PropertyGroup Condition="'@(_PurviewSkillsUpdateSource)' != '' AND '$(PurviewSkillsDryRun)' != 'true' AND '$(_PurviewSkillsUpdateFailed)' != 'true'">
-			<_PurviewSkillsRunUpdate>false</_PurviewSkillsRunUpdate>
-			<_PurviewSkillsRunUpdate Condition="'$(PurviewSkillsUpdateMode)' == 'Always'">true</_PurviewSkillsRunUpdate>
-			<_PurviewSkillsRunUpdate
-				Condition="'$(PurviewSkillsUpdateMode)' == 'Auto' AND '$(_PurviewSkillsLockHashAfter)' != '$(_PurviewSkillsLockHashBefore)'"
-				>true</_PurviewSkillsRunUpdate>
-		</PropertyGroup>
-
-		<Message
-			Importance="High"
-			Condition="'@(_PurviewSkillsUpdateSource)' != '' AND '$(PurviewSkillsDryRun)' != 'true' AND '$(_PurviewSkillsUpdateFailed)' != 'true' AND '$(_PurviewSkillsRunUpdate)' != 'true'"
-			Text="Agent skills: @(_PurviewSkillsUpdateSource->Count()) source(s) refreshed; skipped '$(_PurviewSkillsUpdateCommand)' (PurviewSkillsUpdateMode=$(PurviewSkillsUpdateMode))."
+			Text="Agent skills: dry run, @(_PurviewSkillsUpdateSource->Count()) source(s), nothing changed."
 		/>
 		<Message
 			Importance="High"
-			Condition="'$(_PurviewSkillsRunUpdate)' == 'true'"
-			Text="Agent skills: $(_PurviewSkillsUpdateCommand)"
-		/>
-		<Exec
-			Condition="'$(_PurviewSkillsRunUpdate)' == 'true'"
-			Command="$(_PurviewSkillsUpdateCommand)"
-			WorkingDirectory="$(_PurviewSkillsRepositoryRoot)"
-			StandardOutputImportance="High"
-		/>
-		<Message
-			Importance="High"
-			Condition="'$(_PurviewSkillsRunUpdate)' == 'true'"
-			Text="Agent skills: @(_PurviewSkillsUpdateSource->Count()) source(s) refreshed and updated."
+			Condition="'@(_PurviewSkillsUpdateSource)' != '' AND '$(PurviewSkillsDryRun)' != 'true' AND '@(_PurviewSkillsUpdateFailure)' == ''"
+			Text="Agent skills: @(_PurviewSkillsUpdateSource->Count()) source(s) refreshed."
 		/>
 	</Target>
 
@@ -3390,7 +3327,7 @@
 	       -t:RecommendPurviewSkills   report the state, never fail
 	       -t:VerifyPurviewSkills      the same state, as a build failure
 	       -t:InstallPurviewSkills     install or update, pinned to each package's commit
-	       -t:UpdatePurviewSkills      re-add every lockfile source, then 'skills update'
+	       -t:UpdatePurviewSkills      re-add every lockfile source: refresh, and add new skills
 	       -t:CheckPurviewSkills       only the selected agents' skill directories exist
 	       -t:FixPurviewSkills         remove the CLI's links from any other agent directory
 	       -t:ListPurviewSkills        what the restored packages ship
