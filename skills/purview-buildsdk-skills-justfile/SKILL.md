@@ -1,5 +1,5 @@
 ---
-name: purview-buildsdk-justfile
+name: purview-buildsdk-skills-justfile
 description: Add or update Justfile recipes that run Purview.BuildSdk's agent-skill targets - skills-update, skills-check, skills-fix, skills-install, skills-recommend and skills-verify. Use when a repository wants a just recipe to update, install, check or clean up its agent skills, when replacing hand-written skill scripts (update-agent-skills.ts, ensure-universal-skills.ts, package.json skills:* scripts) with the SDK targets, or when an existing skills recipe runs the wrong project, the wrong runner or the wrong agents.
 license: MIT
 metadata:

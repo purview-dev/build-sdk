@@ -10,7 +10,7 @@ metadata:
 # Installing the skills a package ships
 
 For *authoring* skills, use `purview-buildsdk-skill-tests`; for `just` recipes that run these
-targets, `purview-buildsdk-justfile`.
+targets, `purview-buildsdk-skills-justfile`.
 
 ## The one thing to understand first
 
@@ -46,7 +46,7 @@ Name **the solution**. Skills belong to the repository, so each target runs once
 projects the solution holds: every project hands the work to the same elected leader, and MSBuild
 runs it once. Package resolution reads every project in the solution, so a package only one project
 references is still found. A single project works too, but sees only its own packages. For `just`
-recipes that run these targets, see `purview-buildsdk-justfile`.
+recipes that run these targets, see `purview-buildsdk-skills-justfile`.
 
 ## How a skill is resolved, and why the version is always right
 

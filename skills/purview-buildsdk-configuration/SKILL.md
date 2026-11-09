@@ -116,7 +116,7 @@ on the command line, and a repository-wide choice belongs in `Directory.Build.pr
 | `PurviewSkillsDryRun` | `false` | Install and update print commands instead of running them |
 
 On a command line, `dotnet msbuild -p:` splits values on `,` and `;` — write
-`-p:PurviewSkillsAgents=claude-code%2Ccodex`. For `just` recipes, see `purview-buildsdk-justfile`.
+`-p:PurviewSkillsAgents=claude-code%2Ccodex`. For `just` recipes, see `purview-buildsdk-skills-justfile`.
 
 ## Guidance when changing SDK configuration
 

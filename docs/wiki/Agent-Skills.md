@@ -269,7 +269,7 @@ however many projects it holds, because every project hands the work to the same
 project and MSBuild's result cache runs it once. Package resolution reads every project in the
 solution, so a package only a test project references is still found; a single project sees only its
 own packages. For `just` recipes, see the
-[`purview-buildsdk-justfile` skill](../../skills/purview-buildsdk-justfile/SKILL.md).
+[`purview-buildsdk-skills-justfile` skill](../../skills/purview-buildsdk-skills-justfile/SKILL.md).
 
 `InstallPurviewSkills` shells out to the CLI rather than reimplementing it, because the CLI owns the
 agent-specific destinations and their discovery conventions — which differ per agent and change

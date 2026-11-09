@@ -77,7 +77,7 @@ The authored set, and what each one answers:
 | [`purview-buildsdk-skill-tests`](./skills/purview-buildsdk-skill-tests/SKILL.md) | authoring a skill, and validating it with `Purview.Skills.Testing` |
 | [`purview-buildsdk-skill-installation`](./skills/purview-buildsdk-skill-installation/SKILL.md) | installing the skills a package ships, and the `PRSKL*` diagnostics |
 | [`purview-buildsdk-repository-review`](./skills/purview-buildsdk-repository-review/SKILL.md) | auditing a repository against the SDK's conventions |
-| [`purview-buildsdk-justfile`](./skills/purview-buildsdk-justfile/SKILL.md) | adding or updating `just` recipes that run the skill targets |
+| [`purview-buildsdk-skills-justfile`](./skills/purview-buildsdk-skills-justfile/SKILL.md) | adding or updating `just` recipes that run the skill targets |
 
 After editing one, run `just skills-validate` for the pack-time check and `just test` for the full rule set.
 
