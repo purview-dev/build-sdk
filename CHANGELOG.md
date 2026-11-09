@@ -11,6 +11,30 @@ release summarise what the commits recorded rather than what was written at the 
 
 ## [Unreleased]
 
+## [1.3.2] - 2026-11-09
+
+### Changed
+
+- **`UpdatePurviewSkills` is re-add only.** `skills add` reinstalls every skill it selects, so one
+  re-add both refreshes the installed skills and adds any a source has gained; the trailing
+  `skills update -y -p` added nothing and is no longer run.
+- **`UpdatePurviewSkills` picks up new skills from every source.** A source no package ships used to be
+  re-added naming only the skills `skills-lock.json` recorded, so a skill added to that repository
+  since the last install was never installed. It is now re-added with `--skill "*"`. Package sources
+  are unchanged: pinned to the package's commit, naming every skill that version ships.
+- **The `purview-buildsdk-justfile` skill is now `purview-buildsdk-skills-justfile`.** A repository
+  that installed the old name keeps it until it is removed: run `npx skills add purview-dev/build-sdk`
+  for the new one and `npx skills remove purview-buildsdk-justfile` for the old.
+- The skills-justfile skill now picks `skills_project` itself: an existing `Justfile` solution variable
+  first, then a solution path an existing recipe uses, then the repository's only solution file.
+
+### Removed
+
+- `PurviewSkillsUpdateMode`, and `PRSKL0006` with it: there is no `skills update` step left to
+  schedule. A value still set is ignored.
+
+## [1.3.1] - 2026-11-09
+
 ### Added
 
 - **`UpdatePurviewSkills`** re-adds every unique source in `skills-lock.json`, naming only the skills
@@ -394,7 +418,10 @@ dotnet msbuild <project> -t:VerifyPurviewSkills
 - `.editorconfig` values missing test projects.
 - Source-generator resolution on pack.
 
-[Unreleased]: https://github.com/purview-dev/build-sdk/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/purview-dev/build-sdk/compare/v1.3.2...HEAD
+[1.3.2]: https://github.com/purview-dev/build-sdk/compare/v1.3.1...v1.3.2
+[1.3.1]: https://github.com/purview-dev/build-sdk/compare/v1.3.0...v1.3.1
+[1.3.0]: https://github.com/purview-dev/build-sdk/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/purview-dev/build-sdk/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/purview-dev/build-sdk/compare/v1.0.7...v1.1.0
 [1.0.7]: https://github.com/purview-dev/build-sdk/compare/v1.0.6...v1.0.7

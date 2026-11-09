@@ -14,7 +14,7 @@ Add `Purview.BuildSdk` to the `msbuild-sdks` section so MSBuild can resolve the 
     "runner": "Microsoft.Testing.Platform"
   },
   "msbuild-sdks": {
-    "Purview.BuildSdk": "1.3.1"
+    "Purview.BuildSdk": "1.3.2"
   }
 }
 ```
