@@ -15,11 +15,13 @@
 	     ===================================================================== -->
 	<PropertyGroup Label="Defining Shared Project Names">
 		<_SharedProjectNames>;Shared;SharedFramework;SharedInfrastructure;SharedInfra;SharedUtilities;SharedUtils;SharedLibrary;SharedLib;SharedHelpers;</_SharedProjectNames>
+		<_ServerSharedProjectNames>;ServerShared;ServerSharedFramework;ServerSharedInfrastructure;ServerSharedInfra;ServerSharedUtilities;ServerSharedUtils;ServerSharedLibrary;ServerSharedLib;ServerSharedHelpers;</_ServerSharedProjectNames>
 		<_SharedTestingProjectNames>;SharedTestingFramework;SharedTestingInfrastructure;SharedTestingInfra;SharedTestingUtilities;SharedTestingUtils;SharedTestingLibrary;SharedTestingLib;SharedTestingHelpers;</_SharedTestingProjectNames>
 	</PropertyGroup>
 
 	<ItemGroup Label="Defining Shared Project Names">
 		<SharedProjectName Include="$(_SharedProjectNames)" />
+		<ServerSharedProjectName Include="$(_ServerSharedProjectNames)" />
 		<SharedTestingProjectName Include="$(_SharedTestingProjectNames)" />
 	</ItemGroup>
 
@@ -41,6 +43,9 @@
      repository really wants it collapsed.
      ===================================================================== -->
 	<ItemGroup Label="Defining Namespace Suffixes to Remove from RootNamespace">
+		<!-- ServerShared before Shared: the strip is a single pass, so the longest candidate must win or
+		     'MyApp.ServerShared' becomes 'MyApp.Server'. -->
+		<NamespaceRemoveSuffix Include="@(ServerSharedProjectName)" />
 		<NamespaceRemoveSuffix Include="@(SharedProjectName)" />
 		<NamespaceRemoveSuffix Include="@(SharedTestingProjectName)" />
 
@@ -183,7 +188,7 @@
 			  2. Only *unconditional* declarations are matched. A `Condition` attribute cannot be evaluated
 			     at this point, and guessing either way is worse than not matching: treating a conditioned
 			     `<TargetFramework Condition="...">` as a declaration makes this SDK skip its
-			     `netstandard2.0` Roslyn default, the generic `net10.0` default fill in, and - when the
+			     `netstandard2.0` Roslyn default, the generic default fill in, and - when the
 			     condition does not fire - an analyzer ship on a TFM the IDE cannot load. A conditioned
 			     declaration is reported by `PurviewValidateUnconditionalProjectDeclarations` in Sdk.targets
 			     instead of being silently misread.
@@ -309,6 +314,9 @@
 		<IsSharedProject
 			Condition="$([System.String]::Copy('$(_SharedProjectNames)').Contains(';$(MSBuildProjectName);')) == 'True'"
 			>true</IsSharedProject>
+		<IsServerSharedProject
+			Condition="$([System.String]::Copy('$(_ServerSharedProjectNames)').Contains(';$(MSBuildProjectName);')) == 'True'"
+			>true</IsServerSharedProject>
 		<PurviewNamespacePrefix Condition="'$(PurviewNamespacePrefix)' == ''"
 			>$(NamespacePrefix)</PurviewNamespacePrefix>
 		<NamespacePrefix Condition="'$(NamespacePrefix)' == ''">$(PurviewNamespacePrefix)</NamespacePrefix>
@@ -535,13 +543,31 @@
 			<Description>When true, PRBLZ0001 is reported as an error instead of a warning. Defaults to false.</Description>
 		</CompilerVisibleProperty>
 		<CompilerVisibleProperty Include="DisablePurviewBlazorWebAssemblyDefaults">
-			<Description>When true, a Blazor WebAssembly client keeps the generic defaults (packable when asked, container detection, the automatic Shared reference). Set before the SDK import.</Description>
+			<Description>When true, a Blazor WebAssembly client keeps the generic defaults (packable when asked, container detection, the automatic Shared reference). Set before the SDK import. ServerShared is never added to a client-side project, whatever this says.</Description>
 		</CompilerVisibleProperty>
 		<CompilerVisibleProperty Include="PurviewAutoBlazorClientReference">
 			<Description>When false, a host named Name does not automatically reference its Name.Client WebAssembly client. Defaults to true.</Description>
 		</CompilerVisibleProperty>
 		<CompilerVisibleProperty Include="PurviewBffExposesApi">
 			<Description>When true, a BFF keeps the OpenAPI interceptor namespace. Defaults to true only when the BFF references Microsoft.AspNetCore.OpenApi.</Description>
+		</CompilerVisibleProperty>
+		<CompilerVisibleProperty Include="PurviewAutoServerSharedReference">
+			<Description>When false, a server-side project does not automatically reference a sibling ServerShared project. Client-side projects never get one. Defaults to true.</Description>
+		</CompilerVisibleProperty>
+		<CompilerVisibleProperty Include="DisablePurviewServerSharedReferenceCheck">
+			<Description>When true, a client-side or Shared project does not report a ServerShared project reference (PRSHR0001/PRSHR0002).</Description>
+		</CompilerVisibleProperty>
+		<CompilerVisibleProperty Include="PurviewServerSharedReferenceCheckAsError">
+			<Description>When true, PRSHR0001/PRSHR0002 are errors instead of warnings. Defaults to false.</Description>
+		</CompilerVisibleProperty>
+		<CompilerVisibleProperty Include="MemorySafetyRules">
+			<Description>The C# 15 memory-safety tier: 0 off, 1 preview syntax, 2 updated rules (default). AllowUnsafeBlocks is left unset.</Description>
+		</CompilerVisibleProperty>
+		<CompilerVisibleProperty Include="PurviewRuntimeAsync">
+			<Description>When true (default), a net11.0+ project compiles with the runtime-async compiler feature. UseRuntimeAsync=false opts out.</Description>
+		</CompilerVisibleProperty>
+		<CompilerVisibleProperty Include="PurviewMultiThreadedBuild">
+			<Description>When true (default), boots a Directory.Build.rsp that enables MSBuild's multithreaded build (-mt).</Description>
 		</CompilerVisibleProperty>
 		<CompilerVisibleProperty Include="EditorConfigFilePath">
 			<Description>Path to the SDK-provided .editorconfig used for build-time style enforcement.</Description>
@@ -557,6 +583,12 @@
 		</CompilerVisibleProperty>
 		<CompilerVisibleProperty Include="BootstrapGlobalJsonToRepoRoot">
 			<Description>When true, bootstraps global.json to RepositoryGlobalJsonFilePath if that file does not exist.</Description>
+		</CompilerVisibleProperty>
+		<CompilerVisibleProperty Include="RepositoryDirectoryBuildRspFilePath">
+			<Description>Destination path for bootstrapping a repository-level Directory.Build.rsp when missing.</Description>
+		</CompilerVisibleProperty>
+		<CompilerVisibleProperty Include="BootstrapMultiThreadedBuildRspToRepoRoot">
+			<Description>When true, bootstraps a managed Directory.Build.rsp that enables MSBuild's multithreaded build (-mt).</Description>
 		</CompilerVisibleProperty>
 		<CompilerVisibleProperty Include="DisableAutoCopySdkFiles">
 			<Description>When true, disables SDK auto-copy bootstrapping for repository files such as .editorconfig and global.json.</Description>
@@ -581,6 +613,12 @@
 		</CompilerVisibleProperty>
 		<CompilerVisibleProperty Include="IsSharedProject">
 			<Description>True when the project is a shared project.</Description>
+		</CompilerVisibleProperty>
+		<CompilerVisibleProperty Include="IsServerSharedProject">
+			<Description>True for ServerShared helper projects (ServerSharedFramework, etc.), which are referenced automatically only by projects that cannot run in a browser.</Description>
+		</CompilerVisibleProperty>
+		<CompilerVisibleProperty Include="IsClientSideProject">
+			<Description>True when the project's assemblies are downloaded to a browser: a WebAssembly client, a PurviewBrowserSafe library, a Razor class library, or a project named with a client-side suffix (*.Client, *.Browser, *.Wasm, *.WebAssembly, *.Components). Set explicitly to override.</Description>
 		</CompilerVisibleProperty>
 	</ItemGroup>
 
@@ -667,9 +705,8 @@
 	         <PurviewTargetFrameworkSet>Supported</PurviewTargetFrameworkSet>
 
 	     This is now the default path for resolving a project's targets: 'Current' applies when nothing
-	     is selected, which resolves to the same single TFM the SDK used to hard-code. So the out-of-box
-	     result is unchanged, but the value is named and overridable in one place instead of being
-	     buried in this file.
+	     is selected, and resolves to every release still in support. The value is named and overridable
+	     in one place instead of being buried in this file.
 
 	     Overrides are layered, narrowest first:
 
@@ -691,11 +728,13 @@
 		<!-- Latest shipped release only. -->
 		<PurviewTargetFrameworksLatest Condition="'$(PurviewTargetFrameworksLatest)' == ''"
 			>net11.0</PurviewTargetFrameworksLatest>
-		<!-- The release this SDK treats as the default single target. -->
+		<!-- The releases this SDK treats as the default targets: the current LTS plus the latest
+		     release. net8.0 and net9.0 are deliberately excluded: both are at or near end of support,
+		     so a new package should not imply a commitment to them. -->
 		<PurviewTargetFrameworksCurrent Condition="'$(PurviewTargetFrameworksCurrent)' == ''"
-			>net10.0</PurviewTargetFrameworksCurrent>
-		<!-- Everything still in support. net8.0 and net9.0 are deliberately excluded: both are at or
-		     near end of support, so a new package should not imply a commitment to them. -->
+			>net10.0;net11.0</PurviewTargetFrameworksCurrent>
+		<!-- Everything still in support. Kept as a distinct name so a repository can pin the set it
+		     means without depending on where 'Current' moves next. -->
 		<PurviewTargetFrameworksSupported Condition="'$(PurviewTargetFrameworksSupported)' == ''"
 			>net10.0;net11.0</PurviewTargetFrameworksSupported>
 		<!-- Every shipped release: widest reach for a library that must still build for consumers on an
@@ -741,8 +780,8 @@
 		Condition="'$(IsCSharpProject)' == 'true' AND '$(IsRoslynComponent)' != 'true' AND '$(_PurviewProjectDeclaresTargetFramework)' != 'true' AND '$(TargetFrameworks)' == ''"
 	>
 		<!-- 'Current' when nothing is selected, so the set mechanism - not a literal buried further down
-		     this file - is what decides a project's targets. It resolves to the same single TFM the SDK
-		     used to hard-code, so the default result is unchanged. -->
+		     this file - is what decides a project's targets. It resolves to every release still in
+		     support, so one SDK bump moves every consumer that never chose a set. -->
 		<PurviewTargetFrameworkSet Condition="'$(PurviewTargetFrameworkSet)' == ''">Current</PurviewTargetFrameworkSet>
 
 		<_PurviewResolvedTargetFrameworkSet Condition="'$(PurviewTargetFrameworkSet)' == 'Latest'"
@@ -778,8 +817,11 @@
 		     quietly built one TFM and every multi-targeting consumer failed to reference it with
 		     "Project 'X' targets 'net10.0'. It cannot be referenced by a project that targets
 		     '.NETCoreApp,Version=v9.0'". -->
+		<TargetFrameworks
+			Condition="'$(TargetFramework)' == '' AND '$(TargetFrameworks)' == '' AND '$(_PurviewProjectDeclaresTargetFramework)' != 'true' AND $(PurviewTargetFrameworksCurrent.Contains(';'))"
+			>$(PurviewTargetFrameworksCurrent)</TargetFrameworks>
 		<TargetFramework
-			Condition="'$(TargetFramework)' == '' AND '$(TargetFrameworks)' == '' AND '$(_PurviewProjectDeclaresTargetFramework)' != 'true'"
+			Condition="'$(TargetFramework)' == '' AND '$(TargetFrameworks)' == '' AND '$(_PurviewProjectDeclaresTargetFramework)' != 'true' AND !$(PurviewTargetFrameworksCurrent.Contains(';'))"
 			>$(PurviewTargetFrameworksCurrent)</TargetFramework>
 		<Deterministic Condition="'$(Deterministic)' == ''">true</Deterministic>
 		<!-- Auto-detect CI environment from common env vars. Local builds (even packable ones) must
@@ -945,8 +987,9 @@
 	<!-- Default namespace from logical project identity -->
 	<PropertyGroup>
 		<_PurviewSharedProjectRemovePattern>$([System.Text.RegularExpressions.Regex]::Replace('$(_SharedProjectNames)', '^;|;$', '').Replace(';', '|'))</_PurviewSharedProjectRemovePattern>
+		<_PurviewServerSharedProjectRemovePattern>$([System.Text.RegularExpressions.Regex]::Replace('$(_ServerSharedProjectNames)', '^;|;$', '').Replace(';', '|'))</_PurviewServerSharedProjectRemovePattern>
 		<_PurviewSharedTestingProjectRemovePattern>$([System.Text.RegularExpressions.Regex]::Replace('$(_SharedTestingProjectNames)', '^;|;$', '').Replace(';', '|'))</_PurviewSharedTestingProjectRemovePattern>
-		<_PurviewNamespaceRemovePattern>$(_PurviewSharedProjectRemovePattern)|$(_PurviewSharedTestingProjectRemovePattern)|Core|EF|Shared|ClientShared|ServiceDefaults</_PurviewNamespaceRemovePattern>
+		<_PurviewNamespaceRemovePattern>$(_PurviewServerSharedProjectRemovePattern)|$(_PurviewSharedProjectRemovePattern)|$(_PurviewSharedTestingProjectRemovePattern)|Core|EF|Shared|ClientShared|ServiceDefaults</_PurviewNamespaceRemovePattern>
 		<RootNamespace
 			Condition="('$(RootNamespace)' == '' OR '$(RootNamespace)' == '$(MSBuildProjectName)') AND '$(PurviewLogicalProjectName)' != ''"
 			>$(PurviewLogicalProjectName)</RootNamespace>

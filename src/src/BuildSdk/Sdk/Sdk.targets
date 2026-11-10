@@ -9,6 +9,8 @@
 	</PropertyGroup>
 
 	<Import Project="$(MSBuildThisFileDirectory)Targets/Blazor.targets" />
+	<Import Project="$(MSBuildThisFileDirectory)Targets/ServerShared.targets" />
+	<Import Project="$(MSBuildThisFileDirectory)Targets/Modern.targets" />
 
 	<!-- =====================================================================
 	     SHARED TESTING PROJECT OUTPUT
@@ -3950,6 +3952,139 @@
 		/>
 	</Target>
 
+	<!-- =====================================================================
+	     DIRECTORY.BUILD.RSP BOOTSTRAP
+	     -mt is a build-host switch, so no project property can turn it on: the
+	     host decides before evaluation. A Directory.Build.rsp is the only file
+	     the CLI reads that can, and MSBuild finds it in any ancestor of the
+	     project, so one file at the repository root covers every project.
+
+	     The file is SDK-managed: its first line carries the marker, and only a
+	     file carrying that marker is ever refreshed. Delete the line to take
+	     ownership. PurviewMultiThreadedBuild=false writes -mt:false instead of
+	     deleting the file, so a repository that opts out cannot keep the mode
+	     alive through a copy left behind by an earlier version.
+
+	     It has no effect on the build that writes it - the host read its
+	     switches at startup - which is why this repository commits its own copy
+	     and a consumer picks it up from the next build.
+
+	     DesignTimeBuild is excluded for the same reason as the other bootstraps.
+	     ===================================================================== -->
+	<Target
+		Name="EnsureRepositoryDirectoryBuildRspTarget"
+		BeforeTargets="PrepareForBuild"
+		DependsOnTargets="ResolvePurviewRepoBootstrapModeTarget"
+		Condition="'$(IsCSharpProject)' == 'true' AND '$(DisableAutoCopySdkFiles)' != 'true' AND '$(BootstrapMultiThreadedBuildRspToRepoRoot)' == 'true' AND '$(PurviewRepoBootstrapMode)' != 'Never' AND '$(DesignTimeBuild)' != 'true' AND '$(NETCoreSdkVersion)' != '' AND $([MSBuild]::VersionGreaterThanOrEquals('$(NETCoreSdkVersion)', '11.0.0'))"
+		Label="Bootstraps a repo-level Directory.Build.rsp that enables MSBuild's multithreaded build."
+	>
+		<PropertyGroup>
+			<_DirectoryBuildPropsDirectory>$([System.IO.Path]::GetDirectoryName('$(DirectoryBuildPropsPath)'))</_DirectoryBuildPropsDirectory>
+			<!-- The same ancestor probe the other bootstraps use. Pure path checks, no task compilation
+			     on the common path where the file is already correct. -->
+			<_RepositoryProbe0>$(_DirectoryBuildPropsDirectory)</_RepositoryProbe0>
+			<_RepositoryProbe1>$([System.IO.Path]::GetFullPath('$(_RepositoryProbe0)\..'))</_RepositoryProbe1>
+			<_RepositoryProbe2>$([System.IO.Path]::GetFullPath('$(_RepositoryProbe1)\..'))</_RepositoryProbe2>
+			<_RepositoryProbe3>$([System.IO.Path]::GetFullPath('$(_RepositoryProbe2)\..'))</_RepositoryProbe3>
+			<_RepositoryProbe4>$([System.IO.Path]::GetFullPath('$(_RepositoryProbe3)\..'))</_RepositoryProbe4>
+			<_DetectedRepositoryRoot
+				Condition="'$(_DetectedRepositoryRoot)' == '' AND (Exists('$(_RepositoryProbe0)/.git/HEAD') OR Exists('$(_RepositoryProbe0)/.git'))"
+				>$(_RepositoryProbe0)</_DetectedRepositoryRoot>
+			<_DetectedRepositoryRoot
+				Condition="'$(_DetectedRepositoryRoot)' == '' AND (Exists('$(_RepositoryProbe1)/.git/HEAD') OR Exists('$(_RepositoryProbe1)/.git'))"
+				>$(_RepositoryProbe1)</_DetectedRepositoryRoot>
+			<_DetectedRepositoryRoot
+				Condition="'$(_DetectedRepositoryRoot)' == '' AND (Exists('$(_RepositoryProbe2)/.git/HEAD') OR Exists('$(_RepositoryProbe2)/.git'))"
+				>$(_RepositoryProbe2)</_DetectedRepositoryRoot>
+			<_DetectedRepositoryRoot
+				Condition="'$(_DetectedRepositoryRoot)' == '' AND (Exists('$(_RepositoryProbe3)/.git/HEAD') OR Exists('$(_RepositoryProbe3)/.git'))"
+				>$(_RepositoryProbe3)</_DetectedRepositoryRoot>
+			<_DetectedRepositoryRoot
+				Condition="'$(_DetectedRepositoryRoot)' == '' AND (Exists('$(_RepositoryProbe4)/.git/HEAD') OR Exists('$(_RepositoryProbe4)/.git'))"
+				>$(_RepositoryProbe4)</_DetectedRepositoryRoot>
+			<_EffectiveRepositoryDirectoryBuildRspFilePath>$(RepositoryDirectoryBuildRspFilePath)</_EffectiveRepositoryDirectoryBuildRspFilePath>
+			<_EffectiveRepositoryDirectoryBuildRspFilePath
+				Condition="'$(_EffectiveRepositoryDirectoryBuildRspFilePath)' == '' AND '$(_DetectedRepositoryRoot)' != ''"
+				>$([System.IO.Path]::Combine('$(_DetectedRepositoryRoot)', 'Directory.Build.rsp'))</_EffectiveRepositoryDirectoryBuildRspFilePath>
+			<_EffectiveRepositoryDirectoryBuildRspFilePath
+				Condition="'$(_EffectiveRepositoryDirectoryBuildRspFilePath)' == '' AND '$(_DirectoryBuildPropsDirectory)' != ''"
+				>$([System.IO.Path]::Combine('$(_DirectoryBuildPropsDirectory)', 'Directory.Build.rsp'))</_EffectiveRepositoryDirectoryBuildRspFilePath>
+			<_PurviewRspEnabled Condition="'$(PurviewMultiThreadedBuild)' != 'false'">true</_PurviewRspEnabled>
+			<_PurviewRspEnabled Condition="'$(_PurviewRspEnabled)' == ''">false</_PurviewRspEnabled>
+		</PropertyGroup>
+		<PropertyGroup>
+			<RepositoryDirectoryBuildRspFilePath
+				Condition="'$(RepositoryDirectoryBuildRspFilePath)' == '' AND '$(_EffectiveRepositoryDirectoryBuildRspFilePath)' != ''"
+				>$(_EffectiveRepositoryDirectoryBuildRspFilePath)</RepositoryDirectoryBuildRspFilePath>
+		</PropertyGroup>
+		<ItemGroup Condition="'$(_EffectiveRepositoryDirectoryBuildRspFilePath)' != ''">
+			<_RepositoryDirectoryBuildRspLines Include="$(PurviewRepositoryRspVersionMarker)" />
+			<_RepositoryDirectoryBuildRspLines Include="# Managed by Purview.BuildSdk. Delete the marker line to take ownership of this file." />
+			<_RepositoryDirectoryBuildRspLines Condition="'$(_PurviewRspEnabled)' == 'true'" Include="-mt" />
+			<!--
+				Node reuse is disabled alongside -mt on purpose. A non-mt build can leave a reusable node
+				holding a cached RoslynCodeTaskFactory task with no assembly path, and the next -mt build
+				that reuses it fails with MSB0001 (dotnet/msbuild#15213). A repo switches from non-mt to
+				-mt when this file first appears, which is exactly that transition. -mt still uses the
+				MSBuild server for Server GC - it is short-lived and torn down after the build, so no
+				process from before the switch survives to be reused.
+			-->
+			<_RepositoryDirectoryBuildRspLines Condition="'$(_PurviewRspEnabled)' == 'true'" Include="-nr:false" />
+			<_RepositoryDirectoryBuildRspLines Condition="'$(_PurviewRspEnabled)' != 'true'" Include="-mt:false" />
+		</ItemGroup>
+		<PropertyGroup>
+			<_PurviewRspDestinationExists Condition="'$(_EffectiveRepositoryDirectoryBuildRspFilePath)' != ''"
+				>$([System.IO.File]::Exists('$(_EffectiveRepositoryDirectoryBuildRspFilePath)'))</_PurviewRspDestinationExists>
+			<_PurviewRspDestinationText Condition="'$(_PurviewRspDestinationExists)' == 'true'"
+				>$([System.IO.File]::ReadAllText('$(_EffectiveRepositoryDirectoryBuildRspFilePath)'))</_PurviewRspDestinationText>
+			<_PurviewRspDestinationFirstLine Condition="'$(_PurviewRspDestinationExists)' == 'true'"
+				>$([System.Text.RegularExpressions.Regex]::Match($(_PurviewRspDestinationText), `^[^\r\n]*`).Value)</_PurviewRspDestinationFirstLine>
+			<_PurviewRspIsManaged
+				Condition="'$(_PurviewRspDestinationExists)' == 'true' AND $(_PurviewRspDestinationFirstLine.StartsWith('$(PurviewRepositoryRspVersionMarker)'))"
+				>true</_PurviewRspIsManaged>
+			<_PurviewRspHasEnabledSwitch
+				Condition="'$(_PurviewRspDestinationExists)' == 'true' AND $([System.Text.RegularExpressions.Regex]::IsMatch($(_PurviewRspDestinationText), `(?m)^\s*-mt\s*$`))"
+				>true</_PurviewRspHasEnabledSwitch>
+			<_PurviewRspHasNoNodeReuse
+				Condition="'$(_PurviewRspDestinationExists)' == 'true' AND $([System.Text.RegularExpressions.Regex]::IsMatch($(_PurviewRspDestinationText), `(?m)^\s*-nr\s*:\s*false\s*$`))"
+				>true</_PurviewRspHasNoNodeReuse>
+			<_PurviewRspHasDisabledSwitch
+				Condition="'$(_PurviewRspDestinationExists)' == 'true' AND $([System.Text.RegularExpressions.Regex]::IsMatch($(_PurviewRspDestinationText), `(?m)^\s*-mt\s*:\s*false\s*$`))"
+				>true</_PurviewRspHasDisabledSwitch>
+			<_PurviewRspContentMatches
+				Condition="'$(_PurviewRspEnabled)' == 'true' AND '$(_PurviewRspHasEnabledSwitch)' == 'true' AND '$(_PurviewRspHasNoNodeReuse)' == 'true'"
+				>true</_PurviewRspContentMatches>
+			<_PurviewRspContentMatches
+				Condition="'$(_PurviewRspEnabled)' != 'true' AND '$(_PurviewRspHasDisabledSwitch)' == 'true'"
+				>true</_PurviewRspContentMatches>
+			<!-- Missing and enabled: the bootstrap's purpose. Missing and disabled has nothing to do. -->
+			<_PurviewRspNeedsSync
+				Condition="'$(_PurviewRspDestinationExists)' != 'true' AND '$(_PurviewRspEnabled)' == 'true'"
+				>true</_PurviewRspNeedsSync>
+			<_PurviewRspNeedsSync
+				Condition="'$(_PurviewRspDestinationExists)' == 'true' AND '$(_PurviewRspIsManaged)' == 'true' AND '$(_PurviewRspContentMatches)' != 'true'"
+				>true</_PurviewRspNeedsSync>
+			<_PurviewRspNeedsSync
+				Condition="'$(PurviewRepoBootstrapMode)' == 'Always' OR '$(PurviewRepoBootstrapMode)' == 'WarnOnDrift'"
+				>true</_PurviewRspNeedsSync>
+			<_PurviewRspOverwrite
+				Condition="'$(_PurviewRepoBootstrapOverwriteExisting)' == 'true' OR '$(_PurviewRspIsManaged)' == 'true'"
+				>true</_PurviewRspOverwrite>
+			<_PurviewRspOverwrite Condition="'$(_PurviewRspOverwrite)' == ''">false</_PurviewRspOverwrite>
+		</PropertyGroup>
+		<SyncPurviewRepositoryFiles
+			DestinationFile="$(_EffectiveRepositoryDirectoryBuildRspFilePath)"
+			Lines="@(_RepositoryDirectoryBuildRspLines)"
+			OverwriteExisting="$(_PurviewRspOverwrite)"
+			VerifyExistingContent="$(_PurviewRepoBootstrapVerifyExistingContent)"
+			VersionMarkerPrefix="$(PurviewRepositoryRspVersionMarker)"
+			Retries="$(PurviewRepoBootstrapCopyRetries)"
+			RetryDelayMilliseconds="$(PurviewRepoBootstrapCopyRetryDelayMilliseconds)"
+			TreatFailureAsError="$(PurviewRepoBootstrapCopyFailureAsError)"
+			Condition="'$(_EffectiveRepositoryDirectoryBuildRspFilePath)' != '' AND '$(_PurviewRspNeedsSync)' == 'true'"
+		/>
+	</Target>
+
 	<Target
 		Name="ValidateRootNamespacePrefixTarget"
 		BeforeTargets="Compile"
@@ -4019,7 +4154,7 @@
 	     CURATED TARGET FRAMEWORK SET VALIDATION
 
 	     An unrecognised set name would otherwise resolve to nothing and fall through to the generic
-	     single-TFM default, so a typo would silently drop every target the author asked for.
+	     default set, so a typo would silently drop every target the author asked for.
 	     ===================================================================== -->
 	<Target
 		Name="PurviewValidateTargetFrameworkSet"

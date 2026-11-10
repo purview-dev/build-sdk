@@ -105,7 +105,7 @@ sealed class InternalsVisibleToTests
 		using var h = await CreateBuildableLibraryAsync(cancellationToken);
 
 		var malformed = (await ReadInternalsVisibleToGrantsAsync(h, cancellationToken))
-			.Where(static grant => grant.StartsWith('.'))
+			.Where(static grant => grant.Length > 0 && grant[0] == '.')
 			.ToArray();
 
 		// TargetProjectName has no default, so an unguarded '$(TargetProjectName).%(TestType)Tests'
@@ -172,9 +172,11 @@ sealed class InternalsVisibleToTests
 				continue;
 
 			start += marker.Length;
-			var end = line.IndexOf('"', start);
-			if (end > start || end == start)
-				grants.Add(line[start..end]);
+			// Search the span rather than IndexOf(char, int): CA1307 wants a StringComparison overload
+			// on net11, which net10 does not have, so the char overload is the one clean on both.
+			var length = line.AsSpan(start).IndexOf('"');
+			if (length >= 0)
+				grants.Add(line[start..(start + length)]);
 		}
 
 		return grants;

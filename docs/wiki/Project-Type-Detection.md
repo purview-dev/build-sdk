@@ -15,6 +15,8 @@ wiki.
 | `IsTestProject` | Project name matches `^.*\.([\w|_]\w*)Tests?$` — a target name, a dot, then any word before `Test`/`Tests`. The captured word becomes `TestingType`. |
 | `IsSharedTestingProject` | Project name is one of `SharedTestingFramework`, `SharedTestingInfrastructure`, `SharedTestingInfra`, `SharedTestingUtilities`, `SharedTestingUtils`, `SharedTestingLibrary`, `SharedTestingLib`, `SharedTestingHelpers`. |
 | `IsSharedProject` | Project name is one of `Shared`, `SharedFramework`, `SharedInfrastructure`, `SharedInfra`, `SharedUtilities`, `SharedUtils`, `SharedLibrary`, `SharedLib`, `SharedHelpers`. |
+| `IsServerSharedProject` | Project name is one of `ServerShared`, `ServerSharedFramework`, `ServerSharedInfrastructure`, `ServerSharedInfra`, `ServerSharedUtilities`, `ServerSharedUtils`, `ServerSharedLibrary`, `ServerSharedLib`, `ServerSharedHelpers`. |
+| `IsClientSideProject` | A WebAssembly client, a `PurviewBrowserSafe` library, a Razor class library, or a project named `*.Client`, `*.ClientShared`, `*.Browser`, `*.Wasm`, `*.WebAssembly`, `*.Components`, `Components`, or `ClientShared`. An explicit value overrides the detection. |
 | `IsContainerProject` | A `Dockerfile`, `dockerfile`, or `Dockerfile.dev` exists in the project directory. |
 | `IsSdkProject` | An `Sdk` value is parsed from the `<Project>`/`<Import>` element. |
 | `IsWebSdkProject` | `SdkProjectName` is `Microsoft.NET.Sdk.Web`. |
@@ -86,6 +88,16 @@ The SDK ships the following full `TestType` set, in addition to the standard `Un
 - Automatically referenced by sibling non-test projects via wildcard
   (`../Shared*/Shared*.csproj`); test projects automatically reference
   `../SharedTesting*/SharedTesting*.csproj`.
+
+### ServerShared projects (`IsServerSharedProject=true`)
+
+- Referenced automatically by every non-client-side project via wildcard
+  (`../ServerShared*/ServerShared*.csproj`).
+- Never referenced automatically by a WebAssembly client, a `PurviewBrowserSafe` library, a Razor class
+  library, a project named with a client-side segment, or another `Shared`/`SharedTesting` project.
+  `IsClientSideProject` overrides the classification either way.
+- `PRSHR0001` reports a client-side project that references one; `PRSHR0002` reports a `Shared`
+  project that does. `PurviewBrowserSafe="true"` on the reference records an accepted decision.
 
 ### Container projects
 

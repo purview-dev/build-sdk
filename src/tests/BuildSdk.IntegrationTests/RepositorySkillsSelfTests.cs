@@ -206,6 +206,7 @@ sealed partial class RepositorySkillsSelfTests
 		if (exitCode != 0)
 			return [];
 
+		// Git outputs paths with forward slashes even on Windows, so we can split on '\n' and trim whitespace without worrying about the platform.
 		return
 		[
 			.. stdOut

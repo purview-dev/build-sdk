@@ -1,0 +1,95 @@
+<Project>
+	<!-- =====================================================================
+	     .NET 11 FEATURE OPT-INS
+
+	     Imported from Sdk.targets, after the project body, so TargetFramework is
+	     final - including in an inner build, where it arrives as a global
+	     property. That matters: TargetFrameworks defaults to net10.0;net11.0, so
+	     a switch that improves net11.0 must not be applied to the net10.0 leg.
+
+	     Two compiler features are enabled for a net11.0+ target:
+
+	       runtime-async=on          Runtime Async V2. .NET 11 no longer needs
+	                                 EnablePreviewFeatures for it, and the
+	                                 runtime libraries themselves ship built with
+	                                 it, so an application built without it runs
+	                                 against libraries that did opt in.
+
+	       updated-memory-safety-rules
+	                                 The C# 15 memory-safety model: 'unsafe'
+	                                 marks requires-unsafe APIs and the caller
+	                                 must acknowledge the access. Independent of
+	                                 LangVersion, so 'latest' is enough; the
+	                                 preview *syntax* is a separate tier (1).
+
+	     Neither switch requires AllowUnsafeBlocks. It is deliberately left at
+	     the compiler default (false): the updated model without unsafe code is
+	     the strictest useful combination, and a repository that needs unsafe
+	     code opts in per project.
+	     ===================================================================== -->
+	<PropertyGroup
+		Label=".NET 11 feature applicability"
+		Condition="'$(IsCSharpProject)' == 'true' AND '$(TargetFramework)' != ''"
+	>
+		<!-- Parsed from the TFM rather than TargetFrameworkVersion, which the .NET SDK computes in
+		     its targets and is therefore not guaranteed to be set when this file is evaluated. A
+		     platform TFM such as net11.0-windows matches; netstandard2.0 does not. -->
+		<_PurviewTargetFrameworkMajor
+			Condition="$([System.Text.RegularExpressions.Regex]::IsMatch('$(TargetFramework)', '^net\d+\.'))"
+			>$([System.Text.RegularExpressions.Regex]::Match('$(TargetFramework)', '^net(?&lt;major&gt;\d+)\.').Groups['major'].Value)</_PurviewTargetFrameworkMajor>
+		<_PurviewTargetsNet11OrLater
+			Condition="'$(_PurviewTargetFrameworkMajor)' != '' AND $([System.Int32]::Parse('$(_PurviewTargetFrameworkMajor)')) >= 11"
+			>true</_PurviewTargetsNet11OrLater>
+	</PropertyGroup>
+
+	<PropertyGroup Label=".NET 11 feature selection" Condition="'$(_PurviewTargetsNet11OrLater)' == 'true'">
+		<PurviewRuntimeAsync Condition="'$(PurviewRuntimeAsync)' == ''">true</PurviewRuntimeAsync>
+		<MemorySafetyRules Condition="'$(MemorySafetyRules)' == ''">2</MemorySafetyRules>
+		<_PurviewMemorySafetyRulesNormalized>$([System.String]::Copy('$(MemorySafetyRules)').Trim().ToLowerInvariant())</_PurviewMemorySafetyRulesNormalized>
+		<!-- The planned stable property's tiers: 0/off, 1 (preview syntax), 2 (updated rules). -->
+		<_PurviewMemorySafetyRulesNormalized
+			Condition="'$(_PurviewMemorySafetyRulesNormalized)' == 'off' OR '$(_PurviewMemorySafetyRulesNormalized)' == 'none' OR '$(_PurviewMemorySafetyRulesNormalized)' == 'false'"
+			>0</_PurviewMemorySafetyRulesNormalized>
+		<_PurviewRuntimeAsyncEnabled Condition="'$(PurviewRuntimeAsync)' != 'false' AND '$(UseRuntimeAsync)' != 'false'"
+			>true</_PurviewRuntimeAsyncEnabled>
+	</PropertyGroup>
+
+	<!--
+		Features is a semicolon-separated list of key=value switches, and a project may already have set
+		it for its own features. Each entry is appended only when absent so a repository's own value
+		survives and a second evaluation cannot duplicate it.
+	-->
+	<PropertyGroup Label=".NET 11 compiler feature switches" Condition="'$(_PurviewTargetsNet11OrLater)' == 'true'">
+		<_PurviewFeatureSwitches>$(Features)</_PurviewFeatureSwitches>
+		<_PurviewFeatureSwitches
+			Condition="'$(_PurviewRuntimeAsyncEnabled)' == 'true' AND !$([System.String]::Copy(';$(Features);').Contains(';runtime-async=on;'))"
+			>$(Features);runtime-async=on</_PurviewFeatureSwitches>
+		<_PurviewFeatureSwitches
+			Condition="'$(_PurviewMemorySafetyRulesNormalized)' == '2' AND !$([System.String]::Copy(';$(_PurviewFeatureSwitches);').Contains(';updated-memory-safety-rules;'))"
+			>$(_PurviewFeatureSwitches);updated-memory-safety-rules</_PurviewFeatureSwitches>
+		<Features>$([System.String]::Copy('$(_PurviewFeatureSwitches)').Trim(';'))</Features>
+	</PropertyGroup>
+
+	<!-- Tier 1 is the preview *syntax*: pointer declarations, '&', fixed, stackalloc and sizeof stop
+	     requiring an unsafe context. A project that named its own language version keeps it. -->
+	<PropertyGroup
+		Label="Memory safety preview syntax"
+		Condition="'$(_PurviewTargetsNet11OrLater)' == 'true' AND '$(_PurviewMemorySafetyRulesNormalized)' == '1' AND ('$(LangVersion)' == '' OR '$(LangVersion)' == 'latest')"
+	>
+		<LangVersion>preview</LangVersion>
+	</PropertyGroup>
+
+	<Target
+		Name="ValidatePurviewModernFeatureSettings"
+		BeforeTargets="CoreCompile"
+		Condition="'$(_PurviewTargetsNet11OrLater)' == 'true' AND '$(DesignTimeBuild)' != 'true'"
+		Label="Rejects an unrecognised MemorySafetyRules tier (PRCFG0001)."
+	>
+		<Error
+			Code="PRCFG0001"
+			File="$(MSBuildProjectFullPath)"
+			Text="MemorySafetyRules='$(MemorySafetyRules)' is not a recognised tier. Use 0 (off), 1 (preview syntax) or 2 (updated memory-safety rules), or set it to off/none/false to disable the updated rules."
+			Condition="'$(_PurviewMemorySafetyRulesNormalized)' != '0' AND '$(_PurviewMemorySafetyRulesNormalized)' != '1' AND '$(_PurviewMemorySafetyRulesNormalized)' != '2'"
+		/>
+	</Target>
+</Project>

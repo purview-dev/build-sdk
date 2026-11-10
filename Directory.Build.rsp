@@ -1,0 +1,4 @@
+# Purview.BuildSdk - managed file
+# Managed by Purview.BuildSdk. Delete the marker line to take ownership of this file.
+-mt
+-nr:false

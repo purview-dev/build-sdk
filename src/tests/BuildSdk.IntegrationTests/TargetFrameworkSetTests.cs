@@ -6,12 +6,12 @@ namespace Purview.BuildSdk;
 /// <summary>
 /// Verifies the curated <c>PurviewTargetFrameworkSet</c> selection: a repository names a set instead of
 /// hard-coding a TFM list in every project, so a lifecycle change is one SDK bump rather than an edit in
-/// every consuming repository. The feature is opt-in, and every narrower declaration still wins.
+/// every consuming repository. <c>Current</c> is always in play, and every narrower declaration still wins.
 /// </summary>
 sealed class TargetFrameworkSetTests
 {
 	[Test]
-	public async Task NoSetSelected_KeepsTheSingleTargetFrameworkDefault(CancellationToken cancellationToken)
+	public async Task NoSetSelected_UsesTheDefaultMultiTargetSet(CancellationToken cancellationToken)
 	{
 		using var h = await ProjectHarness
 			.For("Library")
@@ -25,13 +25,14 @@ sealed class TargetFrameworkSetTests
 			)
 			.BuildAsync(cancellationToken);
 
-		// An SDK upgrade must never change a package's targets on its own.
+		// 'Current' is the default set and now covers both releases still in support.
 		var properties = await h.GetPropertiesAsync(cancellationToken, "TargetFramework", "TargetFrameworks");
-		await Assert.That(properties["TargetFramework"]).IsEqualTo("net10.0");
-		await Assert.That(properties["TargetFrameworks"]).IsEmpty();
+		await Assert.That(properties["TargetFramework"]).IsEmpty();
+		await Assert.That(properties["TargetFrameworks"]).IsEqualTo("net10.0;net11.0");
 	}
 
 	[Test]
+	[Arguments("Current", "net10.0;net11.0")]
 	[Arguments("Supported", "net10.0;net11.0")]
 	[Arguments("Broad", "net8.0;net9.0;net10.0")]
 	[Arguments("All", "net8.0;net9.0;net10.0;net11.0")]
@@ -59,7 +60,6 @@ sealed class TargetFrameworkSetTests
 	}
 
 	[Test]
-	[Arguments("Current", "net10.0")]
 	[Arguments("Latest", "net11.0")]
 	public async Task SingleTargetSet_ResolvesToTargetFramework(
 		string set,
@@ -375,6 +375,7 @@ sealed class TargetFrameworkSetTests
 	/// Neither dotnet nor msbuild reproduces it - both only evaluate the outer build.
 	/// </summary>
 	[Test]
+	[Arguments("Current", "net10.0;net11.0", "net10.0")]
 	[Arguments("Supported", "net10.0;net11.0", "net10.0")]
 	[Arguments("All", "net8.0;net9.0;net10.0;net11.0", "net8.0")]
 	public async Task MultiTargetSet_ResolvesIdenticallyUnderAnInnerBuildTargetFramework(

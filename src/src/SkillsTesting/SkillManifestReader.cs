@@ -91,8 +91,8 @@ public static class SkillManifestReader
 
 		List<string> errors = [];
 		List<string> unknown = [];
-		Dictionary<string, string> fields = new(StringComparer.Ordinal);
-		Dictionary<string, string> metadata = new(StringComparer.Ordinal);
+		Dictionary<string, string> fields = [with(StringComparer.Ordinal)];
+		Dictionary<string, string> metadata = [with(StringComparer.Ordinal)];
 
 		for (var index = 1; index < closing; index++)
 		{

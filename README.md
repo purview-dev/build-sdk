@@ -12,18 +12,20 @@ A reusable MSBuild SDK NuGet package that delivers standardised .NET project def
 
 | Feature | Detail |
 | -- | -- |
-| **Project type detection** | `IsCSharpProject`, `IsTestProject`, `IsSharedTestingProject`, `IsContainerProject`, `IsWebSdkProject`, `IsAspireHostProject`, `IsBlazorWebAssemblyProject`, `IsBffProject`, … |
+| **Project type detection** | `IsCSharpProject`, `IsTestProject`, `IsSharedTestingProject`, `IsServerSharedProject`, `IsClientSideProject`, `IsContainerProject`, `IsWebSdkProject`, `IsAspireHostProject`, `IsBlazorWebAssemblyProject`, `IsBffProject`, … |
+| **.NET 11 opt-ins** | A `net11.0` target compiles with Runtime Async (`runtime-async=on`) and the C# 15 updated memory-safety rules (`MemorySafetyRules=2`), while `AllowUnsafeBlocks` stays at its compiler default (`false`); builds use MSBuild's multithreaded mode through a bootstrapped `Directory.Build.rsp` (see [.NET 11 features](#net-11-features)) |
+| **ServerShared** | A `ServerShared*` project is referenced automatically by every non-client-side project, and never by a WebAssembly client, browser-safe library, Razor class library or `*.Client`-style project; `PRSHR0001`/`PRSHR0002` report a reference that would still put it in a browser download (see [ServerShared](#servershared)) |
 | **Blazor and BFF** | Blazor WebAssembly clients, Blazor Web App hosts and BFF hosts are detected; `PurviewBrowserSafe` makes a library the client downloads fail the build on trim, AOT and browser-unsupported APIs, and the client checks every reference sets it (see [Blazor WebAssembly and BFF](#blazor-webassembly-and-bff)) |
-| **C# defaults** | `net10.0` TFM (overridable), `LangVersion=preview`, `Nullable=enable`, `ImplicitUsings=enable`, deterministic builds |
+| **C# defaults** | `net10.0;net11.0` TFMs (overridable), `LangVersion=latest` (C# 15), `Nullable=enable`, `ImplicitUsings=enable`, deterministic builds |
 | **Code style** | `.editorconfig` baked into the package, applied via `EditorConfigFilePath`, and auto-bootstrapped to repo root if missing; `EnforceCodeStyleInBuild=true`, `EnableNETAnalyzers=true`, `AnalysisLevel=latest`, `AnalysisMode=All`. Style policy: `dotnet_style_require_accessibility_modifiers=omit_if_default`, private instance fields named `_camelCase`, and `IDE0040`/`CA1515`/`CA1852`/`CA1034` at warning or above, enforced by `ValidatePurviewStylePolicy` (opt out with `DisablePurviewStylePolicyValidation=true`) |
 | **NuGet packaging** | `AssemblyName`/`PackageId` default to the fully evaluated `RootNamespace`; packable projects get `GenerateDocumentationFile=true`, `PublishRepositoryUrl=true`, `IncludeSymbols=true`, `SymbolPackageFormat=snupkg`, `EmbedUntrackedSources=true`, and portable PDBs delivered via `.snupkg` (not the `.nupkg`) |
-| **Repo bootstrap** | Missing repo-root `.editorconfig` and `global.json` are auto-copied/created by default (disable via `DisableAutoCopySdkFiles=true`) |
+| **Repo bootstrap** | Missing repo-root `.editorconfig`, `global.json` and `Directory.Build.rsp` are auto-created by default (disable via `DisableAutoCopySdkFiles=true`) |
 | **CI detection** | `ContinuousIntegrationBuild` set automatically when `CI`, `GITHUB_ACTIONS`, or `TF_BUILD` env vars are present |
 | **SourceLink** | `Microsoft.SourceLink.GitHub` added to all packable projects (configurable via `SourceLinkPackageName`) |
 | **Purview Telemetry** | `Purview.Telemetry.SourceGenerator` + `Microsoft.Extensions.Telemetry.Abstractions` added by default (opt-out) |
 | **Assembly info** | Auto-generated `static partial class AssemblyInfo` with `RootNamespace`, `Version`, `Company`, etc., plus an embedded `Microsoft.CodeAnalysis.EmbeddedAttribute` (can be excluded via `PURVIEW_SDK_EXCLUDE_EMBEDDED`). |
 | **InternalsVisibleTo** | Generated for all `TestType` variants and shared testing projects, using the resolved `$(AssemblyName)` so explicit, generated, and default naming are all handled |
-| **Namespace management** | `NamespacePrefix.ProjectName` pattern with suffix stripping (`.Core`, `.Shared`, `.EF`, …) |
+| **Namespace management** | `NamespacePrefix.ProjectName` pattern with suffix stripping (`.Core`, `.Shared`, `.ServerShared`, `.EF`, …) |
 | **Testing framework** | `TestingFramework`: **TUnit** (default), `Xunit`, or `None` |
 | **Mocking provider** | `SubstituteFramework`: **TUnitMocks** (default), `NSubstitute`, or `None` |
 | **Test data provider** | `TestDataFramework`: **Bogus** (default) or `None` |
@@ -42,7 +44,7 @@ A reusable MSBuild SDK NuGet package that delivers standardised .NET project def
     "runner": "Microsoft.Testing.Platform"
   },
   "msbuild-sdks": {
-    "Purview.BuildSdk": "1.3.2"
+    "Purview.BuildSdk": "2.0.0"
   }
 }
 ```
@@ -201,7 +203,7 @@ to a low-importance message) and only a copy that still fails after every retry 
 The bootstrapped `.editorconfig` opens with a version marker:
 
 ```editorconfig
-# Purview.BuildSdk 1.3.2 - managed file, do not edit
+# Purview.BuildSdk 2.0.0 - managed file, do not edit
 ```
 
 That line is how the SDK recognises a file **it** wrote. When the SDK version changes, a file carrying
@@ -363,7 +365,7 @@ Version detection logging is disabled by default. Set `VersionDetectionLogEnable
 | `PurviewTestContextNoWarn` | `CA1002;CA1012;CA1034;CA1047;CA1050;CA1051;CA1062;CA1064;CA1515;CA1707` | Semicolon-fenced rule set exempted in test and shared-testing projects, so test classes stay public, `Method_Scenario_Expectation` names keep their underscores, and helpers need no null guards. Override before the SDK import to narrow or extend it. |
 | `DisablePurviewTestContextRuleSet` | `false` | Set to `true` to make test and shared-testing projects enforce the production API-surface rules as well (the strict style contract applies either way). |
 | `PurviewSharedTestingOutputType` | `Library` | Output type forced on `IsSharedTestingProject` projects. `Library` (default) keeps them helper libraries - with `IsTestProject`/`IsTestingPlatformApplication` cleared - which also keeps their fixtures out of `CA1515`'s Exe-only scope. Set to `Exe` before the SDK import to keep the test packages' executable/test-host shape instead. |
-| `TargetFramework` | `net10.0` | Override the default TFM per-project or globally. Defaults to `netstandard2.0` for projects declaring `IsRoslynComponent=true`. |
+| `TargetFramework` | `net10.0;net11.0` | Override the default TFMs per-project or globally. Defaults to `netstandard2.0` for projects declaring `IsRoslynComponent=true`. |
 | `IsRoslynComponent` | `false` | When explicitly `true`, applies source-generator defaults: a single `netstandard2.0` target, `LangVersion=latest`, `Nullable=enable`, `TreatWarningsAsErrors=true`, `Deterministic=true`, extended analyzer rules, SourceLink with `EmbedUntrackedSources=true`, compiler-generated output under the intermediate directory, no dependency file, telemetry exclusion, and package build output. Pack-time validation (`ValidateRoslynComponentCompilerSettings`) fails the pack if the compiler defaults are missing unless `DisableRoslynCompilerDefaultsValidation=true`. Roslyn development dependencies (`Microsoft.CodeAnalysis.*`, `Microsoft.CodeAnalysis.Analyzers`) default to `PrivateAssets="all"`. |
 | `IsRoslynComponentOnly` | `true` for Roslyn components | Produces an analyzer-only package: `IncludeBuildOutput=false`, `IncludeSymbols=false`, and the analyzer assembly and portable PDB are packed under `analyzers/dotnet/cs/`. Set to `false` for a dual-role Roslyn component that uses normal library symbol packaging. |
 | `PackProjectReferencedSourceGenerators` | `true` | Automatically packs analyzer `ProjectReference` outputs and their runtime dependencies under `analyzers/dotnet/cs/`. Set to `false` to opt out; set `Pack="false"` on an individual reference to exclude only that generator. |
@@ -375,6 +377,12 @@ Version detection logging is disabled by default. Set `VersionDetectionLogEnable
 | `DisableGenerateAssemblyIdentifierClass` | `false` (`true` for test and shared-testing projects) | Set to `true` to disable the generated assembly identifier marker class. |
 | `AssemblyIdentifierClassName` | `<project name minus NamespacePrefix, dots removed>Assembly` | Overrides the name of the generated assembly identifier marker class. |
 | `AutoIncludeUsings` | `true` | Controls SDK-added global usings for `NamespacePrefix` and `RootNamespace`. |
+| `MemorySafetyRules` | `2` | C# 15 memory-safety tier for `net11.0`+ targets: `0` off, `1` preview pointer syntax, `2` updated rules (`updated-memory-safety-rules`, the default). `AllowUnsafeBlocks` is never changed. |
+| `PurviewRuntimeAsync` | `true` | Compiles `net11.0`+ targets with `<Features>runtime-async=on</Features>`. `UseRuntimeAsync=false` also opts out. |
+| `IsClientSideProject` | *(detected)* | `true` for a project whose assemblies are downloaded to a browser — a WebAssembly client, `PurviewBrowserSafe` library, Razor class library, or `*.Client`/`*.Browser`/`*.Wasm`/`*.WebAssembly`/`*.Components` name. Set explicitly to override; a `ServerShared` project is never added to a client-side project. |
+| `PurviewAutoServerSharedReference` | `true` | Adds `../ServerShared*/ServerShared*.csproj` to a non-client-side project. `false` removes the automatic reference. |
+| `DisablePurviewServerSharedReferenceCheck` | `false` | Suppresses `PRSHR0001`/`PRSHR0002`. |
+| `PurviewServerSharedReferenceCheckAsError` | `false` | Makes `PRSHR0001`/`PRSHR0002` errors instead of warnings. |
 
 ### Packable project defaults
 
@@ -407,6 +415,9 @@ Non-packable projects (including web applications) default `WarnOnPackingNonPack
 | `RepositoryEditorConfigFilePath` | *(auto-detected)* | Override the destination path for the bootstrapped `.editorconfig`. |
 | `BootstrapGlobalJsonToRepoRoot` | `true` | Creates a `global.json` at the repository root when missing. |
 | `RepositoryGlobalJsonFilePath` | *(auto-detected)* | Override the destination path for the bootstrapped `global.json`. |
+| `BootstrapMultiThreadedBuildRspToRepoRoot` | `true` | Creates a managed `Directory.Build.rsp` at the repository root that enables MSBuild's multithreaded build (`-mt`) on .NET 11. |
+| `RepositoryDirectoryBuildRspFilePath` | *(auto-detected)* | Override the destination path for the bootstrapped `Directory.Build.rsp`. |
+| `PurviewMultiThreadedBuild` | `true` | When `false`, a managed `Directory.Build.rsp` is rewritten to `-mt:false` so the mode is actually off. |
 | `PurviewBuildSdkVersionForGlobalJson` | *(restored package version, else the version it was packed as)* | Version written to the `msbuild-sdks.Purview.BuildSdk` entry in a bootstrapped `global.json`. |
 | `PurviewRepoBootstrapMode` | `IfMissing` | `IfMissing` never touches an existing file, `Always` overwrites it, `WarnOnDrift` reports a file that differs from the SDK-provided one, and `Never` skips bootstrapping. |
 | `PurviewRepoBootstrapCopyRetries` | `3` | Write attempts before a bootstrap write failure is reported. |
@@ -565,6 +576,81 @@ The SDK now exports its properties via `CompilerVisibleProperty`, so analyzers a
 
 ---
 
+## .NET 11 features
+
+.NET 11 is the baseline this SDK targets. The switches below are applied only to a `net11.0` (or
+later) target, so the `net10.0` leg of the default `net10.0;net11.0` set is unaffected.
+
+| Feature | Applied | Why |
+| -- | -- | -- |
+| Runtime Async V2 | `<Features>runtime-async=on</Features>` | .NET 11 no longer requires `EnablePreviewFeatures`, and the runtime libraries ship compiled with it. Cleaner live stack traces, lower await overhead, and continuations that skip `ExecutionContext` when nothing is ambient. Opt out with `PurviewRuntimeAsync=false` or `UseRuntimeAsync=false`. |
+| C# 15 updated memory-safety rules | `<Features>updated-memory-safety-rules</Features>` (`MemorySafetyRules=2`) | `unsafe` marks requires-unsafe APIs and the compiler records the choice in `MemorySafetyRulesAttribute`. Independent of `LangVersion`, so the default `latest` is enough. |
+| Unsafe code | **not** enabled | `AllowUnsafeBlocks` stays at the compiler default (`false`). The updated model is strictest with unsafe code disallowed; a project that needs pointers opts in itself. |
+| Multithreaded MSBuild | `Directory.Build.rsp` with `-mt` | Runs a build's projects concurrently in one process, which is 20–26% faster on large solutions per the MSBuild measurements. `-mt` is a host switch, so it cannot be set from a project; the response file is the only mechanism. `-nr:false` accompanies it because a node left by a non-`-mt` build can cache an `RoslynCodeTaskFactory` task with no assembly path and fail the next `-mt` build (`dotnet/msbuild#15213`); the short-lived server still gives Server GC. |
+
+`MemorySafetyRules` tiers: `0` (off), `1` (preview pointer syntax, sets `LangVersion=preview` unless the
+project named its own version), `2` (updated rules, the default). Anything else fails with `PRCFG0001`.
+
+### Evaluated and deliberately not defaulted
+
+These improve a specific workload but would change behaviour or cost for every project, so they stay
+opt-in:
+
+- **Server GC / `TieredPGO` / ReadyToRun** — the runtime and SDK already choose sensible defaults per
+  app type; a blanket `ServerGarbageCollection=true` is wrong for desktop apps and tests.
+- **Native AOT and `PublishAot`** — a publish property, not a build default, and it changes the
+  artifact and the libraries an app may use.
+- **`UseArtifactsOutput`** — a much faster, cache-friendly layout, but a breaking change to every
+  output path a repository may reference.
+- **`EnablePackageValidation`** — needs a baseline package, so it is a per-package decision.
+- **`NuGetAuditMode=all`** — a good security default, but it turns transitive vulnerability warnings
+  on for every repository, which is a policy decision rather than a build default.
+- **`CheckForOverflowUnderflow`** — improves correctness at a measurable runtime cost; opt in where
+  arithmetic overflow is a real risk.
+
+The SDK does adopt the .NET 11 behaviour that needs no switch: `AnalysisLevel=latest` now resolves to
+the .NET 11 rule set, the MSBuild server is on by default in the SDK, and the default C# version is
+`latest` (C# 15).
+
+---
+
+## ServerShared
+
+`ServerShared` is the server-side counterpart of `Shared`. A project is recognised by the same
+name list shape (`ServerShared`, `ServerSharedFramework`, `ServerSharedInfrastructure`,
+`ServerSharedInfra`, `ServerSharedUtilities`, `ServerSharedUtils`, `ServerSharedLibrary`,
+`ServerSharedLib`, `ServerSharedHelpers`) and is referenced automatically by every project that
+cannot run in a browser.
+
+`Shared` is referenced by almost everything, which is right for helpers that run anywhere, but it
+leaks server-only code the moment a WebAssembly client reaches anything in that chain. So the
+automatic `ServerShared` reference is skipped for anything that might be downloaded:
+
+| Excluded | Why |
+| -- | -- |
+| `Microsoft.NET.Sdk.BlazorWebAssembly` | the client itself is downloaded |
+| `PurviewBrowserSafe=true` | by definition downloaded |
+| `Microsoft.NET.Sdk.Razor` | a WebAssembly client can reference a Razor class library, and the build cannot know in advance whether it will |
+| `*.Client`, `*.Browser`, `*.Wasm`, `*.WebAssembly`, `*.Components`, `Components` | the shape a Blazor Web App puts on the client |
+| `Shared` and `SharedTesting` | a `Shared` project is itself referenced widely, so inheriting the reference would defeat the guarantee |
+
+`IsClientSideProject=true`/`false` overrides the detection either way, including restoring the
+automatic reference to a server-only Razor class library (the conservative default would otherwise
+hide it).
+
+Two diagnostics protect the guarantee when a reference is deliberate:
+
+- `PRSHR0001` — a client-side project references a `ServerShared` project.
+- `PRSHR0002` — a `Shared` project references a `ServerShared` project.
+
+Both are warnings; `PurviewServerSharedReferenceCheckAsError=true` makes them errors and
+`DisablePurviewServerSharedReferenceCheck=true` suppresses them. `PurviewBrowserSafe="true"` on the
+`ProjectReference` is accepted as the explicit statement that the reference was judged safe, the same
+escape hatch `PRBLZ0001` uses. `PurviewAutoServerSharedReference=false` removes the automatic
+reference entirely.
+
+---
+
 ## Blazor WebAssembly and BFF
 
 Every behaviour here applies only to the project type it names. A project that is not a WebAssembly
@@ -591,8 +677,8 @@ opts out). A host referencing a client under another name is resolved during the
 | -- | -- |
 | `IsPackable=false` (the project can still set `true`) | packing an app's `wwwroot` as a package nobody can consume |
 | no container defaults, even with a `Dockerfile` | `PublishAot` on a client is a publish that fails |
-| no automatic `../Shared*` reference | a server-side library joining the browser download because of a folder name |
-| `PRBLZ0001` for each `ProjectReference` that does not set `PurviewBrowserSafe` | a library joining the download without anyone deciding it was safe there |
+| no automatic `../Shared*` or `../ServerShared*` reference | a server-side library joining the browser download because of a folder name |
+| `PRBLZ0001` for each `ProjectReference` that does not set `PurviewBrowserSafe`, and `PRSHR0001` for a `ServerShared` reference | a library joining the download without anyone deciding it was safe there |
 
 Globalisation, trimming mode and the Blazor runtime settings are left to the Blazor SDK.
 `DisablePurviewBlazorWebAssemblyDefaults=true` (before the SDK import) restores the generic

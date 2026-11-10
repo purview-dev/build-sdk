@@ -2,6 +2,10 @@
 	<PropertyGroup Label="Default SDK Properties">
 		<_SharedProjectNames Condition="'$(_SharedProjectNames)' == ''"
 			>;Shared;SharedFramework;SharedInfrastructure;SharedInfra;SharedUtilities;SharedUtils;SharedLibrary;SharedLib;SharedHelpers;</_SharedProjectNames>
+		<!-- Server-side siblings of Shared: referenced automatically by every project that can only run
+		     on the server, never by one that is downloaded to a browser. -->
+		<_ServerSharedProjectNames Condition="'$(_ServerSharedProjectNames)' == ''"
+			>;ServerShared;ServerSharedFramework;ServerSharedInfrastructure;ServerSharedInfra;ServerSharedUtilities;ServerSharedUtils;ServerSharedLibrary;ServerSharedLib;ServerSharedHelpers;</_ServerSharedProjectNames>
 		<_SharedTestingProjectNames Condition="'$(_SharedTestingProjectNames)' == ''"
 			>;SharedTestingFramework;SharedTestingInfrastructure;SharedTestingInfra;SharedTestingUtilities;SharedTestingUtils;SharedTestingLibrary;SharedTestingLib;SharedTestingHelpers;</_SharedTestingProjectNames>
 
@@ -23,6 +27,11 @@
 			>true</BootstrapEditorConfigToRepoRoot>
 		<BootstrapGlobalJsonToRepoRoot Condition="'$(BootstrapGlobalJsonToRepoRoot)' == ''"
 			>true</BootstrapGlobalJsonToRepoRoot>
+		<!-- Writes a managed Directory.Build.rsp at the repository root so every CLI build in the
+		     repository runs MSBuild's multithreaded mode (-mt). On by default because this release
+		     requires the .NET 11 SDK, where -mt exists; set false to opt out. -->
+		<BootstrapMultiThreadedBuildRspToRepoRoot Condition="'$(BootstrapMultiThreadedBuildRspToRepoRoot)' == ''"
+			>true</BootstrapMultiThreadedBuildRspToRepoRoot>
 		<CentralPackageTransitivePinningEnabled Condition="'$(CentralPackageTransitivePinningEnabled)' == ''"
 			>true</CentralPackageTransitivePinningEnabled>
 		<CollectCoverage Condition="'$(CollectCoverage)' == ''">false</CollectCoverage>
@@ -138,14 +147,32 @@
 		<IsPublishable Condition="'$(IsPublishable)' == ''">false</IsPublishable>
 		<IsSdkProject Condition="'$(IsSdkProject)' == ''">false</IsSdkProject>
 		<IsSharedProject Condition="'$(IsSharedProject)' == ''">false</IsSharedProject>
+		<IsServerSharedProject Condition="'$(IsServerSharedProject)' == ''">false</IsServerSharedProject>
 		<IsSharedTestingProject Condition="'$(IsSharedTestingProject)' == ''">false</IsSharedTestingProject>
 		<IsTestProject Condition="'$(IsTestProject)' == ''">false</IsTestProject>
 		<IsWebProject Condition="'$(IsWebProject)' == ''">false</IsWebProject>
 		<IsWebSdkProject Condition="'$(IsWebSdkProject)' == ''">false</IsWebSdkProject>
 		<IsWorkerSdkProject Condition="'$(IsWorkerSdkProject)' == ''">false</IsWorkerSdkProject>
-		<LangVersion Condition="'$(LangVersion)' == ''">preview</LangVersion>
+		<!-- C# 15 is the latest shipped language version. 'latest' opts into it (including union
+		     declarations) without also opting into unshipped 'preview' features. -->
+		<LangVersion Condition="'$(LangVersion)' == ''">latest</LangVersion>
 		<ManagePackageVersionsCentrally Condition="'$(ManagePackageVersionsCentrally)' == ''"
 			>true</ManagePackageVersionsCentrally>
+		<!--
+			The memory-safety rules tier for C# 15 / .NET 11:
+
+			  0  off: the original pointer-based rules.
+			  1  preview syntax: pointer declarations, '&', fixed/stackalloc/sizeof no longer require an
+			     unsafe context, and the 'unsafe(expression)' form is available (LangVersion=preview).
+			  2  updated rules (default): 'unsafe' marks requires-unsafe APIs, caller obligations are
+			     enforced, and MemorySafetyRulesAttribute is emitted. An independent feature switch, so it
+			     works with LangVersion=latest.
+
+			AllowUnsafeBlocks is deliberately left at its compiler default (false). Override either
+			property in the project or Directory.Build.props. The planned stable SDK property is
+			MemorySafetyRules, so this uses the same name and tier values.
+		-->
+		<MemorySafetyRules Condition="'$(MemorySafetyRules)' == ''">2</MemorySafetyRules>
 		<MaxCpuCount Condition="'$(MaxCpuCount)' == ''"></MaxCpuCount>
 		<NoWarn Condition="'$(NoWarn)' == ''"></NoWarn>
 		<Nullable Condition="'$(Nullable)' == ''">enable</Nullable>
@@ -160,6 +187,19 @@
 		<SubstituteFramework Condition="'$(SubstituteFramework)' == ''">TUnitMocks</SubstituteFramework>
 		<TestDataFramework Condition="'$(TestDataFramework)' == ''">Bogus</TestDataFramework>
 		<PurviewLogicalProjectName Condition="'$(PurviewLogicalProjectName)' == ''"></PurviewLogicalProjectName>
+		<!-- When false, no ServerShared project is added automatically. A project that is client-side
+		     (a WebAssembly client, PurviewBrowserSafe library, Razor class library or *.Client-style
+		     project) never receives one; see Targets/ServerShared.targets. -->
+		<PurviewAutoServerSharedReference Condition="'$(PurviewAutoServerSharedReference)' == ''"
+			>true</PurviewAutoServerSharedReference>
+		<!-- Reports a client-side or Shared project that references a ServerShared project (PRSHR0001
+		     and PRSHR0002). Warning by default; set this to true to fail the build instead. -->
+		<PurviewServerSharedReferenceCheckAsError Condition="'$(PurviewServerSharedReferenceCheckAsError)' == ''"
+			>false</PurviewServerSharedReferenceCheckAsError>
+		<PurviewRuntimeAsync Condition="'$(PurviewRuntimeAsync)' == ''">true</PurviewRuntimeAsync>
+		<!-- MSBuild's single-process multithreaded build (-mt). Applied through the bootstrapped
+		     Directory.Build.rsp, because -mt is a build-host switch and cannot be set from a project. -->
+		<PurviewMultiThreadedBuild Condition="'$(PurviewMultiThreadedBuild)' == ''">true</PurviewMultiThreadedBuild>
 		<PurviewNamespacePrefix Condition="'$(PurviewNamespacePrefix)' == ''"></PurviewNamespacePrefix>
 		<PurviewProjectShortName Condition="'$(PurviewProjectShortName)' == ''"></PurviewProjectShortName>
 		<PurviewTestType Condition="'$(PurviewTestType)' == ''"></PurviewTestType>
@@ -221,14 +261,21 @@
 		<RepositoryGlobalJsonFilePath
 			Condition="'$(RepositoryGlobalJsonFilePath)' == ''"
 		></RepositoryGlobalJsonFilePath>
+		<RepositoryDirectoryBuildRspFilePath
+			Condition="'$(RepositoryDirectoryBuildRspFilePath)' == ''"
+		></RepositoryDirectoryBuildRspFilePath>
+		<!-- Marks a Directory.Build.rsp the SDK wrote. Deliberately carries no version: the content is
+		     the same for every release, so a version would only create needless churn. -->
+		<PurviewRepositoryRspVersionMarker Condition="'$(PurviewRepositoryRspVersionMarker)' == ''"
+			>#&#32;Purview.BuildSdk - managed file</PurviewRepositoryRspVersionMarker>
 		<RootNamespace Condition="'$(RootNamespace)' == ''"></RootNamespace>
 		<SdkProjectName Condition="'$(SdkProjectName)' == ''"></SdkProjectName>
 		<SourceLinkPackageName Condition="'$(SourceLinkPackageName)' == ''"
 			>Microsoft.SourceLink.GitHub</SourceLinkPackageName>
 		<SymbolPackageFormat Condition="'$(SymbolPackageFormat)' == ''">snupkg</SymbolPackageFormat>
 		<TargetFramework Condition="'$(TargetFramework)' == ''"></TargetFramework>
-		<!-- Curated TFM set: Latest, Current, Supported or Broad. Left empty here so Sdk.props can tell
-		     "not chosen" from a real choice; it defaults to 'Current' (the single-TFM default) for every
+		<!-- Curated TFM set: Latest, Current, Supported, Broad or All. Left empty here so Sdk.props can tell
+		     "not chosen" from a real choice; it defaults to 'Current' (the default target set) for every
 		     non-Roslyn C# project. A Roslyn component keeps netstandard2.0 and is not covered. -->
 		<PurviewTargetFrameworkSet Condition="'$(PurviewTargetFrameworkSet)' == ''"></PurviewTargetFrameworkSet>
 		<TargetProjectName Condition="'$(TargetProjectName)' == ''"></TargetProjectName>

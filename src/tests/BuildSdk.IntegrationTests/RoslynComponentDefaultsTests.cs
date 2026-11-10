@@ -132,9 +132,15 @@ sealed class RoslynComponentDefaultsTests
 
 		// Misclassifying a plain library as a Roslyn component forces netstandard2.0 and
 		// TreatWarningsAsErrors onto it.
-		var properties = await harness.GetPropertiesAsync(cancellationToken, "IsRoslynComponent", "TargetFramework");
+		var properties = await harness.GetPropertiesAsync(
+			cancellationToken,
+			"IsRoslynComponent",
+			"TargetFramework",
+			"TargetFrameworks"
+		);
 		await Assert.That(properties["IsRoslynComponent"]).IsEqualTo("false");
-		await Assert.That(properties["TargetFramework"]).IsEqualTo("net10.0");
+		await Assert.That(properties["TargetFramework"]).IsEmpty();
+		await Assert.That(properties["TargetFrameworks"]).IsEqualTo("net10.0;net11.0");
 	}
 
 	[Test]

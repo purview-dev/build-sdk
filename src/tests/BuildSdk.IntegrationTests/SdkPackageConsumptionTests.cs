@@ -261,6 +261,30 @@ sealed class SdkPackageConsumptionTests
 			.Because("A shipped analyzer rule (PDS0003) must surface as a warning in the consumer build.");
 	}
 
+	/// <summary>
+	/// Both test assemblies target a different framework and Microsoft.Testing.Platform runs them in
+	/// parallel processes, so <see cref="NotInParallelAttribute"/> on the tests only serializes within one
+	/// assembly. A cross-process file lock stops the two from packing the same project into the same
+	/// <c>obj</c>/<c>bin</c> at once, which otherwise fails with <c>CS2012</c>.
+	/// </summary>
+	static readonly string PackLockPath = Path.Combine(Path.GetTempPath(), "purview-buildsdk-sdk-pack.lock");
+
+	static async Task<FileStream> AcquirePackLockAsync(CancellationToken cancellationToken)
+	{
+		while (true)
+		{
+			try
+			{
+				return new FileStream(PackLockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+			}
+			catch (IOException)
+			{
+				// Held by the other target framework's test run; wait for it to finish packing.
+				await Task.Delay(250, cancellationToken);
+			}
+		}
+	}
+
 	static async Task<string> PackSdkAsync(string feedDirectory, CancellationToken cancellationToken)
 	{
 		var sdkProjectPath = Path.GetFullPath(Path.Combine(SdkPaths.SdkDirectory, "..", "BuildSdk.csproj"));
@@ -269,6 +293,7 @@ sealed class SdkPackageConsumptionTests
 			?? throw new InvalidOperationException("Unable to determine SDK project directory.");
 
 		var packageVersion = $"0.0.0-integration-test-{Guid.NewGuid():N}";
+		using var packLock = await AcquirePackLockAsync(cancellationToken);
 		var (code, stdOut, stdErr) = await ProcessRunner.RunAsync(
 			"dotnet",
 			$"pack \"{sdkProjectPath}\" -c Release -o \"{feedDirectory}\" -p:PackageVersion={packageVersion} -p:Version={packageVersion}",

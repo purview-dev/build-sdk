@@ -66,9 +66,41 @@ file, and honours `PurviewRepoBootstrapMode`:
 | `DisableAutoCopySdkFiles` | `false` | Master switch that disables repo-level SDK file bootstrapping. |
 | `PurviewRepoBootstrapMode` | `IfMissing` | `IfMissing`, `Always`, `WarnOnDrift` or `Never`. |
 
+## `Directory.Build.rsp` bootstrapping
+
+`-mt` is an MSBuild **host** switch, so no project property can enable it: the host reads its switches
+before evaluation. A `Directory.Build.rsp` in any ancestor of a project is the one file the CLI reads
+that can, so the SDK writes one at the repository root:
+
+```text
+# Purview.BuildSdk - managed file
+# Managed by Purview.BuildSdk. Delete the marker line to take ownership of this file.
+-mt
+-nr:false
+```
+
+`-nr:false` is deliberate. A node left by a non-`-mt` build can hold a cached `RoslynCodeTaskFactory`
+task with no assembly path, and the first `-mt` build that reuses it fails with `MSB0001`
+([dotnet/msbuild#15213](https://github.com/dotnet/msbuild/issues/15213)) — which is exactly the
+transition a repository makes when this file first appears. A short-lived server still provides the
+Server GC `-mt` expects. `-mt` requires .NET 11; the bootstrap is skipped on an older SDK.
+
+The file is SDK-managed: a destination carrying the marker line is refreshed, one without it belongs
+to the developer and is never touched. `PurviewMultiThreadedBuild=false` rewrites it to `-mt:false`
+rather than deleting it, so opting out cannot leave a stale copy enabling the mode.
+
+Like the other bootstraps it writes atomically, retries quietly, and honours `PurviewRepoBootstrapMode`:
+
+| Property | Default | Description |
+| -- | -- | -- |
+| `BootstrapMultiThreadedBuildRspToRepoRoot` | `true` | Creates the `Directory.Build.rsp` when missing. |
+| `RepositoryDirectoryBuildRspFilePath` | *(auto-detected)* | Override the destination path. |
+| `PurviewMultiThreadedBuild` | `true` | `false` writes `-mt:false` instead of `-mt`. |
+| `DisableAutoCopySdkFiles` | `false` | Master switch that disables repo-level SDK file bootstrapping. |
+
 ## Retry and failure behaviour
 
-Both bootstraps share the same retry contract:
+All bootstraps share the same retry contract:
 
 | Property | Default | Description |
 | -- | -- | -- |
@@ -82,11 +114,11 @@ error by default, including the destination path and the underlying OS error.
 
 ## Repository root discovery
 
-Both bootstrap targets locate the repository root by:
+All bootstrap targets locate the repository root by:
 
 1. Running `git rev-parse --show-toplevel` from the `Directory.Build.props` directory.
 2. Falling back to probing upward for a `.git` marker.
 3. Finally falling back to the `Directory.Build.props` directory itself.
 
-Set the `RepositoryEditorConfigFilePath` / `RepositoryGlobalJsonFilePath` properties explicitly to
-override discovery.
+Set the `RepositoryEditorConfigFilePath`, `RepositoryGlobalJsonFilePath` or
+`RepositoryDirectoryBuildRspFilePath` property explicitly to override discovery.

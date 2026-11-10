@@ -354,7 +354,7 @@ public sealed partial class PackagedVersionFallbackTests
 						.Select(match => (Line: index + 1, Version: match.Groups["version"].Value))
 			)
 			// The property reference in the auto-detection documentation is not a pin.
-			.Where(pin => !pin.Version.StartsWith('$'))
+			.Where(pin => pin.Version.Length == 0 || pin.Version[0] != '$')
 			.ToArray();
 
 		await Assert.That(pins).IsNotEmpty().Because($"{relativePath} is expected to pin Purview.BuildSdk.");
