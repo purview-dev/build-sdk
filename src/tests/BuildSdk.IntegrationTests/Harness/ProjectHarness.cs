@@ -244,8 +244,7 @@ partial class ProjectHarness : IDisposable
 		if (File.Exists(solutionPath))
 		{
 			var document = XDocument.Load(solutionPath);
-			var solution =
-				document.Root
+			var solution = document.Root
 				?? throw new InvalidOperationException($"The solution file '{solutionPath}' has no root element.");
 
 			var alreadyExists = solution

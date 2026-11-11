@@ -288,8 +288,7 @@ sealed class SdkPackageConsumptionTests
 	static async Task<string> PackSdkAsync(string feedDirectory, CancellationToken cancellationToken)
 	{
 		var sdkProjectPath = Path.GetFullPath(Path.Combine(SdkPaths.SdkDirectory, "..", "BuildSdk.csproj"));
-		var sdkProjectDirectory =
-			Path.GetDirectoryName(sdkProjectPath)
+		var sdkProjectDirectory = Path.GetDirectoryName(sdkProjectPath)
 			?? throw new InvalidOperationException("Unable to determine SDK project directory.");
 
 		var packageVersion = $"0.0.0-integration-test-{Guid.NewGuid():N}";

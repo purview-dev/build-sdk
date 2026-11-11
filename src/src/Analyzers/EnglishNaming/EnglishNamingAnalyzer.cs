@@ -69,9 +69,8 @@ public sealed class EnglishNamingAnalyzer : DiagnosticAnalyzer
 			return;
 		}
 
-		var config = configCache.GetOrAdd(
-			declaringTree,
-			tree => EnglishNamingConfig.FromOptions(context.Options.AnalyzerConfigOptionsProvider.GetOptions(tree))
+		var config = configCache.GetOrAdd(declaringTree, tree =>
+			EnglishNamingConfig.FromOptions(context.Options.AnalyzerConfigOptionsProvider.GetOptions(tree))
 		);
 
 		var corrected = EnglishNamingHelper.CorrectIdentifier(symbol.Name, config);
