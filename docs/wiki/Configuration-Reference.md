@@ -24,7 +24,7 @@ See [Version Detection](Version-Detection.md) for the full resolution rules.
 | `PurviewTestContextNoWarn` | `CA1002;CA1012;CA1034;CA1047;CA1050;CA1051;CA1062;CA1064;CA1515;CA1707` | Production API-surface rules exempted in test and shared-testing projects (they keep the strict style contract). Override before the SDK import to narrow or extend the list. |
 | `DisablePurviewTestContextRuleSet` | `false` | Set to `true` to make test and shared-testing projects enforce the production API-surface rules as well. |
 | `PurviewSharedTestingOutputType` | `Library` | Output type forced on `IsSharedTestingProject` projects; `Library` also clears `IsTestProject`/`IsTestingPlatformApplication`. Set to `Exe` before the SDK import to keep the test packages' executable/test-host shape. |
-| `TargetFramework` | `net10.0` | Override the default TFM per-project or globally. Defaults to `netstandard2.0` for projects declaring `IsRoslynComponent=true`. To multi-target from a central, overridable definition rather than a hard-coded list, see [Target framework sets](#target-framework-sets). |
+| `TargetFramework` | `net10.0;net11.0` | Override the default TFMs per-project or globally. Defaults to `netstandard2.0` for projects declaring `IsRoslynComponent=true`. To multi-target from a central, overridable definition rather than a hard-coded list, see [Target framework sets](#target-framework-sets). |
 | `DisableUnconditionalProjectDeclarationCheck` | `false` | Set to `true` to suppress `PurviewConditionedProjectDeclaration`. The SDK reads `TargetFramework`, `TargetFrameworks`, `IsRoslynComponent`, `IsRoslynComponentOnly`, `IsPackable` and `PurviewTargetFrameworkSet` from the project XML before the project body is evaluated, so it cannot evaluate a `Condition` on them and will not see the declaration — the SDK default applies instead. Declare those properties unconditionally, or set them in a file imported before this SDK. |
 | `IsRoslynComponent` | `false` | When explicitly `true`, applies source-generator defaults: a single `netstandard2.0` target, `LangVersion=latest`, `Nullable=enable`, `TreatWarningsAsErrors=true`, `Deterministic=true`, extended analyzer rules, SourceLink with `EmbedUntrackedSources=true`, compiler-generated output under the intermediate directory, no dependency file, symbol packaging (`IncludeSymbols=false` by default), telemetry exclusion, and package build output. Packable Roslyn components automatically pack the built analyzer assembly and its PDB into `analyzers/dotnet/cs/` (`PurviewPackAnalyzerPdb=true`; set `false` only when symbols are delivered another way — NuGet's `.snupkg` cannot host `analyzers/dotnet/cs` symbols). Pack-time validation (`ValidateRoslynComponentCompilerSettings`) fails the pack if the compiler defaults are missing unless `DisableRoslynCompilerDefaultsValidation=true`. Roslyn development dependencies (`Microsoft.CodeAnalysis.*`, `Microsoft.CodeAnalysis.Analyzers`) default to `PrivateAssets="all"`. |
 | `PackProjectReferencedSourceGenerators` | `true` | Automatically packs analyzer `ProjectReference` outputs and their runtime dependencies under `analyzers/dotnet/cs/`. Set to `false` to opt out; set `Pack="false"` on an individual reference to exclude only that generator. |
@@ -36,6 +36,12 @@ See [Version Detection](Version-Detection.md) for the full resolution rules.
 | `DisableGenerateAssemblyIdentifierClass` | `false` (`true` for test and shared-testing projects) | Set to `true` to disable the generated assembly identifier marker class. See [Assembly identifier class](Assembly-Name-Generation.md#assembly-identifier-class). |
 | `AssemblyIdentifierClassName` | `<project name minus NamespacePrefix, dots removed>Assembly` | Overrides the name of the generated assembly identifier marker class. |
 | `AutoIncludeUsings` | `true` | Controls SDK-added global usings for `NamespacePrefix` and `RootNamespace`. |
+| `MemorySafetyRules` | `2` | C# 15 memory-safety tier on `net11.0`+ targets: `0` off, `1` preview pointer syntax (sets `LangVersion=preview` when the project has not chosen one), `2` updated rules (`updated-memory-safety-rules`). An unrecognised value fails with `PRCFG0001`. `AllowUnsafeBlocks` is never changed. |
+| `PurviewRuntimeAsync` | `true` | Adds `<Features>runtime-async=on</Features>` on `net11.0`+ targets. `PurviewRuntimeAsync=false` or `UseRuntimeAsync=false` opts out. |
+| `IsClientSideProject` | *(detected)* | `true` when the project is downloaded to a browser: a WebAssembly client, a `PurviewBrowserSafe` library, a Razor class library, or a `*.Client`/`*.Browser`/`*.Wasm`/`*.WebAssembly`/`*.Components` name. Set explicitly to override the detection either way. |
+| `PurviewAutoServerSharedReference` | `true` | Adds `../ServerShared*/ServerShared*.csproj` to every non-client-side project. `false` disables it. |
+| `DisablePurviewServerSharedReferenceCheck` | `false` | Turns off `PRSHR0001` and `PRSHR0002`. |
+| `PurviewServerSharedReferenceCheckAsError` | `false` | Reports `PRSHR0001`/`PRSHR0002` as errors. |
 | `NamespaceRemoveSuffix` | *(built-in list)* | Item type listing the suffixes stripped from `RootNamespace`. Remove an entry **after** the `Sdk.props` import to keep that suffix in the namespace, e.g. `<NamespaceRemoveSuffix Remove="Abstractions" />`. **Roslyn component names are not in the list** — `SourceGenerator`, `SourceGenerators`, `SourceGeneration`, `Generators`, `Analyzers`, `CodeFixers` and `CodeFixes` are part of a component's identity, and a generator, its analyzers and its code fixes are separate assemblies that each need their own namespace. Add one with `<NamespaceRemoveSuffix Include="Analyzers" />` if a repository really wants it collapsed. See [Namespace stripping](Assembly-Name-Generation.md#namespace-stripping). |
 
 ## Target framework sets
@@ -53,7 +59,7 @@ moves every consumer at once:
 
 | Set | Resolves to | Use for |
 | -- | -- | -- |
-| `Current` | `net10.0` | The default. A single target, stated explicitly. |
+| `Current` | `net10.0;net11.0` | The default. The current LTS plus the latest release. |
 | `Latest` | `net11.0` | Newest release only. |
 | `Supported` | `net10.0;net11.0` | A package that should work on anything still in support. |
 | `Broad` | `net8.0;net9.0;net10.0` | Every shipped release — widest reach without committing to the newest major while it is pre-GA. |
@@ -65,10 +71,9 @@ package should not imply a commitment to them. Choose `Broad` to keep them.
 `Broad` and `All` differ by one real product decision — whether the package commits to the newest
 release — so they are separate names rather than one set that silently widens every consumer of it.
 
-A set is **always** in play: `Current` applies when nothing is selected, which resolves to the same
-single TFM the SDK used to hard-code. The out-of-box result is therefore unchanged — but the value is
-named and overridable in one place, so moving a repository (or every repository) between runtimes is a
-property change rather than an edit in each project.
+A set is **always** in play: `Current` applies when nothing is selected, and resolves to every release
+still in support. The value is named and overridable in one place, so moving a repository (or every
+repository) between runtimes is a property change rather than an edit in each project.
 
 Overrides are layered, narrowest first:
 
@@ -86,8 +91,8 @@ collapse the project to a single target and break every multi-targeting consumer
 
 | Property | Default | Description |
 | -- | -- | -- |
-| `PurviewTargetFrameworkSet` | `Current` | `Current`, `Latest`, `Supported`, `Broad` or `All`. An unrecognised name fails the build with `PurviewInvalidTargetFrameworkSet` rather than silently falling back to the single-TFM default. A single-entry set resolves to `TargetFramework`, so it does not pay for an outer multi-targeting build. |
-| `PurviewTargetFrameworksCurrent` | `net10.0` | Redefines the `Current` set. |
+| `PurviewTargetFrameworkSet` | `Current` | `Current`, `Latest`, `Supported`, `Broad` or `All`. An unrecognised name fails the build with `PurviewInvalidTargetFrameworkSet` rather than silently falling back to the default set. A single-entry set resolves to `TargetFramework`, so it does not pay for an outer multi-targeting build. |
+| `PurviewTargetFrameworksCurrent` | `net10.0;net11.0` | Redefines the `Current` set. |
 | `PurviewTargetFrameworksLatest` | `net11.0` | Redefines the `Latest` set. |
 | `PurviewTargetFrameworksSupported` | `net10.0;net11.0` | Redefines the `Supported` set. |
 | `PurviewTargetFrameworksBroad` | `net8.0;net9.0;net10.0` | Redefines the `Broad` set. |
@@ -152,6 +157,9 @@ operations skip them silently.
 | `RepositoryEditorConfigFilePath` | *(auto-detected)* | Override the destination path for the bootstrapped `.editorconfig`. |
 | `BootstrapGlobalJsonToRepoRoot` | `true` | Creates a `global.json` at the repository root when missing. |
 | `RepositoryGlobalJsonFilePath` | *(auto-detected)* | Override the destination path for the bootstrapped `global.json`. |
+| `BootstrapMultiThreadedBuildRspToRepoRoot` | `true` | Creates a managed `Directory.Build.rsp` at the repository root that enables MSBuild's multithreaded build (`-mt` plus `-nr:false`) on .NET 11. Set to `false` to stop bootstrapping it. |
+| `RepositoryDirectoryBuildRspFilePath` | *(auto-detected)* | Override the destination path for the bootstrapped `Directory.Build.rsp`. |
+| `PurviewMultiThreadedBuild` | `true` | When `false`, a managed `Directory.Build.rsp` is rewritten to `-mt:false`, so opting out cannot leave the mode enabled. |
 | `PurviewBuildSdkVersionForGlobalJson` | *(restored package version, else the version it was packed as)* | Version written to the `msbuild-sdks.Purview.BuildSdk` entry in a bootstrapped `global.json`. |
 | `PurviewRepoBootstrapMode` | `IfMissing` | `IfMissing` never touches an existing file, `Always` overwrites it, `WarnOnDrift` reports that an existing file differs from the SDK-provided one, and `Never` skips bootstrapping entirely. |
 | `PurviewRepoBootstrapCopyRetries` | `3` | Copy attempts before a bootstrap write failure is reported. |
@@ -160,9 +168,46 @@ operations skip them silently.
 | `PurviewSuppressCopyRetryWarnings` | `true` | Demotes MSB3026 copy retry notices to messages. Set to `false` to see every retry attempt. |
 
 Bootstrap writes are staged into a temporary file and renamed into place, so editors and tools never
-observe a partially written `.editorconfig` or `global.json`. Because every project in a solution runs
-the same bootstrapping targets, a lost race between parallel projects is a no-op: an existing file is
-treated as success rather than a copy failure.
+observe a partially written `.editorconfig`, `global.json` or `Directory.Build.rsp`. Because every
+project in a solution runs the same bootstrapping targets, a lost race between parallel projects is a
+no-op: an existing file is treated as success rather than a copy failure.
+
+The `Directory.Build.rsp` is SDK-managed: its first line carries `# Purview.BuildSdk - managed file`,
+and only a file carrying that marker is refreshed. It contains `-mt` and `-nr:false`. `-mt` is a build
+host switch, so a response file is the only way a project can turn it on; `-nr:false` avoids reusing a
+node left by a non-`-mt` build, which can cache a `RoslynCodeTaskFactory` task with no assembly path
+and fail the first `-mt` build (`dotnet/msbuild#15213`). `-mt` still uses the MSBuild server (short-lived)
+for Server GC.
+
+## .NET 11 features
+
+A `net11.0`+ target compiles with these switches; the `net10.0` leg of a multi-targeted project is
+unchanged.
+
+| Property | Applied | Notes |
+| -- | -- | -- |
+| `PurviewRuntimeAsync` | `true` | `<Features>runtime-async=on</Features>`. `UseRuntimeAsync=false` also opts out. |
+| `MemorySafetyRules` | `2` | `updated-memory-safety-rules`; `1` sets `LangVersion=preview` for the pointer-syntax tier; `0` disables. `PRCFG0001` on an unknown value. |
+| `AllowUnsafeBlocks` | *(compiler default: false)* | Never set by the SDK. |
+
+Server GC, `TieredPGO`, ReadyToRun, Native AOT, `UseArtifactsOutput`, `EnablePackageValidation`,
+`NuGetAuditMode=all` and `CheckForOverflowUnderflow` were evaluated and deliberately left opt-in:
+each changes behaviour or cost for every project rather than improving one workload. See
+[.NET 11 features](https://github.com/purview-dev/build-sdk#net-11-features) in the README.
+
+## ServerShared
+
+A `ServerShared*` project is referenced automatically by every project that cannot run in a browser.
+It is skipped for a WebAssembly client, a `PurviewBrowserSafe` library, a Razor class library, a
+`*.Client`/`*.Browser`/`*.Wasm`/`*.WebAssembly`/`*.Components` project, and for `Shared`/`SharedTesting`
+projects (which are themselves referenced widely). `IsClientSideProject` can override the classification
+either way.
+
+`PRSHR0001` reports a client-side project that references a `ServerShared` project; `PRSHR0002`
+reports a `Shared` project that does. Both are warnings by default, become errors with
+`PurviewServerSharedReferenceCheckAsError=true`, and are suppressed by
+`DisablePurviewServerSharedReferenceCheck=true`. `PurviewBrowserSafe="true"` on the `ProjectReference`
+records that the reference was judged safe.
 
 ## Sdk folder packaging
 
@@ -250,13 +295,23 @@ read them through `build_property.<PropertyName>`:
 | `IsAspireHostProject` | True when SDK starts with `Aspire.Sdk.Host`. |
 | `IsCLIProject` | True when the project is a CLI project. |
 | `IsSharedProject` | True when the project is a shared project. |
+| `IsServerSharedProject` | True for a `ServerShared*` project, which only non-client-side projects reference automatically. |
+| `IsClientSideProject` | True when the project's assemblies are downloaded to a browser (WebAssembly client, browser-safe library, Razor class library, or a client-side name segment). |
+| `PurviewAutoServerSharedReference` | When `true` (default), adds a sibling `ServerShared` reference to a non-client-side project. |
+| `DisablePurviewServerSharedReferenceCheck` | When `true`, suppresses `PRSHR0001`/`PRSHR0002`. |
+| `PurviewServerSharedReferenceCheckAsError` | When `true`, reports `PRSHR0001`/`PRSHR0002` as errors. |
+| `MemorySafetyRules` | C# 15 memory-safety tier applied to `net11.0`+ targets. |
+| `PurviewRuntimeAsync` | When `true` (default), `net11.0`+ targets compile with `runtime-async=on`. |
+| `PurviewMultiThreadedBuild` | When `true` (default), a managed `Directory.Build.rsp` enables MSBuild `-mt`. |
 | `EditorConfigFilePath` | Path to the SDK-provided `.editorconfig` injected into `@(EditorConfigFiles)`. |
 | `RepositoryEditorConfigFilePath` | Destination path for bootstrapping a physical repo-level `.editorconfig`. |
 | `BootstrapEditorConfigToRepoRoot` | When `true` (default), copies the SDK `.editorconfig` to `RepositoryEditorConfigFilePath` if missing. |
 | `RepositoryGlobalJsonFilePath` | Destination path for bootstrapping a physical repo-level `global.json`. |
 | `BootstrapGlobalJsonToRepoRoot` | When `true` (default), creates `global.json` at `RepositoryGlobalJsonFilePath` if missing. |
+| `RepositoryDirectoryBuildRspFilePath` | Destination path for bootstrapping a physical repo-level `Directory.Build.rsp`. |
+| `BootstrapMultiThreadedBuildRspToRepoRoot` | When `true` (default), creates a managed `Directory.Build.rsp` enabling `-mt`. |
 | `PurviewBuildSdkVersionForGlobalJson` | Version used for `msbuild-sdks.Purview.BuildSdk` when bootstrapping `global.json`. |
-| `DisableAutoCopySdkFiles` | When `true`, disables SDK auto-copy/bootstrap for repo files (`.editorconfig`, `global.json`). |
+| `DisableAutoCopySdkFiles` | When `true`, disables SDK auto-copy/bootstrap for repo files (`.editorconfig`, `global.json`, `Directory.Build.rsp`). |
 | `CurrentYear` | Current year used in generated assembly metadata. |
 | `AutoGeneratedAssemblyInfoFile` | File name of the generated AssemblyInfo source file (written under the intermediate `Properties/` folder). |
 | `AutoGeneratedAssemblyIdentifierFile` | File name of the generated assembly identifier source file (written under the intermediate `Properties/` folder). |

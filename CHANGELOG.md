@@ -11,6 +11,35 @@ release summarise what the commits recorded rather than what was written at the 
 
 ## [Unreleased]
 
+### Added
+
+- **`ServerShared` projects.** A `ServerShared*` project is referenced automatically by every
+  non-client-side project, and never by a WebAssembly client, `PurviewBrowserSafe` library, Razor
+  class library or `*.Client`/`*.Browser`/`*.Wasm`/`*.WebAssembly`/`*.Components` project.
+  `IsClientSideProject` names the classification and can be set explicitly; `PRSHR0001` (client-side
+  reference) and `PRSHR0002` (Shared reference) catch a reference that would still reach a browser.
+  Opt the automatic reference out with `PurviewAutoServerSharedReference=false`.
+- **.NET 11 compiler opt-ins.** A `net11.0`+ target compiles with Runtime Async
+  (`<Features>runtime-async=on</Features>`) and the C# 15 updated memory-safety rules
+  (`MemorySafetyRules=2`), gated per-TFM so the `net10.0` leg is unchanged. `AllowUnsafeBlocks` is
+  left at the compiler default (`false`). Opt out with `PurviewRuntimeAsync=false`,
+  `UseRuntimeAsync=false`, or `MemorySafetyRules=0`; an unrecognised tier fails with `PRCFG0001`.
+- **Multithreaded builds.** A managed `Directory.Build.rsp` at the repository root enables MSBuild's
+  `-mt` on .NET 11, bootstrapped like `.editorconfig` and `global.json` and refreshed only when its
+  marker line is present. `PurviewMultiThreadedBuild=false` rewrites it to `-mt:false`.
+
+### Changed
+
+- **The default target frameworks are now `net10.0;net11.0`.** `Current` — the set that applies when a
+  project selects none — resolves to the current LTS plus the latest release, so a project that declares
+  neither `TargetFramework` nor `TargetFrameworks` now multi-targets. This is a breaking change: pin
+  `PurviewTargetFrameworksCurrent`, select another set, or declare the TFM explicitly to keep the previous
+  single-target output. `Supported` still names the same pair so a repository can pin the meaning rather
+  than depend on where `Current` moves next.
+- **`LangVersion` defaults to `latest` (C# 15)** instead of `preview`. C# 15 is the latest shipped
+  language version and includes union declarations; `preview` remains available per project when a
+  repository deliberately wants unshipped features. Roslyn components keep `LangVersion=latest`.
+
 ## [1.3.2] - 2026-11-09
 
 ### Changed

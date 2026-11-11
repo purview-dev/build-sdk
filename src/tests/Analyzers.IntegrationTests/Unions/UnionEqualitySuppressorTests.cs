@@ -18,9 +18,10 @@ namespace Purview.BuildSdk.Analyzers.Unions;
 /// by it at all.
 /// </para>
 /// <para>
-/// Every source here declares <c>UnionAttribute</c> and <c>IUnion</c> itself. Unions are a preview language
-/// feature whose required runtime types are not in the <c>net10.0</c> framework this test host references, and
-/// without <c>IUnion</c> the union declaration fails to bind with <c>CS0518</c> and no symbol is produced.
+/// Every source here declares <c>UnionAttribute</c> and <c>IUnion</c> itself. The runtime types ship with
+/// <c>net11.0</c> but not <c>net10.0</c>, and this suite runs on both; without <c>IUnion</c> the union
+/// declaration fails to bind with <c>CS0518</c> and no symbol is produced. The compiler embeds its own copies
+/// in exactly the same way.
 /// </para>
 /// </remarks>
 [Category("Integration")]

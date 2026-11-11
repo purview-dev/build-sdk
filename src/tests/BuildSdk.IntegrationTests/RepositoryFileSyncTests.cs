@@ -68,10 +68,14 @@ sealed class RepositoryFileSyncTests
 	[Test]
 	public async Task DesignTimeBuild_DoesNotBootstrapTheRepositoryFiles(CancellationToken cancellationToken)
 	{
-		using var h = await CreateHarnessAsync(extraProps: null, cancellationToken: cancellationToken);
+		using var h = await CreateHarnessAsync(
+			extraProps: "<BootstrapMultiThreadedBuildRspToRepoRoot>true</BootstrapMultiThreadedBuildRspToRepoRoot>",
+			cancellationToken: cancellationToken
+		);
 
 		var editorConfigPath = Path.Combine(h.SolutionDirectory, ".editorconfig");
 		var globalJsonPath = Path.Combine(h.SolutionDirectory, "global.json");
+		var rspPath = Path.Combine(h.SolutionDirectory, "Directory.Build.rsp");
 
 		// A real build first: it bootstraps both files and, just as importantly, restores so the
 		// design-time pass below has an assets file to read.
@@ -83,10 +87,12 @@ sealed class RepositoryFileSyncTests
 		await Assert.That(firstSuccess).IsTrue().Because(TestHelpers.GenerateError(firstOutput, firstErrors));
 		await Assert.That(File.Exists(editorConfigPath)).IsTrue().Because("a real build bootstraps it");
 		await Assert.That(File.Exists(globalJsonPath)).IsTrue().Because("a real build bootstraps it");
+		await Assert.That(File.Exists(rspPath)).IsTrue().Because("a real build bootstraps it");
 
 		// Remove them, so the design-time pass has something it could do and visibly does not.
 		File.Delete(editorConfigPath);
 		File.Delete(globalJsonPath);
+		File.Delete(rspPath);
 
 		var (code, output, errors) = await h.RunMSBuildAsync(
 			"-t:Build -p:DesignTimeBuild=true -p:SkipCompilerExecution=true",
@@ -96,6 +102,7 @@ sealed class RepositoryFileSyncTests
 		await Assert.That(code).IsZero().Because(output + errors);
 		await Assert.That(File.Exists(editorConfigPath)).IsFalse();
 		await Assert.That(File.Exists(globalJsonPath)).IsFalse();
+		await Assert.That(File.Exists(rspPath)).IsFalse();
 	}
 
 	/// <summary>
@@ -274,7 +281,7 @@ sealed class RepositoryFileSyncTests
 	public async Task RepoBootstrapModeNever_SkipsAllBootstrapWrites(CancellationToken cancellationToken)
 	{
 		using var h = await CreateHarnessAsync(
-			extraProps: "<PurviewRepoBootstrapMode>Never</PurviewRepoBootstrapMode>",
+			extraProps: "<PurviewRepoBootstrapMode>Never</PurviewRepoBootstrapMode><BootstrapMultiThreadedBuildRspToRepoRoot>true</BootstrapMultiThreadedBuildRspToRepoRoot>",
 			cancellationToken: cancellationToken
 		);
 
@@ -283,6 +290,75 @@ sealed class RepositoryFileSyncTests
 		await Assert.That(success).IsTrue().Because(TestHelpers.GenerateError(output, errors));
 		await Assert.That(File.Exists(Path.Combine(h.SolutionDirectory, "global.json"))).IsFalse();
 		await Assert.That(File.Exists(Path.Combine(h.SolutionDirectory, ".editorconfig"))).IsFalse();
+		await Assert.That(File.Exists(Path.Combine(h.SolutionDirectory, "Directory.Build.rsp"))).IsFalse();
+	}
+
+	[Test]
+	public async Task DirectoryBuildRspBootstrap_CreatesAManagedFileThatEnablesMultithreadedBuild(
+		CancellationToken cancellationToken
+	)
+	{
+		using var h = await CreateHarnessAsync(
+			extraProps: "<BootstrapMultiThreadedBuildRspToRepoRoot>true</BootstrapMultiThreadedBuildRspToRepoRoot>",
+			cancellationToken: cancellationToken
+		);
+
+		var (success, output, errors) = await h.BuildAsync(restore: true, verbose: true, cancellationToken);
+
+		await Assert.That(success).IsTrue().Because(TestHelpers.GenerateError(output, errors));
+
+		var rspPath = Path.Combine(h.SolutionDirectory, "Directory.Build.rsp");
+		await Assert.That(File.Exists(rspPath)).IsTrue();
+
+		var lines = await File.ReadAllLinesAsync(rspPath, cancellationToken);
+		await Assert.That(lines[0]).StartsWith("# Purview.BuildSdk - managed file");
+		await Assert.That(lines).Contains("-mt");
+		await Assert
+			.That(lines)
+			.Contains("-nr:false")
+			.Because(
+				"switching from a non-mt build must not reuse a node with a cached RoslynCodeTaskFactory task (dotnet/msbuild#15213)"
+			);
+	}
+
+	[Test]
+	public async Task DirectoryBuildRspBootstrap_LeavesAUserOwnedFileAlone(CancellationToken cancellationToken)
+	{
+		using var h = await CreateHarnessAsync(
+			extraProps: "<BootstrapMultiThreadedBuildRspToRepoRoot>true</BootstrapMultiThreadedBuildRspToRepoRoot>",
+			cancellationToken: cancellationToken
+		);
+
+		var rspPath = Path.Combine(h.SolutionDirectory, "Directory.Build.rsp");
+		const string owned = "# my own switches\n-mt:false\n";
+		await File.WriteAllTextAsync(rspPath, owned, cancellationToken);
+
+		var (success, output, errors) = await h.BuildAsync(restore: true, verbose: true, cancellationToken);
+
+		await Assert.That(success).IsTrue().Because(TestHelpers.GenerateError(output, errors));
+		await Assert.That(await File.ReadAllTextAsync(rspPath, cancellationToken)).IsEqualTo(owned);
+	}
+
+	[Test]
+	public async Task DirectoryBuildRspBootstrap_OptOut_RewritesAManagedFileToDisableMultithreading(
+		CancellationToken cancellationToken
+	)
+	{
+		using var h = await CreateHarnessAsync(
+			extraProps: "<BootstrapMultiThreadedBuildRspToRepoRoot>true</BootstrapMultiThreadedBuildRspToRepoRoot><PurviewMultiThreadedBuild>false</PurviewMultiThreadedBuild>",
+			cancellationToken: cancellationToken
+		);
+
+		var rspPath = Path.Combine(h.SolutionDirectory, "Directory.Build.rsp");
+		await File.WriteAllTextAsync(rspPath, "# Purview.BuildSdk - managed file\n-mt\n-nr:false\n", cancellationToken);
+
+		var (success, output, errors) = await h.BuildAsync(restore: true, verbose: true, cancellationToken);
+
+		await Assert.That(success).IsTrue().Because(TestHelpers.GenerateError(output, errors));
+
+		var lines = await File.ReadAllLinesAsync(rspPath, cancellationToken);
+		await Assert.That(lines).Contains("-mt:false");
+		await Assert.That(lines).DoesNotContain("-mt");
 	}
 
 	[Test]

@@ -51,8 +51,11 @@ sealed class IncrementalBuildTests
 			cancellationToken: cancellationToken
 		);
 
-		var first = await harness.BuildAsync(restore: true, cancellationToken: cancellationToken);
-		await Assert.That(first.Success).IsTrue().Because(TestHelpers.GenerateError(first.Output, first.Errors));
+		var (successFirst, outputFirst, errorsFirst) = await harness.BuildAsync(
+			restore: true,
+			cancellationToken: cancellationToken
+		);
+		await Assert.That(successFirst).IsTrue().Because(TestHelpers.GenerateError(outputFirst, errorsFirst));
 
 		var generatedPath = FindGeneratedFile(harness, fileName);
 		var generatedContent = await File.ReadAllTextAsync(generatedPath, cancellationToken);
@@ -63,8 +66,10 @@ sealed class IncrementalBuildTests
 		// against, so the delay cannot be removed.
 		await Task.Delay(TimeSpan.FromMilliseconds(50), cancellationToken);
 
-		var second = await harness.BuildAsync(cancellationToken: cancellationToken);
-		await Assert.That(second.Success).IsTrue().Because(TestHelpers.GenerateError(second.Output, second.Errors));
+		var (successSecond, outputSecond, errorsSecond) = await harness.BuildAsync(
+			cancellationToken: cancellationToken
+		);
+		await Assert.That(successSecond).IsTrue().Because(TestHelpers.GenerateError(outputSecond, errorsSecond));
 
 		await Assert
 			.That(File.GetLastWriteTimeUtc(generatedPath))

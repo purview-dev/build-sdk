@@ -1,0 +1,146 @@
+<Project>
+	<!-- =====================================================================
+	     SERVERSHARED PROJECTS AND CLIENT-SIDE DETECTION
+
+	     A ServerShared project is the server-side counterpart of Shared: a
+	     library of code that must never be downloaded to a browser. Shared is
+	     referenced automatically by almost every project, which is right for
+	     helpers that run anywhere but leaks server-only code the moment a
+	     WebAssembly client references anything in that chain.
+
+	     So ServerShared is referenced automatically only by a project that
+	     cannot run in a browser. Anything that might be downloaded to one is
+	     excluded, and the exclusion is deliberately conservative:
+
+	       - a Blazor WebAssembly client (Microsoft.NET.Sdk.BlazorWebAssembly);
+	       - a PurviewBrowserSafe library, which by definition is downloaded;
+	       - a Razor class library, because a WebAssembly client can reference
+	         one and the build cannot tell in advance whether it will;
+	       - a project named with a client-side segment (*.Client, *.Browser,
+	         *.Wasm, *.WebAssembly, *.Components) or exactly Components, which
+	         is the shape a Blazor Web App puts on the client.
+
+	     IsClientSideProject=true/false overrides the detection either way. The
+	     conservative default is what makes the guarantee hold without asking
+	     every author to classify their projects.
+
+	     A Shared project is excluded too, and is reported if it references a
+	     ServerShared project (PRSHR0002): everything that references Shared
+	     would otherwise inherit the server-only reference, including a client.
+
+	     This file is imported after the project body so PurviewBrowserSafe and
+	     an explicit IsClientSideProject are final.
+	     ===================================================================== -->
+	<PropertyGroup Label="Client-side project detection" Condition="'$(IsCSharpProject)' == 'true'">
+		<_PurviewClientSideProjectName>$([System.String]::Copy('$(MSBuildProjectName)').ToLowerInvariant())</_PurviewClientSideProjectName>
+		<IsClientSideProject Condition="'$(IsClientSideProject)' == '' AND '$(IsBlazorWebAssemblyProject)' == 'true'"
+			>true</IsClientSideProject>
+		<IsClientSideProject Condition="'$(IsClientSideProject)' == '' AND '$(PurviewBrowserSafe)' == 'true'"
+			>true</IsClientSideProject>
+		<IsClientSideProject Condition="'$(IsClientSideProject)' == '' AND '$(IsRazorClassLibraryProject)' == 'true'"
+			>true</IsClientSideProject>
+		<IsClientSideProject
+			Condition="'$(IsClientSideProject)' == '' AND (
+				$([System.String]::Copy('$(_PurviewClientSideProjectName)').EndsWith('.client'))
+				OR $([System.String]::Copy('$(_PurviewClientSideProjectName)').EndsWith('.clientshared'))
+				OR $([System.String]::Copy('$(_PurviewClientSideProjectName)').EndsWith('.browser'))
+				OR $([System.String]::Copy('$(_PurviewClientSideProjectName)').EndsWith('.wasm'))
+				OR $([System.String]::Copy('$(_PurviewClientSideProjectName)').EndsWith('.webassembly'))
+				OR $([System.String]::Copy('$(_PurviewClientSideProjectName)').EndsWith('.components'))
+				OR '$(_PurviewClientSideProjectName)' == 'components'
+				OR '$(_PurviewClientSideProjectName)' == 'clientshared')"
+			>true</IsClientSideProject>
+		<IsClientSideProject Condition="'$(IsClientSideProject)' == ''">false</IsClientSideProject>
+	</PropertyGroup>
+
+	<!-- =====================================================================
+	     AUTOMATIC SERVERSHARED REFERENCE
+	     Same wildcard shape as Shared, so a repository that renamed nothing
+	     gains the project merely by creating the folder. Tests and ordinary
+	     server projects are included; only the exclusions above are not.
+	     ===================================================================== -->
+	<ItemGroup
+		Label="Automatic ProjectReference for ServerShared"
+		Condition="'$(IsCSharpProject)' == 'true' AND '$(IsServerSharedProject)' != 'true' AND '$(IsClientSideProject)' != 'true' AND '$(IsSharedProject)' != 'true' AND '$(IsSharedTestingProject)' != 'true' AND '$(PurviewAutoServerSharedReference)' != 'false'"
+	>
+		<ProjectReference
+			Condition="'$(IsAspireHostProject)' == 'false'"
+			Include="../ServerShared*/ServerShared*.csproj"
+		/>
+		<ProjectReference
+			Condition="'$(IsAspireHostProject)' == 'true'"
+			Include="../ServerShared*/ServerShared*.csproj"
+			IsAspireProjectResource="false"
+		/>
+		<ProjectReference Remove="../ServerSharedTesting*/ServerSharedTesting*.csproj" />
+		<ProjectReference Remove="../$(MSBuildProjectName)/$(MSBuildProjectName).csproj" />
+	</ItemGroup>
+
+	<!-- =====================================================================
+	     SERVERSHARED REFERENCE CHECK (PRSHR0001 / PRSHR0002)
+	     The automatic reference is skipped for a client-side project, so only a
+	     deliberate ProjectReference can put a ServerShared assembly in a
+	     browser download - or in a Shared project that a client then pulls in.
+	     Both are reported here, by asking each project reference the same
+	     question the browser-safe check asks.
+
+	     Warning by default; PurviewServerSharedReferenceCheckAsError=true makes
+	     it an error and DisablePurviewServerSharedReferenceCheck=true turns it
+	     off. PurviewBrowserSafe="true" is accepted as the explicit statement
+	     that a reference is fine in the browser: that is the existing,
+	     documented way to accept the risk, and this check does not invent a
+	     second one.
+	     ===================================================================== -->
+	<Target
+		Name="PurviewValidateServerSharedReferences"
+		BeforeTargets="CoreCompile"
+		DependsOnTargets="_PurviewCollectBrowserProjectReferences"
+		Condition="'$(IsCSharpProject)' == 'true' AND ('$(IsClientSideProject)' == 'true' OR '$(IsSharedProject)' == 'true') AND '$(IsServerSharedProject)' != 'true' AND '$(DisablePurviewServerSharedReferenceCheck)' != 'true' AND '$(DesignTimeBuild)' != 'true' AND ('$(DefaultTargetFramework)' == '' OR '$(TargetFramework)' == '$(DefaultTargetFramework)')"
+		Label="Reports a client-side or Shared project that references a ServerShared project."
+	>
+		<ItemGroup>
+			<_PurviewServerSharedCandidate
+				Include="@(_PurviewBrowserProjectReference->'%(FullPath)')"
+				Condition="'%(_PurviewBrowserProjectReference.PurviewBrowserSafe)' != 'true'"
+			/>
+		</ItemGroup>
+		<MSBuild
+			Projects="@(_PurviewServerSharedCandidate)"
+			Targets="GetPurviewBrowserProjectInfo"
+			BuildInParallel="$(BuildInParallel)"
+			Properties="Configuration=$(Configuration)"
+			RemoveProperties="TargetFramework;TargetFrameworks;RuntimeIdentifier;SelfContained"
+			SkipNonexistentProjects="true"
+			SkipNonexistentTargets="true"
+			Condition="'@(_PurviewServerSharedCandidate)' != ''"
+		>
+			<Output TaskParameter="TargetOutputs" ItemName="_PurviewServerSharedReferenceInfo" />
+		</MSBuild>
+		<ItemGroup>
+			<_PurviewServerSharedReference Include="@(_PurviewServerSharedReferenceInfo->WithMetadataValue('IsServerSharedProject', 'true'))" />
+		</ItemGroup>
+		<PropertyGroup>
+			<_PurviewServerSharedReferenceCode Condition="'$(IsClientSideProject)' == 'true'"
+				>PRSHR0001</_PurviewServerSharedReferenceCode>
+			<_PurviewServerSharedReferenceCode Condition="'$(IsClientSideProject)' != 'true'"
+				>PRSHR0002</_PurviewServerSharedReferenceCode>
+			<_PurviewServerSharedReferenceRole Condition="'$(IsClientSideProject)' == 'true'"
+				>a client-side project, so its assemblies are downloaded to a browser</_PurviewServerSharedReferenceRole>
+			<_PurviewServerSharedReferenceRole Condition="'$(IsClientSideProject)' != 'true'"
+				>a Shared project, so every project that references it inherits the reference</_PurviewServerSharedReferenceRole>
+			<_PurviewServerSharedReferenceText>ServerShared code belongs on the server only. Remove the reference, move the code into Shared if it is browser-safe, or set PurviewBrowserSafe="true" on the ProjectReference to record that it was judged safe. Set IsClientSideProject=false on this project if the detection is wrong, or suppress with DisablePurviewServerSharedReferenceCheck=true.</_PurviewServerSharedReferenceText>
+		</PropertyGroup>
+		<Warning
+			Code="$(_PurviewServerSharedReferenceCode)"
+			File="$(MSBuildProjectFullPath)"
+			Text="'$(MSBuildProjectName)' is $(_PurviewServerSharedReferenceRole), but it references ServerShared project '%(_PurviewServerSharedReference.Filename)'. $(_PurviewServerSharedReferenceText)"
+			Condition="'@(_PurviewServerSharedReference)' != '' AND '$(PurviewServerSharedReferenceCheckAsError)' != 'true'"
+		/>
+		<Error
+			Code="$(_PurviewServerSharedReferenceCode)"
+			File="$(MSBuildProjectFullPath)"
+			Text="'$(MSBuildProjectName)' is $(_PurviewServerSharedReferenceRole), but it references ServerShared project '%(_PurviewServerSharedReference.Filename)'. $(_PurviewServerSharedReferenceText)"
+			Condition="'@(_PurviewServerSharedReference)' != '' AND '$(PurviewServerSharedReferenceCheckAsError)' == 'true'"
+		/>
+	</Target>
+</Project>

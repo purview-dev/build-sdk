@@ -40,8 +40,8 @@ sealed class CoreDefaultsTests
 			.Because("ImplicitUsings should default to enable");
 		await Assert
 			.That(eval.Properties["LangVersion"])
-			.IsEqualTo("preview")
-			.Because("LangVersion should default to preview");
+			.IsEqualTo("latest")
+			.Because("LangVersion should default to the latest shipped C# version (C# 15)");
 		await Assert
 			.That(eval.Properties["Deterministic"])
 			.IsEqualTo("true")
@@ -108,7 +108,6 @@ sealed class CoreDefaultsTests
 			extraProps: "<IsPackable>false</IsPackable>",
 			cancellationToken: cancellationToken
 		);
-		// The SDK sets LangVersion to "preview" unless explicitly overridden.
 		await Assert
 			.That(await h.GetPropertyAsync("WarnOnPackingNonPackableProject", cancellationToken))
 			.IsEqualTo("false");

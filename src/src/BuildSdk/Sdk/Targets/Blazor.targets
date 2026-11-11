@@ -125,6 +125,10 @@
 				<ProjectName>$(MSBuildProjectName)</ProjectName>
 				<IsBlazorWebAssemblyProject>$(IsBlazorWebAssemblyProject)</IsBlazorWebAssemblyProject>
 				<PurviewBrowserSafe>$(PurviewBrowserSafe)</PurviewBrowserSafe>
+				<!-- Answers the ServerShared question too, so a client-side project can ask it with the
+				     same round trip instead of adding a second project query. -->
+				<IsServerSharedProject>$(IsServerSharedProject)</IsServerSharedProject>
+				<IsClientSideProject>$(IsClientSideProject)</IsClientSideProject>
 			</_PurviewBrowserProjectInfo>
 		</ItemGroup>
 	</Target>

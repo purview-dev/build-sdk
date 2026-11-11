@@ -541,10 +541,8 @@ public sealed class SplitExtensionsClassCodeRefactoringProvider : CodeRefactorin
 				continue;
 			}
 
-			var renamedRoot = root.ReplaceNodes(
-				root.DescendantNodes().OfType<SimpleNameSyntax>(),
-				(node, _) =>
-					node.Identifier.Text == oldName ? node.WithIdentifier(SyntaxFactory.Identifier(newName)) : node
+			var renamedRoot = root.ReplaceNodes(root.DescendantNodes().OfType<SimpleNameSyntax>(), (node, _) =>
+				node.Identifier.Text == oldName ? node.WithIdentifier(SyntaxFactory.Identifier(newName)) : node
 			);
 			if (!renamedRoot.IsEquivalentTo(root, topLevel: false))
 			{

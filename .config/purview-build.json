@@ -23,6 +23,8 @@
 				"Sdk/Sdk.props",
 				"Sdk/Sdk.targets",
 				"Sdk/Targets/Blazor.targets",
+				"Sdk/Targets/Modern.targets",
+				"Sdk/Targets/ServerShared.targets",
 				"Sdk/Targets/VersionDetection.targets"
 			],
 			"purview.skills.testing": [

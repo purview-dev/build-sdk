@@ -46,8 +46,7 @@ public sealed class SkillCatalogue
 	/// <exception cref="InvalidOperationException">No repository root could be resolved.</exception>
 	public static SkillCatalogue ForRepository(string? repositoryRoot = null, string folderName = DefaultFolderName)
 	{
-		var root =
-			repositoryRoot
+		var root = repositoryRoot
 			?? SkillRepositoryRoot.Find()
 			?? throw new InvalidOperationException(
 				$"Could not resolve a repository root above '{AppContext.BaseDirectory}'. Expected one of "

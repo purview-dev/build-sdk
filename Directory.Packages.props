@@ -1,6 +1,6 @@
 <Project>
 	<PropertyGroup>
-		<TUnitVersion>1.76.0</TUnitVersion>
+		<TUnitVersion>1.83.0</TUnitVersion>
 		<MicrosoftRoslynVersion>5.9.0</MicrosoftRoslynVersion>
 	</PropertyGroup>
 	<ItemGroup>

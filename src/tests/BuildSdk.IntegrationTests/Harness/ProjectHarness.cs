@@ -186,6 +186,10 @@ partial class ProjectHarness : IDisposable
 				<Project>
 					<PropertyGroup>
 						<NamespacePrefix>{namespacePrefix}</NamespacePrefix>
+						<!-- Throwaway solutions must not adopt the multithreaded-build response file: it would
+						     change the build host for every later test in the same directory, and the tests that
+						     cover the bootstrap opt back in explicitly. -->
+						<BootstrapMultiThreadedBuildRspToRepoRoot>false</BootstrapMultiThreadedBuildRspToRepoRoot>
 					</PropertyGroup>{preImportBlock}
 					<Import Project="{SdkPaths.SdkDirectory}/Sdk.props" />
 				</Project>
@@ -240,8 +244,7 @@ partial class ProjectHarness : IDisposable
 		if (File.Exists(solutionPath))
 		{
 			var document = XDocument.Load(solutionPath);
-			var solution =
-				document.Root
+			var solution = document.Root
 				?? throw new InvalidOperationException($"The solution file '{solutionPath}' has no root element.");
 
 			var alreadyExists = solution

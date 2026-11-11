@@ -119,7 +119,7 @@ public static class SkillRepositoryRoot
 	/// <returns>The candidate directories, nearest first.</returns>
 	static List<string> Ancestors(string startDirectory)
 	{
-		HashSet<string> excluded = new(StringComparer.OrdinalIgnoreCase);
+		HashSet<string> excluded = [with(StringComparer.OrdinalIgnoreCase)];
 		try
 		{
 			var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);

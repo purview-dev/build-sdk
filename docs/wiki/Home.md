@@ -34,8 +34,8 @@ repo root inherits everything automatically.
   `.csproj` filename, the `Sdk` attribute, and on-disk markers.
 - **Engineering conventions** — repository layout, project naming, namespace identity, test readability,
   and the default boundaries between source, test, and shared test-support projects.
-- **C# defaults** — `net10.0` TFM (overridable, `netstandard2.0` for Roslyn components),
-  `LangVersion=preview` (`latest` for Roslyn components), `Nullable=enable`, `ImplicitUsings=enable`,
+- **C# defaults** — `net10.0;net11.0` TFMs (overridable, `netstandard2.0` for Roslyn components),
+  `LangVersion=latest` (C# 15, including unions), `Nullable=enable`, `ImplicitUsings=enable`,
   deterministic builds, `ManagePackageVersionsCentrally=true`.
 - **Code style** — an `.editorconfig` baked into the package, applied via `EditorConfigFilePath`, and
   auto-bootstrapped to the repo root if missing; `EnforceCodeStyleInBuild=true`,
@@ -65,7 +65,7 @@ repo root inherits everything automatically.
 
 ## Requirements
 
-- .NET SDK 10.0 or later (the default TFM for source projects is `net10.0`).
+- .NET SDK 11.0 or later (the default TFMs for source projects are `net10.0` and `net11.0`).
 - A `NamespacePrefix` set before the SDK import.
 - A `Directory.Packages.props` at the repo root when Central Package Management is used (the SDK sets
   `ManagePackageVersionsCentrally=true`).
