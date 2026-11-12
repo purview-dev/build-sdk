@@ -15,7 +15,7 @@ namespace Purview.BuildSdk;
 sealed class Dotnet11FeaturesTests
 {
 	[Test]
-	public async Task Net11Target_EnablesRuntimeAsyncAndUpdatedMemorySafetyRules(CancellationToken cancellationToken)
+	public async Task Net11Target_EnablesUpdatedMemorySafetyRulesButNotRuntimeAsync(CancellationToken cancellationToken)
 	{
 		using var h = await ProjectHarness.CreateAsync(
 			"MyLibrary",
@@ -30,8 +30,8 @@ sealed class Dotnet11FeaturesTests
 
 		await Assert
 			.That(eval.Properties["Features"])
-			.Contains("runtime-async=on")
-			.Because("Runtime Async V2 is the .NET 11 default and no longer needs EnablePreviewFeatures");
+			.DoesNotContain("runtime-async=on")
+			.Because("Runtime Async is opt-in: it changes how every await compiles");
 		await Assert
 			.That(eval.Properties["Features"])
 			.Contains("updated-memory-safety-rules")
@@ -75,37 +75,53 @@ sealed class Dotnet11FeaturesTests
 		var features = await h.GetPropertyAsync("Features", cancellationToken);
 
 		await Assert.That(features).Contains("project-feature=on");
-		await Assert.That(features).Contains("runtime-async=on");
 		await Assert.That(features).Contains("updated-memory-safety-rules");
 	}
 
 	[Test]
-	public async Task RuntimeAsync_CanBeDisabledPerProject(CancellationToken cancellationToken)
+	public async Task RuntimeAsync_IsOptedInByPurviewRuntimeAsync(CancellationToken cancellationToken)
 	{
 		using var h = await ProjectHarness.CreateAsync(
 			"MyLibrary",
 			targetFramework: "net11.0",
-			extraProps: "<PurviewRuntimeAsync>false</PurviewRuntimeAsync>",
+			extraProps: "<PurviewRuntimeAsync>true</PurviewRuntimeAsync>",
 			cancellationToken: cancellationToken
 		);
 
 		var features = await h.GetPropertyAsync("Features", cancellationToken);
 
-		await Assert.That(features).DoesNotContain("runtime-async=on");
+		await Assert.That(features).Contains("runtime-async=on");
 		await Assert.That(features).Contains("updated-memory-safety-rules");
 	}
 
 	/// <summary>
-	/// The documented opt-out is <c>UseRuntimeAsync=false</c>; honouring it even though the SDK's own
-	/// switch is separate is what keeps a project compatible with a future .NET SDK that owns the name.
+	/// The .NET team's property name opts in as well, so a repository can use the name it already
+	/// knows rather than learn the SDK's own switch.
 	/// </summary>
 	[Test]
-	public async Task RuntimeAsync_HonoursTheDocumentedUseRuntimeAsyncOptOut(CancellationToken cancellationToken)
+	public async Task RuntimeAsync_IsOptedInByUseRuntimeAsync(CancellationToken cancellationToken)
 	{
 		using var h = await ProjectHarness.CreateAsync(
 			"MyLibrary",
 			targetFramework: "net11.0",
-			extraProps: "<UseRuntimeAsync>false</UseRuntimeAsync>",
+			extraProps: "<UseRuntimeAsync>true</UseRuntimeAsync>",
+			cancellationToken: cancellationToken
+		);
+
+		await Assert.That(await h.GetPropertyAsync("Features", cancellationToken)).Contains("runtime-async=on");
+	}
+
+	/// <summary>
+	/// An explicit opt-out under either name wins over the other name's opt-in, so a repository can
+	/// disable Runtime Async without finding every place that enabled it.
+	/// </summary>
+	[Test]
+	public async Task RuntimeAsync_ExplicitOptOutWinsOverAnOptIn(CancellationToken cancellationToken)
+	{
+		using var h = await ProjectHarness.CreateAsync(
+			"MyLibrary",
+			targetFramework: "net11.0",
+			extraProps: "<PurviewRuntimeAsync>true</PurviewRuntimeAsync><UseRuntimeAsync>false</UseRuntimeAsync>",
 			cancellationToken: cancellationToken
 		);
 
@@ -125,7 +141,7 @@ sealed class Dotnet11FeaturesTests
 		var features = await h.GetPropertyAsync("Features", cancellationToken);
 
 		await Assert.That(features).DoesNotContain("updated-memory-safety-rules");
-		await Assert.That(features).Contains("runtime-async=on");
+		await Assert.That(features).DoesNotContain("runtime-async=on");
 	}
 
 	/// <summary>

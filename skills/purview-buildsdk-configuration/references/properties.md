@@ -41,7 +41,7 @@ consuming project supplies nothing.
 | Property | Default | Behaviour |
 | -- | -- | -- |
 | `MemorySafetyRules` | `2` | C# 15 memory-safety tier on `net11.0`+ targets: `0` off, `1` preview pointer syntax (sets `LangVersion=preview` when none was chosen), `2` `updated-memory-safety-rules`. Unknown values fail with `PRCFG0001`. Never touches `AllowUnsafeBlocks` |
-| `PurviewRuntimeAsync` | `true` | `runtime-async=on` on `net11.0`+ targets. `UseRuntimeAsync=false` also opts out |
+| `PurviewRuntimeAsync` | `false` | Set to `true` for `runtime-async=on` on `net11.0`+ targets. `UseRuntimeAsync=true` also opts in; an explicit `false` under either name keeps it off |
 | `PurviewMultiThreadedBuild` | `true` | Bootstraps a managed `Directory.Build.rsp` with `-mt`/`-nr:false`; `false` writes `-mt:false` |
 | `BootstrapMultiThreadedBuildRspToRepoRoot` | `true` | Whether that bootstrapped response file is written at all |
 | `IsClientSideProject` | *(computed)* | `true` for a WebAssembly client, `PurviewBrowserSafe` library, Razor class library, or `*.Client`/`*.Browser`/`*.Wasm`/`*.WebAssembly`/`*.Components` name. Explicit value wins |

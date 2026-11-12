@@ -7,15 +7,15 @@
 	     property. That matters: TargetFrameworks defaults to net10.0;net11.0, so
 	     a switch that improves net11.0 must not be applied to the net10.0 leg.
 
-	     Two compiler features are enabled for a net11.0+ target:
+	     One compiler feature is enabled by default for a net11.0+ target, and
+	     a second is available as an opt-in:
 
-	       runtime-async=on          Runtime Async V2. .NET 11 no longer needs
-	                                 EnablePreviewFeatures for it, and the
-	                                 runtime libraries themselves ship built with
-	                                 it, so an application built without it runs
-	                                 against libraries that did opt in.
+	       runtime-async=on          Runtime Async V2. Off by default: it
+	                                 changes how every await compiles, so it is
+	                                 opted into with PurviewRuntimeAsync=true
+	                                 (or UseRuntimeAsync=true), never assumed.
 
-	       updated-memory-safety-rules
+	       updated-memory-safety-rules (default)
 	                                 The C# 15 memory-safety model: 'unsafe'
 	                                 marks requires-unsafe APIs and the caller
 	                                 must acknowledge the access. Independent of
@@ -43,7 +43,11 @@
 	</PropertyGroup>
 
 	<PropertyGroup Label=".NET 11 feature selection" Condition="'$(_PurviewTargetsNet11OrLater)' == 'true'">
-		<PurviewRuntimeAsync Condition="'$(PurviewRuntimeAsync)' == ''">true</PurviewRuntimeAsync>
+		<!-- Runtime Async is opt-in. The .NET team's property name opts in too, and an explicit false
+		     under either name wins, so a repository can turn it off regardless of how it was enabled. -->
+		<PurviewRuntimeAsync Condition="'$(PurviewRuntimeAsync)' == '' AND '$(UseRuntimeAsync)' != ''"
+			>$(UseRuntimeAsync)</PurviewRuntimeAsync>
+		<PurviewRuntimeAsync Condition="'$(PurviewRuntimeAsync)' == ''">false</PurviewRuntimeAsync>
 		<MemorySafetyRules Condition="'$(MemorySafetyRules)' == ''">2</MemorySafetyRules>
 		<_PurviewMemorySafetyRulesNormalized>$([System.String]::Copy('$(MemorySafetyRules)').Trim().ToLowerInvariant())</_PurviewMemorySafetyRulesNormalized>
 		<!-- The planned stable property's tiers: 0/off, 1 (preview syntax), 2 (updated rules). -->

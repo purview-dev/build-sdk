@@ -13,7 +13,7 @@ A reusable MSBuild SDK NuGet package that delivers standardised .NET project def
 | Feature | Detail |
 | -- | -- |
 | **Project type detection** | `IsCSharpProject`, `IsTestProject`, `IsSharedTestingProject`, `IsServerSharedProject`, `IsClientSideProject`, `IsContainerProject`, `IsWebSdkProject`, `IsAspireHostProject`, `IsBlazorWebAssemblyProject`, `IsBffProject`, … |
-| **.NET 11 opt-ins** | A `net11.0` target compiles with Runtime Async (`runtime-async=on`) and the C# 15 updated memory-safety rules (`MemorySafetyRules=2`), while `AllowUnsafeBlocks` stays at its compiler default (`false`); builds use MSBuild's multithreaded mode through a bootstrapped `Directory.Build.rsp` (see [.NET 11 features](#net-11-features)) |
+| **.NET 11 opt-ins** | A `net11.0` target compiles with the C# 15 updated memory-safety rules (`MemorySafetyRules=2`) and, when opted in with `PurviewRuntimeAsync=true`, Runtime Async (`runtime-async=on`), while `AllowUnsafeBlocks` stays at its compiler default (`false`); builds use MSBuild's multithreaded mode through a bootstrapped `Directory.Build.rsp` (see [.NET 11 features](#net-11-features)) |
 | **ServerShared** | A `ServerShared*` project is referenced automatically by every non-client-side project, and never by a WebAssembly client, browser-safe library, Razor class library or `*.Client`-style project; `PRSHR0001`/`PRSHR0002` report a reference that would still put it in a browser download (see [ServerShared](#servershared)) |
 | **Blazor and BFF** | Blazor WebAssembly clients, Blazor Web App hosts and BFF hosts are detected; `PurviewBrowserSafe` makes a library the client downloads fail the build on trim, AOT and browser-unsupported APIs, and the client checks every reference sets it (see [Blazor WebAssembly and BFF](#blazor-webassembly-and-bff)) |
 | **C# defaults** | `net10.0;net11.0` TFMs (overridable), `LangVersion=latest` (C# 15), `Nullable=enable`, `ImplicitUsings=enable`, deterministic builds |
@@ -44,7 +44,7 @@ A reusable MSBuild SDK NuGet package that delivers standardised .NET project def
     "runner": "Microsoft.Testing.Platform"
   },
   "msbuild-sdks": {
-    "Purview.BuildSdk": "2.0.0"
+    "Purview.BuildSdk": "2.0.1"
   }
 }
 ```
@@ -203,7 +203,7 @@ to a low-importance message) and only a copy that still fails after every retry 
 The bootstrapped `.editorconfig` opens with a version marker:
 
 ```editorconfig
-# Purview.BuildSdk 2.0.0 - managed file, do not edit
+# Purview.BuildSdk 2.0.1 - managed file, do not edit
 ```
 
 That line is how the SDK recognises a file **it** wrote. When the SDK version changes, a file carrying
@@ -378,7 +378,7 @@ Version detection logging is disabled by default. Set `VersionDetectionLogEnable
 | `AssemblyIdentifierClassName` | `<project name minus NamespacePrefix, dots removed>Assembly` | Overrides the name of the generated assembly identifier marker class. |
 | `AutoIncludeUsings` | `true` | Controls SDK-added global usings for `NamespacePrefix` and `RootNamespace`. |
 | `MemorySafetyRules` | `2` | C# 15 memory-safety tier for `net11.0`+ targets: `0` off, `1` preview pointer syntax, `2` updated rules (`updated-memory-safety-rules`, the default). `AllowUnsafeBlocks` is never changed. |
-| `PurviewRuntimeAsync` | `true` | Compiles `net11.0`+ targets with `<Features>runtime-async=on</Features>`. `UseRuntimeAsync=false` also opts out. |
+| `PurviewRuntimeAsync` | `false` | Set to `true` to compile `net11.0`+ targets with `<Features>runtime-async=on</Features>`. `UseRuntimeAsync=true` also opts in; an explicit `false` under either name keeps it off. |
 | `IsClientSideProject` | *(detected)* | `true` for a project whose assemblies are downloaded to a browser — a WebAssembly client, `PurviewBrowserSafe` library, Razor class library, or `*.Client`/`*.Browser`/`*.Wasm`/`*.WebAssembly`/`*.Components` name. Set explicitly to override; a `ServerShared` project is never added to a client-side project. |
 | `PurviewAutoServerSharedReference` | `true` | Adds `../ServerShared*/ServerShared*.csproj` to a non-client-side project. `false` removes the automatic reference. |
 | `DisablePurviewServerSharedReferenceCheck` | `false` | Suppresses `PRSHR0001`/`PRSHR0002`. |
@@ -583,7 +583,7 @@ later) target, so the `net10.0` leg of the default `net10.0;net11.0` set is unaf
 
 | Feature | Applied | Why |
 | -- | -- | -- |
-| Runtime Async V2 | `<Features>runtime-async=on</Features>` | .NET 11 no longer requires `EnablePreviewFeatures`, and the runtime libraries ship compiled with it. Cleaner live stack traces, lower await overhead, and continuations that skip `ExecutionContext` when nothing is ambient. Opt out with `PurviewRuntimeAsync=false` or `UseRuntimeAsync=false`. |
+| Runtime Async V2 (opt-in) | `<Features>runtime-async=on</Features>` when enabled | Enables Runtime Async for a target where the team has decided it is wanted: cleaner live stack traces, lower await overhead, and continuations that skip `ExecutionContext` when nothing is ambient. It is **off by default** because it changes how every `await` compiles; opt in with `PurviewRuntimeAsync=true` or `UseRuntimeAsync=true`. An explicit `false` under either name keeps it off. |
 | C# 15 updated memory-safety rules | `<Features>updated-memory-safety-rules</Features>` (`MemorySafetyRules=2`) | `unsafe` marks requires-unsafe APIs and the compiler records the choice in `MemorySafetyRulesAttribute`. Independent of `LangVersion`, so the default `latest` is enough. |
 | Unsafe code | **not** enabled | `AllowUnsafeBlocks` stays at the compiler default (`false`). The updated model is strictest with unsafe code disallowed; a project that needs pointers opts in itself. |
 | Multithreaded MSBuild | `Directory.Build.rsp` with `-mt` | Runs a build's projects concurrently in one process, which is 20–26% faster on large solutions per the MSBuild measurements. `-mt` is a host switch, so it cannot be set from a project; the response file is the only mechanism. `-nr:false` accompanies it because a node left by a non-`-mt` build can cache an `RoslynCodeTaskFactory` task with no assembly path and fail the next `-mt` build (`dotnet/msbuild#15213`); the short-lived server still gives Server GC. |
