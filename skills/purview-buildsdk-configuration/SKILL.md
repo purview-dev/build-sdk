@@ -51,7 +51,7 @@ in `Directory.Build.props` unless the setting is deliberately project-specific.
 | `IsBffProject` | name ends `Bff` | Classifies a BFF host; `false` opts out |
 | `PurviewBrowserSafeReferenceCheckAsError` | `false` | Makes `PRBLZ0001` (a client reference that is not browser-safe) an error |
 | `MemorySafetyRules` | `2` | C# 15 memory-safety tier on `net11.0`+: `0` off, `1` preview syntax, `2` updated rules |
-| `PurviewRuntimeAsync` | `true` | `runtime-async=on` on `net11.0`+ |
+| `PurviewRuntimeAsync` | `false` | Opts a `net11.0`+ target into `runtime-async=on`; `UseRuntimeAsync=true` also opts in |
 | `IsClientSideProject` | *(computed)* | Whether the project's assemblies can reach a browser; overrides the `ServerShared` classification |
 | `PurviewAutoServerSharedReference` | `true` | Adds a sibling `ServerShared` reference to a non-client-side project |
 | `PurviewMultiThreadedBuild` | `true` | Bootstraps a `Directory.Build.rsp` enabling MSBuild `-mt` |

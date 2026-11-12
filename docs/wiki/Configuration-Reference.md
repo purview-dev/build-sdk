@@ -37,7 +37,7 @@ See [Version Detection](Version-Detection.md) for the full resolution rules.
 | `AssemblyIdentifierClassName` | `<project name minus NamespacePrefix, dots removed>Assembly` | Overrides the name of the generated assembly identifier marker class. |
 | `AutoIncludeUsings` | `true` | Controls SDK-added global usings for `NamespacePrefix` and `RootNamespace`. |
 | `MemorySafetyRules` | `2` | C# 15 memory-safety tier on `net11.0`+ targets: `0` off, `1` preview pointer syntax (sets `LangVersion=preview` when the project has not chosen one), `2` updated rules (`updated-memory-safety-rules`). An unrecognised value fails with `PRCFG0001`. `AllowUnsafeBlocks` is never changed. |
-| `PurviewRuntimeAsync` | `true` | Adds `<Features>runtime-async=on</Features>` on `net11.0`+ targets. `PurviewRuntimeAsync=false` or `UseRuntimeAsync=false` opts out. |
+| `PurviewRuntimeAsync` | `false` | Set to `true` to add `<Features>runtime-async=on</Features>` on `net11.0`+ targets. `UseRuntimeAsync=true` also opts in; an explicit `false` under either name keeps it off. |
 | `IsClientSideProject` | *(detected)* | `true` when the project is downloaded to a browser: a WebAssembly client, a `PurviewBrowserSafe` library, a Razor class library, or a `*.Client`/`*.Browser`/`*.Wasm`/`*.WebAssembly`/`*.Components` name. Set explicitly to override the detection either way. |
 | `PurviewAutoServerSharedReference` | `true` | Adds `../ServerShared*/ServerShared*.csproj` to every non-client-side project. `false` disables it. |
 | `DisablePurviewServerSharedReferenceCheck` | `false` | Turns off `PRSHR0001` and `PRSHR0002`. |
@@ -186,7 +186,7 @@ unchanged.
 
 | Property | Applied | Notes |
 | -- | -- | -- |
-| `PurviewRuntimeAsync` | `true` | `<Features>runtime-async=on</Features>`. `UseRuntimeAsync=false` also opts out. |
+| `PurviewRuntimeAsync` | `false` | When set to `true`, adds `<Features>runtime-async=on</Features>`. `UseRuntimeAsync=true` also opts in; an explicit `false` under either name keeps it off. |
 | `MemorySafetyRules` | `2` | `updated-memory-safety-rules`; `1` sets `LangVersion=preview` for the pointer-syntax tier; `0` disables. `PRCFG0001` on an unknown value. |
 | `AllowUnsafeBlocks` | *(compiler default: false)* | Never set by the SDK. |
 
@@ -301,7 +301,7 @@ read them through `build_property.<PropertyName>`:
 | `DisablePurviewServerSharedReferenceCheck` | When `true`, suppresses `PRSHR0001`/`PRSHR0002`. |
 | `PurviewServerSharedReferenceCheckAsError` | When `true`, reports `PRSHR0001`/`PRSHR0002` as errors. |
 | `MemorySafetyRules` | C# 15 memory-safety tier applied to `net11.0`+ targets. |
-| `PurviewRuntimeAsync` | When `true` (default), `net11.0`+ targets compile with `runtime-async=on`. |
+| `PurviewRuntimeAsync` | When `true`, `net11.0`+ targets compile with `runtime-async=on`. Defaults to `false`; `UseRuntimeAsync=true` also opts in. |
 | `PurviewMultiThreadedBuild` | When `true` (default), a managed `Directory.Build.rsp` enables MSBuild `-mt`. |
 | `EditorConfigFilePath` | Path to the SDK-provided `.editorconfig` injected into `@(EditorConfigFiles)`. |
 | `RepositoryEditorConfigFilePath` | Destination path for bootstrapping a physical repo-level `.editorconfig`. |

@@ -564,7 +564,7 @@
 			<Description>The C# 15 memory-safety tier: 0 off, 1 preview syntax, 2 updated rules (default). AllowUnsafeBlocks is left unset.</Description>
 		</CompilerVisibleProperty>
 		<CompilerVisibleProperty Include="PurviewRuntimeAsync">
-			<Description>When true (default), a net11.0+ project compiles with the runtime-async compiler feature. UseRuntimeAsync=false opts out.</Description>
+			<Description>When true, a net11.0+ project compiles with the runtime-async compiler feature. Defaults to false; UseRuntimeAsync=true also opts in.</Description>
 		</CompilerVisibleProperty>
 		<CompilerVisibleProperty Include="PurviewMultiThreadedBuild">
 			<Description>When true (default), boots a Directory.Build.rsp that enables MSBuild's multithreaded build (-mt).</Description>

@@ -11,6 +11,18 @@ release summarise what the commits recorded rather than what was written at the 
 
 ## [Unreleased]
 
+## [2.0.1] - 2026-11-12
+
+### Changed
+
+- **Runtime Async is off by default.** A `net11.0`+ target no longer compiles with
+  `<Features>runtime-async=on</Features>` unless asked: it changes how every `await` compiles, so it
+  is an opt-in rather than a baseline. Set `PurviewRuntimeAsync=true` — or `UseRuntimeAsync=true`,
+  the name the .NET team uses — to enable it; an explicit `false` under either name keeps it off.
+  This reverts the 2.0.0 default, so a repository that relied on it should opt in.
+
+## [2.0.0] - 2026-11-11
+
 ### Added
 
 - **`ServerShared` projects.** A `ServerShared*` project is referenced automatically by every

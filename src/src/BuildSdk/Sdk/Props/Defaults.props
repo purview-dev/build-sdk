@@ -196,7 +196,9 @@
 		     and PRSHR0002). Warning by default; set this to true to fail the build instead. -->
 		<PurviewServerSharedReferenceCheckAsError Condition="'$(PurviewServerSharedReferenceCheckAsError)' == ''"
 			>false</PurviewServerSharedReferenceCheckAsError>
-		<PurviewRuntimeAsync Condition="'$(PurviewRuntimeAsync)' == ''">true</PurviewRuntimeAsync>
+		<!-- Runtime Async is resolved per-TFM in Targets/Modern.targets, after the project body, so
+		     PurviewRuntimeAsync=true or UseRuntimeAsync=true works from the project file as well as
+		     from Directory.Build.props. It defaults to off: it changes how every await compiles. -->
 		<!-- MSBuild's single-process multithreaded build (-mt). Applied through the bootstrapped
 		     Directory.Build.rsp, because -mt is a build-host switch and cannot be set from a project. -->
 		<PurviewMultiThreadedBuild Condition="'$(PurviewMultiThreadedBuild)' == ''">true</PurviewMultiThreadedBuild>
