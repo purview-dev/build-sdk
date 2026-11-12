@@ -8,7 +8,7 @@ Use `.agents/` as the default location for **generic agentic information** share
 
 - `.agents/agents/` — canonical, cross-agent agent workflow specs (authored, tracked)
 - `.agents/prompts/` — canonical, cross-agent prompt specs (authored, tracked)
-- `.agents/skills/` — **not authored.** Skills installed from *other* sources, written by the skills CLI and gitignored; see below.
+- `.agents/skills/` — skills installed from *other* sources by the skills CLI (gitignored), plus any **repository-local** skill authored in place and tracked; see below.
 
 Use `.github/` customization files only as VS Code/Copilot wrappers or registration points when required by tooling.
 
@@ -21,6 +21,7 @@ This distinction is the one most easily got wrong, and getting it wrong produces
 | `skills/<name>/` | the skills this repository **authors and publishes** | by hand | yes |
 | `skills-lock.json` | the record of skills installed **from other sources** | the skills CLI | yes |
 | `.agents/skills/<name>/` | skills installed from other sources (the CLI's "universal" location) | the CLI | no |
+| `.agents/skills/<name>/` | a **repository-local** skill — guidance for working in *this* repository, never published | by hand | yes |
 | `.claude/skills/`, `agent/skills/` | per-agent links into the universal location | the CLI | no |
 
 ### `skills/` is published, not installed
@@ -35,23 +36,25 @@ They are not installed into this repository's own agent directories. An agent wo
 
 Naming follows from the same fact. Skills install into one flat directory per agent, shared with every skill a developer has installed from anywhere, so **every skill here carries the `purview-buildsdk-` prefix**. `sdk-*`, `project-*`, `test-*` and `build-*` are far too common to use unprefixed, and the loser of a collision is whichever installed second. `RepositorySkillTests.EverySkill_IsNamedForThisProduct` enforces that.
 
-Guidance about working *in this repository* belongs in this file, not in a skill — a skill here ships to someone else.
+Guidance about working *in this repository* belongs in this file, or in a **repository-local** skill under `.agents/skills/` (which is not published) — a skill under `skills/` ships to someone else.
 
-### `.agents/skills/` is for skills from elsewhere
+### `.agents/skills/` — installed skills, plus the one local skill
 
-To add one:
+To add an installed skill:
 
 ```bash
 just skills-add purview-dev/engineering-playbook      # append '#<ref>' to pin it
 ```
 
-Everything the CLI writes is gitignored, because it is all reproducible from the committed `skills-lock.json` with `npx skills experimental_install`. Only `.agents/skills/` is ignored, not the whole of `.agents/`, because `.agents/agents/` and `.agents/prompts/` are authored content.
+Everything the CLI writes is gitignored, because it is all reproducible from the committed `skills-lock.json` with `npx skills experimental_install`. Only `.agents/skills/*` is ignored by name, not the whole of `.agents/`, because `.agents/agents/` and `.agents/prompts/` are authored content.
+
+One entry under `.agents/skills/` is **tracked**: `purview-buildsdk-settings-docs-sync`, a repository-local skill. It is guidance about working *in this repository*, so it must not ship to a consumer and cannot live under `skills/`, and `.agents/skills/` is the one location an agent reads natively here. `.gitignore` un-ignores it by name; `RepositorySkillsSelfTests.InstalledSkillsAreNotTracked` still fails if any skill the CLI *installed* — anything recorded in `skills-lock.json` — is tracked.
 
 **Skills have exactly one installer, and it is the skills CLI.** The SDK writes nothing into an agent directory at all — the `.agents` mirror that used to copy a package's `agents/` and `prompts/` has been removed outright. A package still ships `.agents/skills/<name>/`, but as *metadata*: it is what `ResolvePurviewSkillSources` reads to map a package to its skills and commit, not content to copy.
 
 The single-writer rule is why. The CLI's universal install location is that same folder, so a second writer would mean the mirror silently overwriting a pinned install on the next build while `PRSKL0011` compared a lockfile ref against content the mirror had already replaced. See "The agent-folder mirror was removed" below for what went with it.
 
-Link to a skill by its **authored** path (`./skills/<name>/SKILL.md`). A link into `.agents/skills/` points at a gitignored file and is broken in a fresh clone; `RepositorySkillsSelfTests` fails the build if one reappears.
+Link to a published skill by its **authored** path (`./skills/<name>/SKILL.md`). A link into `.agents/skills/` points at a CLI-installed, gitignored file and is broken in a fresh clone; `RepositorySkillsSelfTests` fails the build if one reappears. The repository-local skill needs no link here — the agent runtime finds it.
 
 ## Purpose
 
@@ -69,10 +72,10 @@ The authored set, and what each one answers:
 
 | Skill | Answers |
 | -- | -- |
-| [`purview-buildsdk-adoption`](./skills/purview-buildsdk-adoption/SKILL.md) | wiring the SDK into a repository, and why a property had no effect |
-| [`purview-buildsdk-configuration`](./skills/purview-buildsdk-configuration/SKILL.md) | which property controls this, and where must it be set |
-| [`purview-buildsdk-project-layout`](./skills/purview-buildsdk-project-layout/SKILL.md) | where does a project go, and what is it called |
-| [`purview-buildsdk-project-detection`](./skills/purview-buildsdk-project-detection/SKILL.md) | why did the SDK do that automatically |
+| [`purview-buildsdk-adoption`](./skills/purview-buildsdk-adoption/SKILL.md) | wiring the SDK into a repository, required settings and versions, and why a property had no effect |
+| [`purview-buildsdk-configuration`](./skills/purview-buildsdk-configuration/SKILL.md) | which property controls this, where must it be set, how to set the target framework(s), and which SourceLink provider matches the repository host |
+| [`purview-buildsdk-project-layout`](./skills/purview-buildsdk-project-layout/SKILL.md) | where does a project go, what is it called, and which target framework(s) it uses |
+| [`purview-buildsdk-project-detection`](./skills/purview-buildsdk-project-detection/SKILL.md) | why did the SDK do that automatically, target framework included |
 | [`purview-buildsdk-testing`](./skills/purview-buildsdk-testing/SKILL.md) | writing TUnit tests, and running them under MTP |
 | [`purview-buildsdk-skill-tests`](./skills/purview-buildsdk-skill-tests/SKILL.md) | authoring a skill, and validating it with `Purview.Skills.Testing` |
 | [`purview-buildsdk-skill-installation`](./skills/purview-buildsdk-skill-installation/SKILL.md) | installing the skills a package ships, and the `PRSKL*` diagnostics |

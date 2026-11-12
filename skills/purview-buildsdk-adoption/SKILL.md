@@ -1,6 +1,6 @@
 ---
 name: purview-buildsdk-adoption
-description: Adopt Purview.BuildSdk in a repository, or troubleshoot an adoption that is not behaving. Use when wiring the SDK into Directory.Build.props for the first time, when a property seems to have no effect, when the resolved version or namespace is wrong, or when a consuming repository builds but the SDK's automatic behaviour is not appearing. Covers the import chain, pre-import property ordering, and version detection from package.json.
+description: Adopt Purview.BuildSdk in a repository, or troubleshoot an adoption that is not behaving. Use when wiring the SDK into Directory.Build.props for the first time, when a property seems to have no effect, when the resolved version, target framework or namespace is wrong, or when a consuming repository builds but the SDK's automatic behaviour is not appearing. Covers the import chain, pre-import property ordering, required settings and versions, target frameworks, and version detection from package.json.
 license: MIT
 metadata:
   package: Purview.BuildSdk
@@ -41,7 +41,25 @@ defaults — naming, identity, framework selection — but none of the targets, 
 packaging behaviour and the generated files never run. That combination usually presents as "the
 properties look right but nothing happens".
 
-The SDK version comes from `global.json`, which the SDK itself bootstraps.
+### Required settings and versions
+
+Four values decide whether the SDK behaves as documented. Set the first three **before** the import
+where noted:
+
+| What | Where | Notes |
+| -- | -- | -- |
+| `NamespacePrefix` | `Directory.Build.props`, above the import | Required — the build fails without it unless `DisableNamespacePrefixCheck=true`. |
+| SDK version | `global.json` → `msbuild-sdks.Purview.BuildSdk` | The pinned `Purview.BuildSdk` version, e.g. `2.0.1`. The SDK bootstraps `global.json` when it is missing and writes the version it was packed as (`PurviewBuildSdkVersionForGlobalJson`). |
+| Product version | repo-root `package.json` → `version` | Drives `Version` and `PackageVersion`. `UsePackageJsonVersion` / `RootPackageJson` are pre-import. |
+| Package versions | `Directory.Packages.props` | CPM is on; a `PackageVersion` is a minimum, not an exact pin. |
+
+```json
+// global.json
+{
+  "test": { "runner": "Microsoft.Testing.Platform" },
+  "msbuild-sdks": { "Purview.BuildSdk": "2.0.1" }
+}
+```
 
 ## 2. Pre-import ordering is the first thing to check
 
@@ -108,6 +126,47 @@ the installing, through `bun x` by default; with `PurviewSkillsAgents` unset it 
 
 If the repository uses `just`, add recipes for them — see `purview-buildsdk-skills-justfile`. For what each
 target does and the `PRSKL*` diagnostics, see `purview-buildsdk-skill-installation`.
+
+## 6. Target frameworks
+
+A project that declares neither `TargetFramework` nor `TargetFrameworks` gets `net10.0;net11.0`.
+Confirm what a project resolves before changing it:
+
+```bash
+dotnet msbuild <project> -getProperty:TargetFramework -getProperty:TargetFrameworks
+```
+
+To set it:
+
+- **Declare it explicitly** — `TargetFramework` (one) or `TargetFrameworks` (many). It must be declared
+  **unconditionally**: the SDK reads it from the project XML before the body is evaluated, so a
+  `Condition` on it is not seen (`PurviewConditionedProjectDeclaration`).
+- **Select a curated set** — `<PurviewTargetFrameworkSet>Supported</PurviewTargetFrameworkSet>` in
+  `Directory.Build.props` or the `.csproj` (`Current`, `Latest`, `Supported`, `Broad`, `All`), so a
+  lifecycle change is one SDK bump rather than an edit in every project.
+- **Redefine a set** — set `PurviewTargetFrameworks<Set>` before the import to pin the repository's
+  meaning of a set.
+
+A Roslyn component targets `netstandard2.0` and ignores the sets. Full detail in
+`purview-buildsdk-configuration` and [Configuration Reference](https://github.com/purview-dev/build-sdk/blob/main/docs/wiki/Configuration-Reference.md#target-framework-sets).
+
+## 7. SourceLink provider
+
+The SDK adds a SourceLink provider package (`SourceLinkPackageName`, default
+`Microsoft.SourceLink.GitHub`) to every non-test project, and `PublishRepositoryUrl=true` writes the
+repository URL and commit into the packed `.nuspec`. Match the repository host **before the SDK import**:
+
+| Host | Package |
+| -- | -- |
+| GitHub / GitHub Enterprise | `Microsoft.SourceLink.GitHub` *(default)* |
+| Azure DevOps Services / Azure Repos | `Microsoft.SourceLink.AzureRepos.Git` |
+| Azure DevOps Server / TFS (on-premises) | `Microsoft.SourceLink.AzureDevOpsServer.Git`, plus a `SourceLinkAzureDevOpsServerGitHost` item |
+| GitLab | `Microsoft.SourceLink.GitLab` |
+| Bitbucket | `Microsoft.SourceLink.Bitbucket.Git` |
+
+CPM is on, so add a `PackageVersion` for the chosen provider to `Directory.Packages.props` — the shipped
+template already declares GitHub, Azure Repos and GitLab. `DisableSourceLink=true` opts out entirely.
+Detail, including the on-premises host item, is in `purview-buildsdk-configuration`.
 
 ## Constraints
 

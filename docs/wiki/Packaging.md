@@ -19,6 +19,10 @@ project has not supplied a value** — explicit values are always preserved:
 | `DebugType` | `portable` | Ensures portable PDBs for symbol-package delivery. |
 | `IncludeSource` | `true` | Includes source files in the package. |
 
+A SourceLink provider package (`SourceLinkPackageName`) is added to every non-test project, and
+`PublishRepositoryUrl=true` writes the repository URL and commit into the `.nuspec`. See
+[SourceLink](SourceLink.md).
+
 Portable PDBs are delivered through the `.snupkg`; the normal `.nupkg` does **not** receive PDB files
 unless the project explicitly opts in (for example by adding `.pdb` to
 `AllowedOutputExtensionsInPackageBuildOutputFolder`).

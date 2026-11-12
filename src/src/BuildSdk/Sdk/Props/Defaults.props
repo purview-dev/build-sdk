@@ -159,20 +159,21 @@
 		<ManagePackageVersionsCentrally Condition="'$(ManagePackageVersionsCentrally)' == ''"
 			>true</ManagePackageVersionsCentrally>
 		<!--
-			The memory-safety rules tier for C# 15 / .NET 11:
+			The memory-safety rules tier for C# 15 / .NET 11. The updated model is an experimental
+			compiler feature, so it is opt-in and the default is off:
 
-			  0  off: the original pointer-based rules.
+			  0  off (default): the original pointer-based rules.
 			  1  preview syntax: pointer declarations, '&', fixed/stackalloc/sizeof no longer require an
 			     unsafe context, and the 'unsafe(expression)' form is available (LangVersion=preview).
-			  2  updated rules (default): 'unsafe' marks requires-unsafe APIs, caller obligations are
-			     enforced, and MemorySafetyRulesAttribute is emitted. An independent feature switch, so it
-			     works with LangVersion=latest.
+			  2  updated rules: 'unsafe' marks requires-unsafe APIs, caller obligations are enforced,
+			     and MemorySafetyRulesAttribute is emitted. An independent feature switch, so it works
+			     with LangVersion=latest.
 
 			AllowUnsafeBlocks is deliberately left at its compiler default (false). Override either
 			property in the project or Directory.Build.props. The planned stable SDK property is
 			MemorySafetyRules, so this uses the same name and tier values.
 		-->
-		<MemorySafetyRules Condition="'$(MemorySafetyRules)' == ''">2</MemorySafetyRules>
+		<MemorySafetyRules Condition="'$(MemorySafetyRules)' == ''">0</MemorySafetyRules>
 		<MaxCpuCount Condition="'$(MaxCpuCount)' == ''"></MaxCpuCount>
 		<NoWarn Condition="'$(NoWarn)' == ''"></NoWarn>
 		<Nullable Condition="'$(Nullable)' == ''">enable</Nullable>

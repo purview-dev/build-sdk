@@ -9,6 +9,7 @@
 - [InternalsVisibleTo](InternalsVisibleTo.md)
 - [Testing Wiring](Testing-Wiring.md)
 - [Packaging](Packaging.md)
+- [SourceLink](SourceLink.md)
 - [SDK-Shipped Analyzers](Analyzers.md)
 - [Code Fixes](Code-Fixes.md)
 - [Repository Bootstrap](Repository-Bootstrap.md)

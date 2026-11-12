@@ -561,7 +561,7 @@
 			<Description>When true, PRSHR0001/PRSHR0002 are errors instead of warnings. Defaults to false.</Description>
 		</CompilerVisibleProperty>
 		<CompilerVisibleProperty Include="MemorySafetyRules">
-			<Description>The C# 15 memory-safety tier: 0 off, 1 preview syntax, 2 updated rules (default). AllowUnsafeBlocks is left unset.</Description>
+			<Description>The C# 15 memory-safety tier: 0 off (default), 1 preview syntax, 2 updated rules. The updated rules are an experimental compiler feature, so they are opt-in. AllowUnsafeBlocks is left unset.</Description>
 		</CompilerVisibleProperty>
 		<CompilerVisibleProperty Include="PurviewRuntimeAsync">
 			<Description>When true, a net11.0+ project compiles with the runtime-async compiler feature. Defaults to false; UseRuntimeAsync=true also opts in.</Description>
@@ -868,7 +868,10 @@
 		<!-- Sensible default for SourceLink (override by setting SourceLinkPackageName) -->
 		<SourceLinkPackageName Condition="'$(SourceLinkPackageName)' == ''"
 			>Microsoft.SourceLink.GitHub</SourceLinkPackageName>
-		<DisableSourceLink Condition="'$(IsRoslynComponent)' != 'true'">false</DisableSourceLink>
+		<!-- DisableSourceLink is defaulted (false) in Props/Defaults.props, which this file imports
+		     first. It is deliberately not re-assigned here: an unconditional assignment clobbered a
+		     repository's pre-import DisableSourceLink=true, so the documented opt-out silently had no
+		     effect. The package ItemGroup below is what honours it. -->
 		<GenerateAssemblyCompanyAttribute>false</GenerateAssemblyCompanyAttribute>
 		<GenerateAssemblyCopyrightAttribute>false</GenerateAssemblyCopyrightAttribute>
 		<IsPackable Condition="'$(IsPackable)' == ''">false</IsPackable>

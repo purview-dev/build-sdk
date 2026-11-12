@@ -13,7 +13,7 @@ A reusable MSBuild SDK NuGet package that delivers standardised .NET project def
 | Feature | Detail |
 | -- | -- |
 | **Project type detection** | `IsCSharpProject`, `IsTestProject`, `IsSharedTestingProject`, `IsServerSharedProject`, `IsClientSideProject`, `IsContainerProject`, `IsWebSdkProject`, `IsAspireHostProject`, `IsBlazorWebAssemblyProject`, `IsBffProject`, … |
-| **.NET 11 opt-ins** | A `net11.0` target compiles with the C# 15 updated memory-safety rules (`MemorySafetyRules=2`) and, when opted in with `PurviewRuntimeAsync=true`, Runtime Async (`runtime-async=on`), while `AllowUnsafeBlocks` stays at its compiler default (`false`); builds use MSBuild's multithreaded mode through a bootstrapped `Directory.Build.rsp` (see [.NET 11 features](#net-11-features)) |
+| **.NET 11 opt-ins** | A `net11.0` target can opt into the C# 15 updated memory-safety rules (`MemorySafetyRules=2`) and Runtime Async (`PurviewRuntimeAsync=true`): both are **off by default**, and `AllowUnsafeBlocks` stays at its compiler default (`false`); builds use MSBuild's multithreaded mode through a bootstrapped `Directory.Build.rsp` (see [.NET 11 features](#net-11-features)) |
 | **ServerShared** | A `ServerShared*` project is referenced automatically by every non-client-side project, and never by a WebAssembly client, browser-safe library, Razor class library or `*.Client`-style project; `PRSHR0001`/`PRSHR0002` report a reference that would still put it in a browser download (see [ServerShared](#servershared)) |
 | **Blazor and BFF** | Blazor WebAssembly clients, Blazor Web App hosts and BFF hosts are detected; `PurviewBrowserSafe` makes a library the client downloads fail the build on trim, AOT and browser-unsupported APIs, and the client checks every reference sets it (see [Blazor WebAssembly and BFF](#blazor-webassembly-and-bff)) |
 | **C# defaults** | `net10.0;net11.0` TFMs (overridable), `LangVersion=latest` (C# 15), `Nullable=enable`, `ImplicitUsings=enable`, deterministic builds |
@@ -21,7 +21,7 @@ A reusable MSBuild SDK NuGet package that delivers standardised .NET project def
 | **NuGet packaging** | `AssemblyName`/`PackageId` default to the fully evaluated `RootNamespace`; packable projects get `GenerateDocumentationFile=true`, `PublishRepositoryUrl=true`, `IncludeSymbols=true`, `SymbolPackageFormat=snupkg`, `EmbedUntrackedSources=true`, and portable PDBs delivered via `.snupkg` (not the `.nupkg`) |
 | **Repo bootstrap** | Missing repo-root `.editorconfig`, `global.json` and `Directory.Build.rsp` are auto-created by default (disable via `DisableAutoCopySdkFiles=true`) |
 | **CI detection** | `ContinuousIntegrationBuild` set automatically when `CI`, `GITHUB_ACTIONS`, or `TF_BUILD` env vars are present |
-| **SourceLink** | `Microsoft.SourceLink.GitHub` added to all packable projects (configurable via `SourceLinkPackageName`) |
+| **SourceLink** | `Microsoft.SourceLink.GitHub` added to every non-test project (`PrivateAssets="all"`), configurable for Azure DevOps, GitLab, Bitbucket and more via `SourceLinkPackageName` (see [SourceLink](#sourcelink)) |
 | **Purview Telemetry** | `Purview.Telemetry.SourceGenerator` + `Microsoft.Extensions.Telemetry.Abstractions` added by default (opt-out) |
 | **Assembly info** | Auto-generated `static partial class AssemblyInfo` with `RootNamespace`, `Version`, `Company`, etc., plus an embedded `Microsoft.CodeAnalysis.EmbeddedAttribute` (can be excluded via `PURVIEW_SDK_EXCLUDE_EMBEDDED`). |
 | **InternalsVisibleTo** | Generated for all `TestType` variants and shared testing projects, using the resolved `$(AssemblyName)` so explicit, generated, and default naming are all handled |
@@ -75,6 +75,42 @@ A reusable MSBuild SDK NuGet package that delivers standardised .NET project def
 Copy [`templates/Directory.Packages.props`](https://github.com/purview-dev/build-sdk/blob/main/templates/Directory.Packages.props) from the repository to your repo root. The templates are not packed into the NuGet package — they are starting points held in git, so take them from there. Every package names a version. A `PackageVersion` is a minimum rather than an exact pin — NuGet resolves it unless something in the graph requires higher — so floating versions are not needed to stay current, and they would make a build depend on the day it ran.
 
 > **Note:** `ManagePackageVersionsCentrally=true` is set by the SDK. You **must** have a `Directory.Packages.props` at your repo root for CPM to work, even if it only contains the packages the SDK adds automatically.
+
+### 5. Required settings and versions
+
+Four things have to be right before the SDK behaves as documented:
+
+| What | Where | Notes |
+| -- | -- | -- |
+| `NamespacePrefix` | `Directory.Build.props`, **above** the import | Required. The build fails without it (`ValidateRootNamespacePrefixTarget`) unless `DisableNamespacePrefixCheck=true`. |
+| The SDK version | `global.json` → `msbuild-sdks.Purview.BuildSdk` | Pinned to a released version, e.g. `2.0.1`. The SDK bootstraps the file when it is missing and records the version it was packed as (`PurviewBuildSdkVersionForGlobalJson`). |
+| The product version | repo-root `package.json` → `version` | Applied to both `Version` and `PackageVersion` by default. `UsePackageJsonVersion=Strict` fails the build instead of silently falling back to `0.0.1`. |
+| Package versions | `Directory.Packages.props` | Central Package Management is on (`ManagePackageVersionsCentrally=true`). Every `PackageVersion` is a minimum, not an exact pin. |
+
+`NamespacePrefix`, `UsePackageJsonVersion` and `RootPackageJson` must be set **before** the `<Import>`.
+See [Version Detection](docs/wiki/Version-Detection.md) and the
+[Configuration Reference](docs/wiki/Configuration-Reference.md).
+
+### 6. Setting the target framework(s)
+
+A project that declares neither `TargetFramework` nor `TargetFrameworks` gets the SDK's default set,
+`net10.0;net11.0` (`Current`). Pick a different one in one of three ways, narrowest first:
+
+1. **Declare it in the project** — `TargetFramework` for a single target, `TargetFrameworks` (plural)
+   for many. It must be declared **unconditionally**: the SDK reads it from the project XML before the
+   project body is evaluated, so a `Condition` on it is not seen (and is reported as
+   `PurviewConditionedProjectDeclaration`).
+2. **Select a curated set** — `<PurviewTargetFrameworkSet>Supported</PurviewTargetFrameworkSet>` in
+   `Directory.Build.props` or the `.csproj`. Named sets are `Current` (the default), `Latest`,
+   `Supported`, `Broad` and `All`, so a lifecycle change is one SDK bump rather than an edit in every
+   project.
+3. **Redefine a set** — set `PurviewTargetFrameworks<Set>` (for example
+   `PurviewTargetFrameworksSupported`) **before the import** to pin a repository's meaning of a set.
+
+An unrecognised set name fails the build with `PurviewInvalidTargetFrameworkSet`. A project declaring
+`TargetFrameworks` keeps `TargetFramework` empty. A Roslyn component targets `netstandard2.0` and
+ignores the sets. See
+[Target framework sets](docs/wiki/Configuration-Reference.md#target-framework-sets).
 
 ---
 
@@ -369,15 +405,15 @@ Version detection logging is disabled by default. Set `VersionDetectionLogEnable
 | `IsRoslynComponent` | `false` | When explicitly `true`, applies source-generator defaults: a single `netstandard2.0` target, `LangVersion=latest`, `Nullable=enable`, `TreatWarningsAsErrors=true`, `Deterministic=true`, extended analyzer rules, SourceLink with `EmbedUntrackedSources=true`, compiler-generated output under the intermediate directory, no dependency file, telemetry exclusion, and package build output. Pack-time validation (`ValidateRoslynComponentCompilerSettings`) fails the pack if the compiler defaults are missing unless `DisableRoslynCompilerDefaultsValidation=true`. Roslyn development dependencies (`Microsoft.CodeAnalysis.*`, `Microsoft.CodeAnalysis.Analyzers`) default to `PrivateAssets="all"`. |
 | `IsRoslynComponentOnly` | `true` for Roslyn components | Produces an analyzer-only package: `IncludeBuildOutput=false`, `IncludeSymbols=false`, and the analyzer assembly and portable PDB are packed under `analyzers/dotnet/cs/`. Set to `false` for a dual-role Roslyn component that uses normal library symbol packaging. |
 | `PackProjectReferencedSourceGenerators` | `true` | Automatically packs analyzer `ProjectReference` outputs and their runtime dependencies under `analyzers/dotnet/cs/`. Set to `false` to opt out; set `Pack="false"` on an individual reference to exclude only that generator. |
-| `SourceLinkPackageName` | `Microsoft.SourceLink.GitHub` | SourceLink provider. Set to `Microsoft.SourceLink.AzureDevOps.Git` for ADO repos. |
-| `DisableSourceLink` | `false` | Set to `true` to stop the SDK from adding the configured SourceLink package automatically. |
+| `SourceLinkPackageName` | `Microsoft.SourceLink.GitHub` | SourceLink provider package, added to every non-test project. Match the repository host: `Microsoft.SourceLink.AzureRepos.Git` for Azure DevOps Services, `Microsoft.SourceLink.AzureDevOpsServer.Git` for on-premises Azure DevOps Server / TFS, `Microsoft.SourceLink.GitLab`, `Microsoft.SourceLink.Bitbucket.Git`. Set it **before the SDK import**. See [SourceLink](#sourcelink). |
+| `DisableSourceLink` | `false` | Set to `true` **before the SDK import** to stop the SDK from adding the SourceLink package at all. |
 | `EnableAssemblyNameGeneration` | `true` | When `true` (default), `AssemblyName` and `PackageId` derive from the fully evaluated `RootNamespace`. When explicitly `false`, standard .NET behaviour applies (`$(MSBuildProjectName)`). Explicit `<AssemblyName>`/`<PackageId>` in a `.csproj` always take precedence. |
 | `DisableProjectFileNamingConventionCheck` | `false` | Set to `true` to disable the validation that requires `MyProject\MyProject.csproj` naming alignment. |
 | `DisableGenerateAssemblyInfoClass` | `false` | Set to `true` to disable the generated `AssemblyInfo` helper source. |
 | `DisableGenerateAssemblyIdentifierClass` | `false` (`true` for test and shared-testing projects) | Set to `true` to disable the generated assembly identifier marker class. |
 | `AssemblyIdentifierClassName` | `<project name minus NamespacePrefix, dots removed>Assembly` | Overrides the name of the generated assembly identifier marker class. |
 | `AutoIncludeUsings` | `true` | Controls SDK-added global usings for `NamespacePrefix` and `RootNamespace`. |
-| `MemorySafetyRules` | `2` | C# 15 memory-safety tier for `net11.0`+ targets: `0` off, `1` preview pointer syntax, `2` updated rules (`updated-memory-safety-rules`, the default). `AllowUnsafeBlocks` is never changed. |
+| `MemorySafetyRules` | `0` | C# 15 memory-safety tier for `net11.0`+ targets: `0` off (default), `1` preview pointer syntax, `2` updated rules (`updated-memory-safety-rules`). The updated rules are an experimental compiler feature, so they are opt-in. `AllowUnsafeBlocks` is never changed. |
 | `PurviewRuntimeAsync` | `false` | Set to `true` to compile `net11.0`+ targets with `<Features>runtime-async=on</Features>`. `UseRuntimeAsync=true` also opts in; an explicit `false` under either name keeps it off. |
 | `IsClientSideProject` | *(detected)* | `true` for a project whose assemblies are downloaded to a browser — a WebAssembly client, `PurviewBrowserSafe` library, Razor class library, or `*.Client`/`*.Browser`/`*.Wasm`/`*.WebAssembly`/`*.Components` name. Set explicitly to override; a `ServerShared` project is never added to a client-side project. |
 | `PurviewAutoServerSharedReference` | `true` | Adds `../ServerShared*/ServerShared*.csproj` to a non-client-side project. `false` removes the automatic reference. |
@@ -485,7 +521,13 @@ The SDK automatically adds a `.gitignore` file into each second-level folder und
 
 ### Compiler-visible SDK properties
 
-The SDK now exports its properties via `CompilerVisibleProperty`, so analyzers and source generators can read them through `build_property.<PropertyName>`.
+The SDK exports its properties via `CompilerVisibleProperty`, so analyzers and source generators read them through `build_property.<PropertyName>`:
+
+```csharp
+context.AnalyzerConfigOptions.GlobalOptions.TryGetValue("build_property.IsBffProject", out var isBff);
+```
+
+Read the exported property rather than re-deriving SDK behaviour — it is the SDK's own answer, and it stays correct when the rules change. A property an analyzer needs must be listed as a `CompilerVisibleProperty` item (with a `<Description>`) in `Sdk.props`; nothing else exposes an MSBuild property to the compiler. The SDK's own analyzers rely on this (for example `build_property.IsBffProject` gates `PDS0008`/`PDS0009`).
 
 | Property | Description |
 | -- | -- |
@@ -584,12 +626,13 @@ later) target, so the `net10.0` leg of the default `net10.0;net11.0` set is unaf
 | Feature | Applied | Why |
 | -- | -- | -- |
 | Runtime Async V2 (opt-in) | `<Features>runtime-async=on</Features>` when enabled | Enables Runtime Async for a target where the team has decided it is wanted: cleaner live stack traces, lower await overhead, and continuations that skip `ExecutionContext` when nothing is ambient. It is **off by default** because it changes how every `await` compiles; opt in with `PurviewRuntimeAsync=true` or `UseRuntimeAsync=true`. An explicit `false` under either name keeps it off. |
-| C# 15 updated memory-safety rules | `<Features>updated-memory-safety-rules</Features>` (`MemorySafetyRules=2`) | `unsafe` marks requires-unsafe APIs and the compiler records the choice in `MemorySafetyRulesAttribute`. Independent of `LangVersion`, so the default `latest` is enough. |
+| C# 15 updated memory-safety rules (opt-in) | `<Features>updated-memory-safety-rules</Features>` when enabled | `unsafe` marks requires-unsafe APIs and the compiler records the choice in `MemorySafetyRulesAttribute`. **Off by default** because the updated model is an experimental compiler feature; opt in with `MemorySafetyRules=2`. Independent of `LangVersion`, so the default `latest` is enough. |
 | Unsafe code | **not** enabled | `AllowUnsafeBlocks` stays at the compiler default (`false`). The updated model is strictest with unsafe code disallowed; a project that needs pointers opts in itself. |
 | Multithreaded MSBuild | `Directory.Build.rsp` with `-mt` | Runs a build's projects concurrently in one process, which is 20–26% faster on large solutions per the MSBuild measurements. `-mt` is a host switch, so it cannot be set from a project; the response file is the only mechanism. `-nr:false` accompanies it because a node left by a non-`-mt` build can cache an `RoslynCodeTaskFactory` task with no assembly path and fail the next `-mt` build (`dotnet/msbuild#15213`); the short-lived server still gives Server GC. |
 
-`MemorySafetyRules` tiers: `0` (off), `1` (preview pointer syntax, sets `LangVersion=preview` unless the
-project named its own version), `2` (updated rules, the default). Anything else fails with `PRCFG0001`.
+`MemorySafetyRules` tiers: `0` (off, the default), `1` (preview pointer syntax, sets `LangVersion=preview`
+unless the project named its own version), `2` (updated rules, opt-in). Anything else fails with
+`PRCFG0001`.
 
 ### Evaluated and deliberately not defaulted
 
@@ -613,6 +656,41 @@ the .NET 11 rule set, the MSBuild server is on by default in the SDK, and the de
 `latest` (C# 15).
 
 ---
+
+## SourceLink
+
+Every non-test project gets a SourceLink provider package with `PrivateAssets="all"`, so a debugger can
+step from a consumed package into its source, and the packed `.nuspec` carries the repository URL and the
+exact commit. Test and shared-testing projects are excluded, because their symbols are not published.
+
+| Property | Default | Description |
+| -- | -- | -- |
+| `SourceLinkPackageName` | `Microsoft.SourceLink.GitHub` | The provider package. Set it **before the SDK import** to match the repository host. |
+| `DisableSourceLink` | `false` | Set to `true` **before the import** to stop the SDK adding the package at all. |
+
+Pick the provider for your host:
+
+| Repository host | Provider package |
+| -- | -- |
+| GitHub / GitHub Enterprise | `Microsoft.SourceLink.GitHub` *(default)* |
+| Azure DevOps Services / Azure Repos (`dev.azure.com`, `*.visualstudio.com`) | `Microsoft.SourceLink.AzureRepos.Git` |
+| Azure DevOps Server / TFS (on-premises) | `Microsoft.SourceLink.AzureDevOpsServer.Git`, plus a `SourceLinkAzureDevOpsServerGitHost` item |
+| GitLab | `Microsoft.SourceLink.GitLab` |
+| Bitbucket | `Microsoft.SourceLink.Bitbucket.Git` |
+
+```xml
+<!-- Directory.Build.props, above the <Import> -->
+<PropertyGroup>
+  <SourceLinkPackageName>Microsoft.SourceLink.AzureRepos.Git</SourceLinkPackageName>
+</PropertyGroup>
+```
+
+Central Package Management is on, so the chosen provider also needs a `PackageVersion` in
+`Directory.Packages.props` — the shipped template declares GitHub, Azure Repos and GitLab.
+`ContinuousIntegrationBuild` is set from the CI environment (`CI`, `GITHUB_ACTIONS`, `TF_BUILD`), never
+from a local build. Full detail, including on-premises host configuration and self-hosted providers, is
+in [SourceLink](docs/wiki/SourceLink.md).
+
 
 ## ServerShared
 

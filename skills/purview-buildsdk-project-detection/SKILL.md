@@ -1,6 +1,6 @@
 ---
 name: purview-buildsdk-project-detection
-description: Explain why Purview.BuildSdk classified a project as test, shared, shared-testing, ServerShared, client-side, CLI, web, worker, Aspire host, container, Roslyn component, Blazor WebAssembly client, Razor class library, Blazor host or BFF, and why it added a package, a project reference, a namespace or an analyzer automatically. Use when SDK behaviour looks surprising, when a test project gets no runner or no InternalsVisibleTo, or when reasoning about RootNamespace, AssemblyName and TargetProjectName.
+description: Explain why Purview.BuildSdk classified a project as test, shared, shared-testing, ServerShared, client-side, CLI, web, worker, Aspire host, container, Roslyn component, Blazor WebAssembly client, Razor class library, Blazor host or BFF, or why it picked the target framework(s) it did, and why it added a package, a project reference, a namespace or an analyzer automatically. Use when SDK behaviour looks surprising, when a test project gets no runner or no InternalsVisibleTo, or when reasoning about RootNamespace, AssemblyName and TargetProjectName.
 license: MIT
 metadata:
   package: Purview.BuildSdk
@@ -93,6 +93,17 @@ dotnet msbuild <host> -t:ResolvePurviewBlazorHostProject -getProperty:IsBlazorHo
 What each Blazor and BFF classification applies - and the browser-safe library check - is in
 [references/blazor.md](references/blazor.md).
 
+### Target frameworks
+
+A project that declares neither `TargetFramework` nor `TargetFrameworks` gets the SDK's default set,
+`net10.0;net11.0` (`Current`). A `PurviewTargetFrameworkSet` (`Current`, `Latest`, `Supported`, `Broad`,
+`All`) resolves the same way; an unknown name fails with `PurviewInvalidTargetFrameworkSet`. A Roslyn
+component keeps `netstandard2.0` and ignores the sets (`PurviewTargetFrameworkSetIgnored`).
+
+The declaration is read from the **project XML** before the body is evaluated, so a `Condition` on a
+`TargetFramework`, `TargetFrameworks` or `PurviewTargetFrameworkSet` is not seen and is reported as
+`PurviewConditionedProjectDeclaration`. See `purview-buildsdk-configuration` for how to set them.
+
 ## Namespace and identity
 
 1. `PurviewLogicalProjectName` is `NamespacePrefix` plus the project name, de-duplicated when the
@@ -110,7 +121,8 @@ What each Blazor and BFF classification applies - and the browser-safe library c
 
 ## Automatic packages and references
 
-- **Non-test C# projects**: SourceLink (unless `DisableSourceLink`), the Purview telemetry packages
+- **Non-test C# projects**: a SourceLink provider package (`SourceLinkPackageName`, default
+  `Microsoft.SourceLink.GitHub`; `DisableSourceLink=true` opts out), the Purview telemetry packages
   (unless `ExcludePurviewTelemetry`), `GenerateDocumentationFile=true`, and `InternalsVisibleTo`
   generation (unless `DisableAutoInternalsVisibleTo`).
 - **Test and shared-testing projects**: test-friendly `NoWarn` defaults, not packable or
@@ -127,7 +139,10 @@ Project-reference probing is layout-driven and covered by `purview-buildsdk-proj
 ## The shipped analyzers
 
 The SDK adds `Purview.BuildSdk.Analyzers` as an `<Analyzer>` item to every C# project, so its rules
-surface in command-line builds and in Visual Studio. The code-fix assembly ships beside it.
+surface in command-line builds and in Visual Studio. The code-fix assembly ships beside it. The rules
+read the SDK's compiler-visible properties (`build_property.*`) rather than re-deriving project state —
+`PDS0008`/`PDS0009`, for example, are gated on `build_property.IsBffProject`. The exported set is in
+`purview-buildsdk-configuration`.
 
 | Rule | What it enforces |
 | -- | -- |

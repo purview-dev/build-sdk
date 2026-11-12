@@ -394,8 +394,8 @@ The CLI records that portably — `"source": "."`, `"sourceType": "local"` — s
 
 `Purview.BuildSdk` itself deliberately does **not** do this. Every skill it authors describes the
 packages it ships and exists for *other* repositories to install, so an agent working in
-`build-sdk` reads them at their authored path and `.agents/skills/` is left for skills installed
-from elsewhere. Install from the working tree when a repository authors skills it also consumes;
+`build-sdk` reads them at their authored path and `.agents/skills/` is left to the skills CLI (apart
+from one repository-local skill). Install from the working tree when a repository authors skills it also consumes;
 skip it when, as here, the skills are published rather than used locally.
 
 What the CLI writes should be gitignored, since all of it is reproducible from `skills/` plus the
@@ -406,11 +406,15 @@ lockfile:
 | `skills/<name>/` | authored by hand | yes |
 | `skills-lock.json` | the CLI | yes |
 | `.agents/skills/<name>/` | the CLI's "universal" location | no |
+| `.agents/skills/<name>/` | a repository-local skill, authored by hand for this repository only | yes |
 | `.claude/skills/`, `agent/skills/`, … | per-agent links into it | no |
 
-> **The CLI's universal location is `.agents/skills/`.** Ignore that specifically rather than the
-> whole of `.agents/`, so any authored `.agents/agents/` and `.agents/prompts/` content stays
-> tracked.
+> **The CLI's universal location is `.agents/skills/`.** Ignore its contents specifically rather than
+> the whole of `.agents/`, so any authored `.agents/agents/` and `.agents/prompts/` content stays
+> tracked — and un-ignore a **repository-local** skill by name. That is guidance about working in this
+> repository, which must never ship to a consumer, so it cannot live under `skills/`; `.agents/skills/`
+> is the one location an agent reads natively. `RepositorySkillsSelfTests.InstalledSkillsAreNotTracked`
+> still fails if any skill the CLI *installed* (anything in `skills-lock.json`) is tracked.
 
 ### One installer
 

@@ -11,6 +11,45 @@ release summarise what the commits recorded rather than what was written at the 
 
 ## [Unreleased]
 
+### Changed
+
+- **The C# 15 updated memory-safety rules are off by default.** A `net11.0`+ target no longer compiles
+  with `<Features>updated-memory-safety-rules</Features>` unless asked. The updated model is an
+  experimental compiler feature, so it is an opt-in: set `MemorySafetyRules=2` to enable it. Tier `1`
+  (preview pointer syntax, which also selects `LangVersion=preview`) and tier `0` (off) are unchanged,
+  and an unrecognised tier still fails with `PRCFG0001`. `AllowUnsafeBlocks` remains at its compiler
+  default (`false`). Both .NET 11 compiler opt-ins are now opt-in, alongside Runtime Async.
+
+### Documentation
+
+- Made required settings and versions explicit in the README quick start, the wiki, and the
+  `purview-buildsdk-adoption` and `purview-buildsdk-configuration` skills: `NamespacePrefix` is
+  required and pre-import, the SDK version lives in `global.json`, the product version comes from
+  `package.json`, and package versions live in `Directory.Packages.props`.
+- Documented how to set the target framework(s) — an explicit `TargetFramework`/`TargetFrameworks`, a
+  curated `PurviewTargetFrameworkSet`, or a redefined set — including the unconditional-declaration
+  rule.
+- Documented the compiler-visible properties (`CompilerVisibleProperty` → `build_property.*`) for
+  analyzers and source generators.
+- **Documented SourceLink end to end.** A new [SourceLink](docs/wiki/SourceLink.md) wiki page, a README
+  section, and skill coverage now explain how to point `SourceLinkPackageName` at the provider for the
+  repository host — including `Microsoft.SourceLink.AzureRepos.Git` for Azure DevOps Services and
+  `Microsoft.SourceLink.AzureDevOpsServer.Git` plus a `SourceLinkAzureDevOpsServerGitHost` item for
+  on-premises Azure DevOps Server / TFS, `Microsoft.SourceLink.GitLab` and
+  `Microsoft.SourceLink.Bitbucket.Git` — that the provider needs a `PackageVersion` under Central
+  Package Management, and how `ContinuousIntegrationBuild` follows the CI environment (`TF_BUILD` on
+  Azure Pipelines). The previous documentation named `Microsoft.SourceLink.AzureDevOps.Git`, which does
+  not exist.
+
+### Fixed
+
+- **`DisableSourceLink=true` now actually opts out of SourceLink.** `Sdk.props` re-assigned
+  `DisableSourceLink` to `false` for every non-Roslyn project, clobbering a repository's pre-import
+  value, so the documented opt-out silently had no effect and the GitHub provider was always added. The
+  redundant assignment is removed; `Props/Defaults.props` already defaults it. `SourceLinkTests` pins the
+  default provider, provider selection for another host, the test/shared-testing exclusions and the
+  opt-out.
+
 ## [2.0.1] - 2026-11-12
 
 ### Changed

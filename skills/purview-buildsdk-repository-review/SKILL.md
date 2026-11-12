@@ -36,6 +36,7 @@ Inspect, in this order, before forming any opinion:
 
 - `Directory.Build.props` and `Directory.Build.targets` — where the SDK is imported, and what is set
   before the import
+- `global.json` (the pinned SDK version) and repo `package.json` (the product version)
 - the solution entry point, for what is actually in the build
 - `Directory.Packages.props`, for Central Package Management
 - the project layout on disk
@@ -53,6 +54,11 @@ Inspect, in this order, before forming any opinion:
   suffix outside it still runs, it just cannot see `internal` members.
 - Shared and shared-testing projects use the **exact** recognised names. A near miss gets none of
   the behaviour.
+- Target frameworks: a project should inherit the SDK's default set (`net10.0;net11.0`) or select a
+  curated `PurviewTargetFrameworkSet` (`Current`, `Latest`, `Supported`, `Broad`, `All`), not hard-code
+  a TFM list. A hard-coded list is an incremental opportunity; a `Condition`-guarded
+  `TargetFramework`/`TargetFrameworks` is structural debt, because the SDK reads the declaration from
+  the project XML and cannot evaluate the condition (`PurviewConditionedProjectDeclaration`).
 
 ## 3. Verify with MSBuild, do not infer from folder names
 
