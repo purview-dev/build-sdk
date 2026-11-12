@@ -6,7 +6,8 @@ automatically.
 
 ## 1. Add the SDK to `global.json`
 
-Add `Purview.BuildSdk` to the `msbuild-sdks` section so MSBuild can resolve the SDK:
+Add `Purview.BuildSdk` to the `msbuild-sdks` section so MSBuild can resolve the SDK. The value is the
+pinned SDK version — bump it deliberately, because a released version can change defaults:
 
 ```json
 {
@@ -21,7 +22,8 @@ Add `Purview.BuildSdk` to the `msbuild-sdks` section so MSBuild can resolve the 
 
 > [!NOTE]
 > The SDK can also bootstrap a `global.json` for you at the repository root when one is missing; see
-> [Repository Bootstrap](Repository-Bootstrap.md).
+> [Repository Bootstrap](Repository-Bootstrap.md). The value it writes is the version the package was
+> packed as (`PurviewBuildSdkVersionForGlobalJson`).
 
 ## 2. Create `Directory.Build.props` at the repo root
 
@@ -59,6 +61,28 @@ build depend on the day it ran.
 > **Note:** `ManagePackageVersionsCentrally=true` is set by the SDK. You **must** have a
 > `Directory.Packages.props` at your repo root for CPM to work, even if it only contains the packages
 > the SDK adds automatically.
+
+## Required settings and versions
+
+The four values above are the ones that decide whether the SDK behaves as documented:
+
+| Setting | Where it goes | Notes |
+| -- | -- | -- |
+| `NamespacePrefix` | `Directory.Build.props`, above the import | Required; the build fails without it unless `DisableNamespacePrefixCheck=true`. |
+| SDK version | `global.json` → `msbuild-sdks.Purview.BuildSdk` | Pinned to a released version. |
+| Product version | repo-root `package.json` → `version` | Applied to `Version` and `PackageVersion`. `UsePackageJsonVersion=Strict` fails instead of falling back to `0.0.1`. |
+| Package versions | `Directory.Packages.props` | A `PackageVersion` is a minimum, not an exact pin. |
+
+## Setting the target framework(s)
+
+A project that declares neither `TargetFramework` nor `TargetFrameworks` gets the SDK's default set,
+`net10.0;net11.0`. To change it:
+
+- declare `TargetFramework` (one) or `TargetFrameworks` (many) **unconditionally** in the project; or
+- select a named set with `<PurviewTargetFrameworkSet>Supported</PurviewTargetFrameworkSet>` in
+  `Directory.Build.props` or the `.csproj` (`Current`, `Latest`, `Supported`, `Broad`, `All`).
+
+See [Target framework sets](Configuration-Reference.md#target-framework-sets).
 
 ## Next steps
 

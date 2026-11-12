@@ -21,11 +21,22 @@ consuming project supplies nothing.
 
 | Property | Default | Behaviour |
 | -- | -- | -- |
-| `TargetFramework` | `net10.0;net11.0` | Applied when neither `TargetFramework` nor `TargetFrameworks` is set. A project that explicitly declares `IsRoslynComponent=true` defaults to `netstandard2.0` |
+| `TargetFramework` | `net10.0;net11.0` | Applied when neither `TargetFramework` nor `TargetFrameworks` is set. Declare it (or `TargetFrameworks`) **unconditionally** — the SDK reads it from the project XML, so a `Condition` on it is not seen. A project that explicitly declares `IsRoslynComponent=true` defaults to `netstandard2.0` |
+| `PurviewTargetFrameworkSet` | `Current` | Named set resolved when the project declares no TFM: `Current`, `Latest`, `Supported`, `Broad` or `All`. An unknown name fails with `PurviewInvalidTargetFrameworkSet`. A single-entry set resolves to `TargetFramework` rather than paying for an outer build. Declare unconditionally |
+| `PurviewTargetFrameworksCurrent` | `net10.0;net11.0` | Redefines the `Current` set (the default). Set before the SDK import |
+| `PurviewTargetFrameworksLatest` | `net11.0` | Redefines the `Latest` set |
+| `PurviewTargetFrameworksSupported` | `net10.0;net11.0` | Redefines the `Supported` set |
+| `PurviewTargetFrameworksBroad` | `net8.0;net9.0;net10.0` | Redefines the `Broad` set |
+| `PurviewTargetFrameworksAll` | `net8.0;net9.0;net10.0;net11.0` | Redefines the `All` set |
 | `IsRoslynComponent` | *(unset)* | When explicitly `true`: a single `netstandard2.0` target, `LangVersion=latest`, `Nullable=enable`, `TreatWarningsAsErrors=true`, `Deterministic=true`, extended analyzer rules, SourceLink with `EmbedUntrackedSources=true`, no dependency file, telemetry exclusion, and `PrivateAssets=all` on `Microsoft.CodeAnalysis.*` references |
 | `IsRoslynComponentOnly` | `true` for Roslyn components | Analyzer-only package: `IncludeBuildOutput=false`, `IncludeSymbols=false`, portable PDB packed beside the analyzer under `analyzers/dotnet/cs/`. Set `false` for a dual-role component using normal library symbol packaging |
 | `DisableRoslynCompilerDefaultsValidation` | `false` | Opts out of `ValidateRoslynComponentCompilerSettings`, which fails the pack of a packable Roslyn component missing `LangVersion`, `Nullable`, `TreatWarningsAsErrors` or `EnforceExtendedAnalyzerRules` |
 | `PackProjectReferencedSourceGenerators` | `true` | Packable projects include analyzer `ProjectReference` outputs under `analyzers/dotnet/cs/`. Use `Pack="false"` on one reference to opt that one out |
+
+Overrides are layered, narrowest first: an explicit `TargetFramework`/`TargetFrameworks` in the project
+always wins, then a `PurviewTargetFrameworkSet` in the project, then a set the repository selected, then
+a `PurviewTargetFrameworks<Set>` redefinition, then the SDK default. Roslyn components are not covered —
+they target `netstandard2.0`; selecting a set on one is reported as `PurviewTargetFrameworkSetIgnored`.
 
 ## Style policy
 
@@ -40,7 +51,7 @@ consuming project supplies nothing.
 
 | Property | Default | Behaviour |
 | -- | -- | -- |
-| `MemorySafetyRules` | `2` | C# 15 memory-safety tier on `net11.0`+ targets: `0` off, `1` preview pointer syntax (sets `LangVersion=preview` when none was chosen), `2` `updated-memory-safety-rules`. Unknown values fail with `PRCFG0001`. Never touches `AllowUnsafeBlocks` |
+| `MemorySafetyRules` | `0` | C# 15 memory-safety tier on `net11.0`+ targets: `0` off (default), `1` preview pointer syntax (sets `LangVersion=preview` when none was chosen), `2` `updated-memory-safety-rules`. Tier `2` is opt-in — the updated rules are an experimental compiler feature. Unknown values fail with `PRCFG0001`. Never touches `AllowUnsafeBlocks` |
 | `PurviewRuntimeAsync` | `false` | Set to `true` for `runtime-async=on` on `net11.0`+ targets. `UseRuntimeAsync=true` also opts in; an explicit `false` under either name keeps it off |
 | `PurviewMultiThreadedBuild` | `true` | Bootstraps a managed `Directory.Build.rsp` with `-mt`/`-nr:false`; `false` writes `-mt:false` |
 | `BootstrapMultiThreadedBuildRspToRepoRoot` | `true` | Whether that bootstrapped response file is written at all |
@@ -91,8 +102,13 @@ forces SourceLink's CI-mode dirty-repository checks.
 | -- | -- | -- |
 | `ExcludePurviewTelemetry` | `false` | Removes `Purview.Telemetry.SourceGenerator` |
 | `ExcludeMSTelemetryExtension` | `false` | Removes `Microsoft.Extensions.Telemetry.Abstractions`. Only relevant when `ExcludePurviewTelemetry` is also `false` — the whole group is skipped otherwise |
-| `SourceLinkPackageName` | `Microsoft.SourceLink.GitHub` | |
-| `DisableSourceLink` | `false` | |
+| `SourceLinkPackageName` | `Microsoft.SourceLink.GitHub` | The provider package, added with `PrivateAssets=all` to every non-test project. Set before the SDK import to match the host — `Microsoft.SourceLink.AzureRepos.Git` (Azure DevOps Services), `Microsoft.SourceLink.AzureDevOpsServer.Git` (on-premises ADO Server / TFS), `Microsoft.SourceLink.GitLab`, `Microsoft.SourceLink.Bitbucket.Git` |
+| `DisableSourceLink` | `false` | `true` (before the import) stops the SDK adding the package at all. An empty `SourceLinkPackageName` does **not** opt out — the GitHub default fills it |
+| `EnableSourceLink` | `true` (set by the provider) | The provider package's own switch; `false` keeps the package but skips the source mapping |
+
+Provider selection is read during `Sdk.props`, so it must be pre-import. See
+[sourcelink.md](sourcelink.md) for the host matrix, Azure DevOps specifics, the CPM `PackageVersion`
+requirement and self-hosted hosts.
 
 ## Blazor WebAssembly, browser-safe libraries and BFF hosts
 
@@ -156,7 +172,18 @@ Covered in full by `purview-buildsdk-skill-installation`: `PurviewSkillsRunner`,
 
 ## Compiler-visible properties
 
-Exported to analyzers and generators as `build_property.<PropertyName>`:
+The SDK lists these as `CompilerVisibleProperty` items, so Roslyn analyzers and source generators read
+them as `build_property.<PropertyName>`:
+
+```csharp
+context.AnalyzerConfigOptions.GlobalOptions.TryGetValue("build_property.IsBffProject", out var isBff);
+```
+
+Read the exported property rather than re-deriving SDK behaviour — it is the SDK's own answer and stays
+correct when the rules change. To make a new property visible, add a `CompilerVisibleProperty` item
+(with a `<Description>`) in `Sdk.props`; nothing else exposes an MSBuild property to the compiler.
+
+Exported:
 
 - `UsePackageJsonVersion`, `RootPackageJson`, `RepoRoot`, `Version`, `PackageVersion`
 - `NamespacePrefix`, `DisableNamespacePrefixCheck`

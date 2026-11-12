@@ -1,6 +1,6 @@
 ---
 name: purview-buildsdk-project-layout
-description: Decide where a project goes and what to call it in a repository that uses Purview.BuildSdk. Use when creating, moving, splitting or renaming a project or test project, choosing a test suffix, aligning namespaces and assembly identity with NamespacePrefix, laying out a Blazor Web App host, WebAssembly client and browser-safe Contracts library, or relying on the SDK's automatic project references. Also use when rationalising a repository's shape so the SDK's conventions work without overrides.
+description: Decide where a project goes and what to call it in a repository that uses Purview.BuildSdk. Use when creating, moving, splitting or renaming a project or test project, choosing a test suffix, choosing the target framework(s) for a project, aligning namespaces and assembly identity with NamespacePrefix, laying out a Blazor Web App host, WebAssembly client and browser-safe Contracts library, or relying on the SDK's automatic project references. Also use when rationalising a repository's shape so the SDK's conventions work without overrides.
 license: MIT
 metadata:
   package: Purview.BuildSdk
@@ -90,6 +90,15 @@ Shared: `Shared`, `SharedFramework`, `SharedInfrastructure`, `SharedInfra`, `Sha
 Shared testing: `SharedTestingFramework`, `SharedTestingInfrastructure`, `SharedTestingInfra`,
 `SharedTestingUtilities`, `SharedTestingUtils`, `SharedTestingLibrary`, `SharedTestingLib`,
 `SharedTestingHelpers`.
+
+## Target frameworks
+
+A new project should inherit the SDK's default set (`net10.0;net11.0`) rather than pin its own TFMs, so
+a lifecycle change is one SDK bump rather than an edit in every project. When a project genuinely needs
+a different set, select one with `PurviewTargetFrameworkSet` (`Current`, `Latest`, `Supported`, `Broad`,
+`All`) or declare `TargetFramework`/`TargetFrameworks` **unconditionally** — a `Condition` on a TFM is
+not seen, because the SDK reads it from the project XML. A Roslyn component targets `netstandard2.0`.
+See `purview-buildsdk-configuration`.
 
 ## Automatic project references to preserve
 

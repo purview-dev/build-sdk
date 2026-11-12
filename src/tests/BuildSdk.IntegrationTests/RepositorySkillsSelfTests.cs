@@ -17,10 +17,12 @@ namespace Purview.BuildSdk;
 /// </item>
 /// <item>
 /// <c>.agents/skills/</c> is the skills CLI's universal install location, holding skills installed
-/// <i>from other sources</i>. It is gitignored, reproducible from <c>skills-lock.json</c>, and it is
-/// not where this repository's own skills belong - installing them into it would make this
+/// <i>from other sources</i> - reproducible from <c>skills-lock.json</c> and gitignored. It is not
+/// where this repository's <i>published</i> skills belong: installing those here would make this
 /// repository a consumer of advice it wrote for somebody else, and would put a second writer on
-/// paths the CLI owns.
+/// paths the CLI owns. The one thing tracked there is a <i>repository-local</i> skill - guidance
+/// about working in this repository, which must never ship to a consumer - which the agent runtime
+/// reads natively.
 /// </item>
 /// </list>
 ///
@@ -154,7 +156,7 @@ sealed partial class RepositorySkillsSelfTests
 		// Everything the CLI writes is reproducible from skills-lock.json, so none of it belongs in
 		// the repository. '.agents/skills/' is the one that most easily ends up committed by
 		// accident, because the rest of '.agents/' is authored content and stays tracked.
-		foreach (var root in (string[])[".agents", ".claude", "agent"])
+		foreach (var root in (string[])[".claude", "agent"])
 		{
 			var skillsPath = Path.Combine(RepositoryRoot, root, "skills");
 			if (!Directory.Exists(skillsPath))
@@ -166,6 +168,26 @@ sealed partial class RepositorySkillsSelfTests
 				.IsEmpty()
 				.Because($"'{root}/skills' is written by the skills CLI and must stay gitignored");
 		}
+
+		// '.agents/skills/' is different in one respect: it is also the one location an agent reads
+		// natively here, so a repository-local skill - guidance about working in this repository,
+		// which must never ship to a consumer - is authored in place and tracked. What must never be
+		// tracked is a skill the CLI *installed*, and skills-lock.json is exactly the record of those.
+		var installed = ReadLockFile().Select(entry => entry.Name).ToHashSet(StringComparer.Ordinal);
+
+		var trackedCliInstalls = (await TrackedFilesUnderAsync(".agents/skills"))
+			.Where(path =>
+			{
+				// '.agents/skills/<name>/...' - the third segment is the skill folder.
+				var segments = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
+				return segments.Length >= 3 && installed.Contains(segments[2]);
+			})
+			.ToArray();
+
+		await Assert
+			.That(trackedCliInstalls)
+			.IsEmpty()
+			.Because("a skill the skills CLI installed is reproducible from skills-lock.json and must stay gitignored");
 	}
 
 	[Test]

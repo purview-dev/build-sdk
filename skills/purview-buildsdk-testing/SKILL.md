@@ -1,6 +1,6 @@
 ---
 name: purview-buildsdk-testing
-description: Write and run tests in a repository that uses Purview.BuildSdk. Use when authoring or refactoring TUnit tests (AAA structure, Subject_Scenario_Expectation naming, awaited assertions, CancellationToken), when choosing a test project's framework packages, and when running or filtering tests - the SDK wires Microsoft.Testing.Platform, so `dotnet test --filter` reports "Zero tests ran" and `--treenode-filter` is the one that works.
+description: Write and run tests in a repository that uses Purview.BuildSdk. Use when authoring or refactoring TUnit tests (AAA structure, Subject_Scenario_Expectation naming, awaited assertions, CancellationToken), when choosing a test project's framework packages or matching its target framework to its subject, and when running or filtering tests - the SDK wires Microsoft.Testing.Platform, so `dotnet test --filter` reports "Zero tests ran" and `--treenode-filter` is the one that works.
 license: MIT
 metadata:
   package: Purview.BuildSdk
@@ -26,6 +26,11 @@ With the defaults (`TestingFramework=TUnit`, `SubstituteFramework=TUnitMocks`,
 - test-friendly `NoWarn` defaults (`PurviewTestContextNoWarn`), while keeping the strict style
   contract — `IDE0040`, field naming, formatting, `IDE1006`
 - `IsPackable=false`, `IsPublishable=false`
+
+A test project inherits the SDK's default target framework set (`net10.0;net11.0`). When it must match
+its subject — a project still on one TFM, or a subject that multi-targets — set
+`TargetFramework`/`TargetFrameworks` on the **test** project, declared unconditionally, or select a
+`PurviewTargetFrameworkSet`. See `purview-buildsdk-configuration`.
 
 Add nothing else unless the project's purpose demands it. Two that stay explicit:
 

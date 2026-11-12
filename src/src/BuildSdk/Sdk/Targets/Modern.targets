@@ -7,19 +7,20 @@
 	     property. That matters: TargetFrameworks defaults to net10.0;net11.0, so
 	     a switch that improves net11.0 must not be applied to the net10.0 leg.
 
-	     One compiler feature is enabled by default for a net11.0+ target, and
-	     a second is available as an opt-in:
+	     Both compiler features are opt-in on a net11.0+ target; neither is
+	     assumed:
 
 	       runtime-async=on          Runtime Async V2. Off by default: it
 	                                 changes how every await compiles, so it is
 	                                 opted into with PurviewRuntimeAsync=true
 	                                 (or UseRuntimeAsync=true), never assumed.
 
-	       updated-memory-safety-rules (default)
+	       updated-memory-safety-rules
 	                                 The C# 15 memory-safety model: 'unsafe'
 	                                 marks requires-unsafe APIs and the caller
-	                                 must acknowledge the access. Independent of
-	                                 LangVersion, so 'latest' is enough; the
+	                                 must acknowledge the access. Off by default, because it is an
+	                                 experimental feature switch: opt in with MemorySafetyRules=2.
+	                                 Independent of LangVersion, so 'latest' is enough; the
 	                                 preview *syntax* is a separate tier (1).
 
 	     Neither switch requires AllowUnsafeBlocks. It is deliberately left at
@@ -48,7 +49,7 @@
 		<PurviewRuntimeAsync Condition="'$(PurviewRuntimeAsync)' == '' AND '$(UseRuntimeAsync)' != ''"
 			>$(UseRuntimeAsync)</PurviewRuntimeAsync>
 		<PurviewRuntimeAsync Condition="'$(PurviewRuntimeAsync)' == ''">false</PurviewRuntimeAsync>
-		<MemorySafetyRules Condition="'$(MemorySafetyRules)' == ''">2</MemorySafetyRules>
+		<MemorySafetyRules Condition="'$(MemorySafetyRules)' == ''">0</MemorySafetyRules>
 		<_PurviewMemorySafetyRulesNormalized>$([System.String]::Copy('$(MemorySafetyRules)').Trim().ToLowerInvariant())</_PurviewMemorySafetyRulesNormalized>
 		<!-- The planned stable property's tiers: 0/off, 1 (preview syntax), 2 (updated rules). -->
 		<_PurviewMemorySafetyRulesNormalized

@@ -3,8 +3,8 @@ using Purview.BuildSdk.Harness;
 namespace Purview.BuildSdk;
 
 /// <summary>
-/// Pins the .NET 11 compiler feature switches the SDK applies to a <c>net11.0</c> (or later) target:
-/// Runtime Async and the C# 15 updated memory-safety rules.
+/// Pins the .NET 11 compiler feature switches the SDK makes available to a <c>net11.0</c> (or later)
+/// target: Runtime Async and the C# 15 updated memory-safety rules. Both are opt-in and off by default.
 /// </summary>
 /// <remarks>
 /// The default target set is <c>net10.0;net11.0</c>, so the switches have to be per-TFM: applying
@@ -15,7 +15,7 @@ namespace Purview.BuildSdk;
 sealed class Dotnet11FeaturesTests
 {
 	[Test]
-	public async Task Net11Target_EnablesUpdatedMemorySafetyRulesButNotRuntimeAsync(CancellationToken cancellationToken)
+	public async Task Net11Target_LeavesBothCompilerFeaturesOffByDefault(CancellationToken cancellationToken)
 	{
 		using var h = await ProjectHarness.CreateAsync(
 			"MyLibrary",
@@ -34,9 +34,9 @@ sealed class Dotnet11FeaturesTests
 			.Because("Runtime Async is opt-in: it changes how every await compiles");
 		await Assert
 			.That(eval.Properties["Features"])
-			.Contains("updated-memory-safety-rules")
-			.Because("MemorySafetyRules defaults to tier 2");
-		await Assert.That(eval.Properties["MemorySafetyRules"]).IsEqualTo("2");
+			.DoesNotContain("updated-memory-safety-rules")
+			.Because("the updated memory-safety rules are an experimental compiler feature and opt-in");
+		await Assert.That(eval.Properties["MemorySafetyRules"]).IsEqualTo("0");
 		await Assert
 			.That(eval.Properties["AllowUnsafeBlocks"])
 			.IsEqualTo("false")
@@ -68,7 +68,7 @@ sealed class Dotnet11FeaturesTests
 		using var h = await ProjectHarness.CreateAsync(
 			"MyLibrary",
 			targetFramework: "net11.0",
-			extraProps: "<Features>$(Features);project-feature=on</Features>",
+			extraProps: "<MemorySafetyRules>2</MemorySafetyRules><Features>$(Features);project-feature=on</Features>",
 			cancellationToken: cancellationToken
 		);
 
@@ -76,6 +76,29 @@ sealed class Dotnet11FeaturesTests
 
 		await Assert.That(features).Contains("project-feature=on");
 		await Assert.That(features).Contains("updated-memory-safety-rules");
+	}
+
+	/// <summary>
+	/// The updated memory-safety rules are an experimental compiler feature, so tier 2 is an
+	/// explicit opt-in rather than the default.
+	/// </summary>
+	[Test]
+	public async Task MemorySafetyTierTwo_EnablesTheUpdatedRules(CancellationToken cancellationToken)
+	{
+		using var h = await ProjectHarness.CreateAsync(
+			"MyLibrary",
+			targetFramework: "net11.0",
+			extraProps: "<MemorySafetyRules>2</MemorySafetyRules>",
+			cancellationToken: cancellationToken
+		);
+
+		var eval = await h.EvaluateAsync(["Features", "LangVersion"], cancellationToken: cancellationToken);
+
+		await Assert.That(eval.Properties["Features"]).Contains("updated-memory-safety-rules");
+		await Assert
+			.That(eval.Properties["LangVersion"])
+			.IsEqualTo("latest")
+			.Because("tier 2 is an independent feature switch, not the preview language version");
 	}
 
 	[Test]
@@ -91,7 +114,6 @@ sealed class Dotnet11FeaturesTests
 		var features = await h.GetPropertyAsync("Features", cancellationToken);
 
 		await Assert.That(features).Contains("runtime-async=on");
-		await Assert.That(features).Contains("updated-memory-safety-rules");
 	}
 
 	/// <summary>

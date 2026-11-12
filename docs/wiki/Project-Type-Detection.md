@@ -167,4 +167,12 @@ failure each behaviour prevents.
 
 The detection flags (plus many SDK properties) are exposed to Roslyn analyzers and source generators
 via `CompilerVisibleProperty`, readable as `build_property.<PropertyName>`. The full list is in the
-[Configuration Reference](Configuration-Reference.md).
+[Configuration Reference](Configuration-Reference.md#compiler-visible-sdk-properties).
+
+```csharp
+context.AnalyzerConfigOptions.GlobalOptions.TryGetValue("build_property.IsBffProject", out var isBff);
+```
+
+Prefer the exported property over re-deriving SDK behaviour in an analyzer. A property an analyzer
+needs must be added to the SDK's `CompilerVisibleProperty` list first — MSBuild properties are not
+visible to the compiler until they are.
