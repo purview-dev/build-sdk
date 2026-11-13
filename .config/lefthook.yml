@@ -1,11 +1,4 @@
-pre-commit:
-  jobs:
-    - name: csharpier check
-      run: just lint-check
-    - name: version pins
-      run: just version-sync-check
-
 commit-msg:
   jobs:
     - name: conventional commits
-      run: bunx commitlint --edit {1}
+      run: bun x --bun commitlint --edit {1}

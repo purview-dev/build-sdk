@@ -40,7 +40,7 @@ introduce new structure when no established pattern exists.
 
 - The `.csproj` filename must equal its containing directory name, unless
   `DisableProjectFileNamingConventionCheck=true`.
-- Source projects under `src/`, test projects under `tests/`.
+- Source projects under `src/src/`, test projects under `src/tests/`, the solution in `src/`.
 - Place a new project beside similar ones — same language, layer and test type.
 - One test type per project by default.
 
@@ -96,8 +96,8 @@ Shared testing: `SharedTestingFramework`, `SharedTestingInfrastructure`, `Shared
 A new project should inherit the SDK's default set (`net10.0;net11.0`) rather than pin its own TFMs, so
 a lifecycle change is one SDK bump rather than an edit in every project. When a project genuinely needs
 a different set, select one with `PurviewTargetFrameworkSet` (`Current`, `Latest`, `Supported`, `Broad`,
-`All`) or declare `TargetFramework`/`TargetFrameworks` **unconditionally** — a `Condition` on a TFM is
-not seen, because the SDK reads it from the project XML. A Roslyn component targets `netstandard2.0`.
+`All`) or declare `TargetFramework`/`TargetFrameworks` — an explicit value always wins over every set,
+with or without a `Condition`. A Roslyn component targets `netstandard2.0`.
 See `purview-buildsdk-configuration`.
 
 ## Automatic project references to preserve

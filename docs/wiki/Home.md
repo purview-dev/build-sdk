@@ -9,24 +9,87 @@ repo root inherits everything automatically.
 > The SDK imposes convention over configuration, enforcing certain styles and automations based on
 > project file names and repository layout.
 
-## Start here
+## How this wiki is organised
 
-- [Getting Started](Getting-Started.md)
-- [Engineering Principles](Engineering-Principles.md)
-- [Project Naming Conventions](Project-Naming-Conventions.md)
-- [Project Type Detection](Project-Type-Detection.md)
-- [Configuration Reference](Configuration-Reference.md)
-- [Version Detection](Version-Detection.md)
-- [Assembly Name Generation](Assembly-Name-Generation.md)
-- [InternalsVisibleTo](InternalsVisibleTo.md)
-- [Testing Wiring](Testing-Wiring.md)
-- [Packaging](Packaging.md)
-- [SourceLink](SourceLink.md)
-- [SDK-Shipped Analyzers](Analyzers.md)
-- [Code Fixes](Code-Fixes.md)
-- [Repository Bootstrap](Repository-Bootstrap.md)
-- [Agent Skills](Agent-Skills.md)
-- [Release Flow](Release-Flow.md)
+The wiki is one folder per topic area, in eight sections, in reading order. The sidebar carries the
+same sections in the same order, and `_Sidebar.md` is what the published documentation site reads for
+page order. A page's folder is part of its published URL (`packaging/SourceLink.md` is
+`/docs/build-sdk/packaging/sourcelink/`), so a page moves folder only when it changes topic.
+
+| Section | Where it lives |
+| -- | -- |
+| Get started | the wiki root, and `concepts/Engineering-Principles.md` |
+| Conventions and detection | `concepts/` |
+| Configuration | `Configuration-Reference.md` and `configuration/` |
+| Testing | `testing/` |
+| Analyzers and code fixes | `analyzers/` |
+| Packaging | `packaging/` |
+| Agent skills and tooling | `tooling/` |
+| Contributing and releases | `development/` |
+
+Three pages stay at the wiki root, because the site depends on their URLs: `Getting-Started.md` is
+the landing page, and `Configuration-Reference.md` and `Repository-Bootstrap.md` are the pages the
+site's project catalogue deep-links. `DocumentationWikiTests` holds the folders, this page and the
+sidebar to all of that.
+
+## Get started
+
+| Page | What it answers |
+| -- | -- |
+| [Getting Started](Getting-Started.md) | The minimal setup to adopt the SDK: `global.json`, `Directory.Build.props`, `package.json`, and a first build. |
+| [Repository Bootstrap](Repository-Bootstrap.md) | Which repository-root files the SDK writes (`.editorconfig`, `global.json`), when, and how to opt out. |
+| [Engineering Principles](concepts/Engineering-Principles.md) | The conventions the SDK relies on: layout, naming, namespace identity and test structure, and why. |
+
+## Conventions and detection
+
+| Page | What it answers |
+| -- | -- |
+| [Project Naming Conventions](concepts/Project-Naming-Conventions.md) | The exact naming and layout rules the SDK implements. |
+| [Project Type Detection](concepts/Project-Type-Detection.md) | How the SDK decides what a project is (`IsTestProject`, `IsWebSdkProject`, …) and what follows from it. |
+| [Assembly Name Generation](concepts/Assembly-Name-Generation.md) | How `RootNamespace`, `AssemblyName` and `PackageId` are derived. |
+
+## Configuration
+
+| Page | What it answers |
+| -- | -- |
+| [Configuration Reference](Configuration-Reference.md) | Every SDK property: its default, and whether it must be set before the `Sdk.props` import. |
+| [Property Schema and IntelliSense](configuration/Property-Schema.md) | The `Sdk.props.buildschema.json` sidecar, csproj IntelliSense, and the checks that hold it to the code. |
+| [Version Detection](configuration/Version-Detection.md) | How `Version` and `PackageVersion` come from `package.json`, and the strict mode. |
+| [InternalsVisibleTo](configuration/InternalsVisibleTo.md) | The generated `InternalsVisibleTo` attributes for test projects. |
+
+## Testing
+
+| Page | What it answers |
+| -- | -- |
+| [Testing Wiring](testing/Testing-Wiring.md) | How test projects get their framework, mocking and test-data packages, and how to change them. |
+
+## Analyzers and code fixes
+
+| Page | What it answers |
+| -- | -- |
+| [SDK-Shipped Analyzers](analyzers/Analyzers.md) | The bundled analyzers and suppressors (`PDS*`), and what each one reports. |
+| [Code Fixes](analyzers/Code-Fixes.md) | The IDE code fixes, and why they load only inside Visual Studio. |
+
+## Packaging
+
+| Page | What it answers |
+| -- | -- |
+| [Packaging](packaging/Packaging.md) | What a packable project gets: symbols, analyzer assets, the `Sdk/` folder and the README. |
+| [SourceLink](packaging/SourceLink.md) | Choosing the SourceLink provider for the repository host, and opting out. |
+
+## Agent skills and tooling
+
+| Page | What it answers |
+| -- | -- |
+| [Agent Skills](tooling/Agent-Skills.md) | Installing, restoring, updating and tidying agent skills through the standard skills CLI (`PRSKL*`). |
+| [Justfile](tooling/Justfile.md) | The shared `just` modules: the barrel, the recipes, the exported environment and `just bump`. |
+
+## Contributing and releases
+
+| Page | What it answers |
+| -- | -- |
+| [Release Flow](development/Release-Flow.md) | How a version is cut and published, and the pipeline recipes. |
+| [Performance](development/Performance.md) | What the SDK costs at evaluation time, measured, and what has been done about it. |
 
 ## Feature highlights
 
@@ -56,11 +119,10 @@ repo root inherits everything automatically.
 - **Bundled analyzers and code fixes** — three analyzers (`PDS0002`–`PDS0004`) and four suppressors
   (`PDS0001`, `PDS0005`, `PDS0006`, `PDS0007`), plus IDE code fixes for naming and extensions-namespace
   conventions.
-- **Agent skills** — the SDK resolves which skills a restored package ships and the exact commit it was
-  built from, and reports what is missing or has drifted (`PRSKL0010`–`PRSKL0014`) when asked
-  (`-t:RecommendPurviewSkills`, or `-t:VerifyPurviewSkills` in CI) — never during an ordinary build.
-  Installing or updating them is a separate, explicit step (`dotnet msbuild -t:InstallPurviewSkills`)
-  that delegates to the skills CLI. The SDK itself writes nothing into an agent directory: the build-time
+- **Agent skills** — a thin wrapper over the standard skills CLI (`bun x skills`): install a repository's
+  root `skills/` (`-t:InstallPurviewSkills -p:PurviewSkillsSource=owner/repo`), restore `skills-lock.json`,
+  update every recorded source, and keep the agent directories tidy. Each is an explicit step that runs
+  once per solution from the repository root — never during an ordinary build. The SDK itself writes nothing into an agent directory: the build-time
   `.agents/**` mirror was removed outright, because the CLI owns those paths and two writers on one set
   of paths meant the mirror silently overwriting a pinned install.
 

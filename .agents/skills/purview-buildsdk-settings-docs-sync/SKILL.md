@@ -10,10 +10,48 @@ metadata:
 
 # Keeping settings, docs and skills in step
 
-> **Repository-local.** This skill lives in `.agents/skills/`, which is gitignored, not packed and not
-> published. It is deliberately **not** linked from `AGENTS.md`: `RepositorySkillsSelfTests` fails any
-> AGENTS.md link that points into `.agents/skills/`, because a fresh clone does not have this folder.
+> **Repository-local.** This skill lives in `.agents/skills/` and is tracked by name (the rest of that
+> folder is gitignored); it is not packed and not published. It is deliberately **not** linked from
+> `AGENTS.md`: `RepositorySkillsSelfTests` fails any AGENTS.md link that points into `.agents/skills/`.
 > The published skills are authored under `skills/` and are a different thing entirely.
+
+## The general sweep is a published skill
+
+This skill is the **settings** sweep for this repository. Any other documentation change — a renamed
+recipe, a new wiki page, a moved page, a skill whose scope grew, an audit of whether the docs are
+still true — follows the published
+[`purview-buildsdk-docs-sync`](../../../skills/purview-buildsdk-docs-sync/SKILL.md) skill: every
+claim checked against the code, and the wiki kept hierarchical. In this repository the wiki's root
+pages are exactly `Getting-Started.md` (the site's `docs.rootPage`), `Configuration-Reference.md` and
+`Repository-Bootstrap.md` (the site catalogue's `docsPage` deep links); every other page lives in one
+topic folder, and `DocumentationWikiTests` holds the folders, `_Sidebar.md` and `Home.md` to that.
+
+## Start from the schema
+
+`src/src/BuildSdk/Sdk/Sdk.props.buildschema.json` is the canonical description of every SDK property —
+description, type and default — and `PropertySchemaTests` holds the code, the `CompilerVisibleProperty`
+list, `README.md` and `docs/wiki/Configuration-Reference.md` to it. The generic method (where a
+sidecar goes, when a property is pre-import, when to export it, how to rename or retire one) is the
+published [`purview-buildsdk-msbuild-properties`](../../../skills/purview-buildsdk-msbuild-properties/SKILL.md)
+skill. In this repository, adding a property means:
+
+1. `Sdk/Props/Defaults.props` — the default, guarded with `'$(X)' == ''`.
+2. `Sdk/Sdk.props.buildschema.json` — the entry. `defaultValue` is what a plain class library evaluates
+   to; without one, end the description with `No default: <why>.`; when `Sdk.props` (or a file it
+   imports) reads the property, say `Set it before the \`Sdk.props\` import.` The test computes both
+   from the XML and fails if the description disagrees.
+3. `Sdk/Sdk.props` — a `CompilerVisibleProperty` with a `<Description>`, only if an analyzer reads it.
+4. `README.md` and `docs/wiki/Configuration-Reference.md` — a row in the table for its area (the
+   Default cell opens with the backticked default, or italics when there is none), plus a row in each
+   *Compiler-visible SDK properties* table when exported.
+5. `CHANGELOG.md` — `[Unreleased]`.
+6. `just properties-check` — every failure names the file and the row to add.
+
+A property that must not appear in IntelliSense goes in
+`src/tests/BuildSdk.IntegrationTests/PropertySchema/SdkPropertyClassification.cs` with a reason:
+`ExternallyOwned` (MSBuild/.NET/NuGet), `Internal` (unprefixed implementation detail),
+`ComputedDefaults` (machine- or project-dependent value). Prefer a `_` prefix for anything new and
+internal — then no list is needed.
 
 ## The rule this exists for
 
@@ -44,11 +82,12 @@ Find the row and make sure every file agrees.
 | -- | -- | -- |
 | Runtime default (all projects) | `src/src/BuildSdk/Sdk/Props/Defaults.props` | The default when unset, plus the explanatory comment. Sets the value in `Sdk.props`, which is also what makes it compiler-visible. |
 | Per-TFM default | `src/src/BuildSdk/Sdk/Targets/Modern.targets` | The `net11.0`+ feature selection. Must agree with `Defaults.props`. |
+| Property schema | `src/src/BuildSdk/Sdk/Sdk.props.buildschema.json` | Description, type and `defaultValue` — what csproj IntelliSense shows. `PropertySchemaTests` fails when it disagrees with the code or the docs. |
 | Compiler-visible description | `src/src/BuildSdk/Sdk/Sdk.props` | The `CompilerVisibleProperty` `<Description>`, which is what an analyzer author reads. |
 | Pinning test | `src/tests/BuildSdk.IntegrationTests/Dotnet11FeaturesTests.cs` | The test that fails when the default changes silently. |
 | Changelog | `CHANGELOG.md` | A `[Unreleased]` entry: `### Changed` for behaviour, `### Documentation` for docs-only. |
 | README | `README.md` | The feature table row, the property table(s), the quick start, and the `.NET 11 features` section + tiers paragraph. |
-| Wiki | `docs/wiki/Configuration-Reference.md`, `Getting-Started.md`, `Version-Detection.md`, `Project-Type-Detection.md` | The property tables, the required-settings and target-framework sections, and the compiler-visible section. |
+| Wiki | `docs/wiki/Configuration-Reference.md`, `Getting-Started.md`, `configuration/Version-Detection.md`, `concepts/Project-Type-Detection.md` | The property tables, the required-settings and target-framework sections, and the compiler-visible section. |
 | Shipped skills | `skills/purview-buildsdk-*/SKILL.md` and `references/*.md` | The property tables and the sections below. |
 | AGENTS.md | `AGENTS.md` | The "authored set, and what each one answers" table, when a skill's scope grows. |
 
@@ -62,8 +101,9 @@ Two traps worth naming:
   which it is, in the docs, next to the property.
 
 A **feature** bigger than a single property gets its own guide as well. SourceLink is the worked
-example, because the decision is per repository host: add a wiki page `docs/wiki/<Feature>.md` and
-register it in `_Sidebar.md` **and** `Home.md`, add a `## <Feature>` section to `README.md`, and — when
+example, because the decision is per repository host: add a wiki page in its topic folder
+(`docs/wiki/packaging/SourceLink.md`) and register it in `_Sidebar.md` **and** that section's table in
+`Home.md` — `DocumentationWikiTests` fails until both list it — add a `## <Feature>` section to `README.md`, and — when
 it is configuration — a `references/<feature>.md` under
 `skills/purview-buildsdk-configuration/` that the `SKILL.md` links. Fix any wrong package or property
 name you find while documenting: the SourceLink pages used to name `Microsoft.SourceLink.AzureDevOps.Git`,
@@ -110,8 +150,8 @@ Every skill and doc that talks about configuring a project must explain how to s
 framework(s), consistently:
 
 - the default set is `net10.0;net11.0` (`Current`);
-- an explicit `TargetFramework`/`TargetFrameworks` must be declared **unconditionally** (the SDK reads
-  it from the project XML, so a `Condition` is not seen — `PurviewConditionedProjectDeclaration`);
+- an explicit `TargetFramework`/`TargetFrameworks` always wins over every set, wherever it is set
+  except `Directory.Build.targets` (`Targets/TargetFrameworkOwnership.targets` reconciles it);
 - a curated `PurviewTargetFrameworkSet` (`Current`, `Latest`, `Supported`, `Broad`, `All`) or a
   redefined `PurviewTargetFrameworks<Set>` (pre-import, in `Directory.Build.props`);
 - a Roslyn component keeps `netstandard2.0` and ignores the sets (`PurviewTargetFrameworkSetIgnored`).
@@ -126,7 +166,7 @@ The `CompilerVisibleProperty` → `build_property.*` mechanism, plus a one-line
 
 - `skills/purview-buildsdk-configuration/SKILL.md` and `references/properties.md`,
 - `skills/purview-buildsdk-project-detection/SKILL.md` (the analyzers section),
-- `README.md`, `docs/wiki/Configuration-Reference.md` and `docs/wiki/Project-Type-Detection.md`.
+- `README.md`, `docs/wiki/Configuration-Reference.md` and `docs/wiki/concepts/Project-Type-Detection.md`.
 
 Say both halves: **consume** the exported property instead of re-deriving SDK behaviour, and **add a
 new one** by listing it as a `CompilerVisibleProperty` item (with a `<Description>`) in `Sdk.props` —
@@ -145,7 +185,7 @@ skills tooling does not.
 | `purview-buildsdk-project-detection` | the target-framework subsection, the `build_property.*` note |
 | `purview-buildsdk-repository-review` | the read list (`global.json`, `package.json`), the target-framework finding |
 | `purview-buildsdk-testing` | the test-project target-framework paragraph |
-| `purview-buildsdk-skill-tests`, `-skill-installation`, `-skills-justfile` | **not** project configuration — leave them alone |
+| `purview-buildsdk-skill-tests`, `-skill-installation`, `-justfile` | **not** project configuration — leave them alone |
 
 Also update each skill's frontmatter `description` so the change makes the skill **fire** on the right
 question ("setting the target framework(s)", "pinning the SDK version in global.json").
@@ -157,12 +197,13 @@ just build
 just skills-validate          # PRSKL0005, the pack-time check
 just version-sync-check       # the version pins must still match package.json
 just lint-check               # CSharpier over the repo
+just properties-check         # schema vs props, defaults, compiler-visible list, README and wiki tables
 
 # Targeted and fast (MTP: --treenode-filter, never --filter):
 dotnet test --project src/BuildSdk.slnx --configuration Debug \
   --treenode-filter "/*/*/Dotnet11FeaturesTests/*" --ignore-exit-code 8
 dotnet test --project src/BuildSdk.slnx --configuration Debug \
-  --treenode-filter "/*/*/(TargetFrameworkSetTests)|(CompilerVisiblePropertyTests)|(CoreDefaultsTests)/*" --ignore-exit-code 8
+  --treenode-filter "/*/*/(TargetFrameworkSetTests)|(PropertySchemaTests)|(CoreDefaultsTests)/*" --ignore-exit-code 8
 dotnet test --project src/BuildSdk.slnx --configuration Debug \
   --treenode-filter "/*/*/(RepositorySkillTests)|(RepositorySkillsSelfTests)|(PurviewSkillValidationTests)/*" --ignore-exit-code 8
 ```

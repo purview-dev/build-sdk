@@ -1,5 +1,6 @@
 using System.Xml.Linq;
 using Purview.BuildSdk.Harness;
+using Purview.BuildSdk.Infra;
 
 namespace Purview.BuildSdk;
 
@@ -105,7 +106,7 @@ sealed class PurviewSkillTargetIsolationTests
 	)
 	{
 		using var harness = await ProjectHarness.CreateAsync("SkillGuard", cancellationToken: cancellationToken);
-		SkillPackageFixtures.WriteLockFile(
+		SkillLockFileFixtures.WriteLockFile(
 			Path.Combine(harness.SolutionDirectory, "skills-lock.json"),
 			("web-design", "vercel-labs/agent-skills", null)
 		);
@@ -154,5 +155,31 @@ sealed class PurviewSkillTargetIsolationTests
 
 		await Assert.That(success).IsFalse();
 		await Assert.That(output + errors).Contains("PRSKL0009");
+	}
+
+	[Test]
+	public async Task OrdinaryBuild_DoesNotInstallSkills(CancellationToken cancellationToken)
+	{
+		// The telemetry packages the SDK adds by default are not part of this scenario and would
+		// need Central Package Management versions the throwaway solution does not declare.
+		using var harness = await ProjectHarness.CreateAsync(
+			"SkillConsumer",
+			extraProps: """
+			<ExcludePurviewTelemetry>true</ExcludePurviewTelemetry>
+			<ExcludeMSTelemetryExtension>true</ExcludeMSTelemetryExtension>
+			""",
+			cancellationToken: cancellationToken
+		);
+
+		// A restore is part of the scenario: the point is that a *complete*, ordinary
+		// restore-and-build cycle still installs nothing.
+		var (success, output, errors) = await harness.BuildAsync(restore: true, cancellationToken: cancellationToken);
+
+		await Assert.That(success).IsTrue().Because(TestHelpers.GenerateError(output, errors));
+		// Installation is explicit: a build must not write the skills CLI's lockfile, and must not
+		// create an agent directory the CLI owns.
+		await Assert.That(File.Exists(Path.Combine(harness.SolutionDirectory, "skills-lock.json"))).IsFalse();
+		await Assert.That(Directory.Exists(Path.Combine(harness.SolutionDirectory, ".claude", "skills"))).IsFalse();
+		await Assert.That(Directory.Exists(Path.Combine(harness.ProjectDirectory, ".claude", "skills"))).IsFalse();
 	}
 }

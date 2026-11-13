@@ -9,12 +9,13 @@ because their symbols are never published.
 
 | Property | Default | Behaviour |
 | -- | -- | -- |
-| `SourceLinkPackageName` | `Microsoft.SourceLink.GitHub` | The provider package. Set before the SDK import |
-| `DisableSourceLink` | `false` | `true` (before the import) stops the package being added at all |
+| `SourceLinkPackageName` | `Microsoft.SourceLink.GitHub` | The provider package |
+| `DisableSourceLink` | `false` | `true` stops the package being added at all |
 | `EnableSourceLink` | `true` (set by the provider) | The provider package's own switch; `false` keeps the package but skips the source mapping |
 
-All three are read during `Sdk.props`, so they must be set **before the SDK import** — in
-`Directory.Build.props`, above the `<Import>`. A value in the `.csproj` body is too late. An **empty**
+Set `SourceLinkPackageName` and `DisableSourceLink` in `Directory.Build.props`, so every project agrees.
+A `.csproj` value also works: the SDK reads both only on the package reference it adds, and MSBuild
+evaluates that after the project body. `EnableSourceLink` belongs to the provider package. An **empty**
 `SourceLinkPackageName` does not disable SourceLink: the SDK fills it with the GitHub default.
 
 ## Choosing a provider for the host
@@ -62,18 +63,18 @@ provider that is selected but not declared fails the restore with `NU1010`.
 
 ## Continuous integration
 
-`ContinuousIntegrationBuild` is set to `true` only when `CI`, `GITHUB_ACTIONS` or `TF_BUILD` is present
+`ContinuousIntegrationBuild` is set to `true` only when `CI`, `GITHUB_ACTIONS` or `TF_BUILD` is `true`
 (`TF_BUILD` is Azure Pipelines). A local build is deliberately **not** treated as CI, because
 SourceLink's CI-mode dirty-repository checks would otherwise fail a local `TreatWarningsAsErrors` build.
 
 ## Opting out, and self-hosted hosts
 
-`DisableSourceLink=true` (before the import) stops the SDK adding the package. For a host with no
+`DisableSourceLink=true` stops the SDK adding the package. For a host with no
 official provider, bring a source-control package (`Microsoft.Build.Tasks.Git`) and a provider package
 in yourself and set `DisableSourceLink=true`, so the GitHub default is not added alongside them.
 
 ## Why it matters beyond debugging
 
-`PublishRepositoryUrl=true` writes `<repository url="…" commit="…" />` into the `.nuspec`. Purview's
-agent-skill tooling reads that to pin a package to the commit it was built from, and reports a package
-with no git identity as `PRSKL0002`.
+`PublishRepositoryUrl=true` writes `<repository url="…" commit="…" />` into the `.nuspec`, so anyone
+holding the package can find the exact commit it was built from — the commit to pin, for example, when
+installing that repository's skills with `bun x skills add owner/repo#<commit>`.

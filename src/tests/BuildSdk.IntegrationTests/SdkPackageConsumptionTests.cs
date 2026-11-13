@@ -47,6 +47,53 @@ sealed class SdkPackageConsumptionTests
 		}
 	}
 
+	/// <summary>
+	/// MSBuild Editor loads a sidecar schema from <c>&lt;imported file&gt;.buildschema.json</c> beside the
+	/// file it imports, so the schema only works if it is packed into the same folder as Sdk.props.
+	/// </summary>
+	[Test]
+	[NotInParallel]
+	public async Task PackedSdk_PropertySchema_IsPackedBesideSdkProps(CancellationToken cancellationToken)
+	{
+		// Arrange
+		var tempRoot = Path.Combine(Path.GetTempPath(), $"PurviewSdkPropertySchema-{Guid.NewGuid():N}");
+		var feedDirectory = Path.Combine(tempRoot, "feed");
+		Directory.CreateDirectory(feedDirectory);
+		var sourceSchema = await File.ReadAllBytesAsync(
+			Path.Combine(SdkPaths.SdkDirectory, "Sdk.props.buildschema.json"),
+			cancellationToken
+		);
+
+		try
+		{
+			// Act
+			var packageVersion = await PackSdkAsync(feedDirectory, cancellationToken);
+			var packagePath = Path.Combine(feedDirectory, $"Purview.BuildSdk.{packageVersion}.nupkg");
+			using var zip = await ZipFile.OpenReadAsync(packagePath, cancellationToken);
+			var entries = zip.Entries.Select(e => e.FullName).ToArray();
+			var schemaEntry = zip.GetEntry("Sdk/Sdk.props.buildschema.json");
+
+			// Assert
+			await Assert.That(entries).Contains("Sdk/Sdk.props");
+			await Assert
+				.That(schemaEntry)
+				.IsNotNull()
+				.Because(
+					"MSBuild Editor reads '<path to Sdk.props>.buildschema.json'; the sidecar must be packed at Sdk/Sdk.props.buildschema.json."
+				);
+
+			await using var stream = await schemaEntry!.OpenAsync(cancellationToken);
+			using var packed = new MemoryStream();
+			await stream.CopyToAsync(packed, cancellationToken);
+			await Assert.That(packed.ToArray().SequenceEqual(sourceSchema)).IsTrue();
+		}
+		finally
+		{
+			if (Directory.Exists(tempRoot))
+				Directory.Delete(tempRoot, recursive: true);
+		}
+	}
+
 	[Test]
 	[NotInParallel]
 	public async Task PackedSdk_ShipsAnalyzers_AndExposesThemToConsumerProject(CancellationToken cancellationToken)

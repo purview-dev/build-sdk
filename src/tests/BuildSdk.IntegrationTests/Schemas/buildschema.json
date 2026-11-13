@@ -1,0 +1,530 @@
+{
+  "$id": "https://github.com/mhutch/MonoDevelop.MSBuildEditor",
+  "$comment": "This should be draft-07, but anything newer than draft-04 (or https) causes VS to error out when using the schema to validate other JSON files",
+  "$schema": "http://json-schema.org/draft-04/schema#",
+  "description": "Describes the MSBuild schema format",
+  "type": "object",
+  "properties": {
+    "$schema": { "type": "string" },
+    "license": { "type": "string" },
+    "items": {
+      "type": "object",
+      "patternProperties": {
+        "^([A-Za-z_][A-Za-z\\d_-]*)$": { "$ref": "#/definitions/item" }
+      },
+      "additionalProperties": false
+    },
+    "properties": {
+      "type": "object",
+      "patternProperties": {
+        "^([A-Za-z_][A-Za-z\\d_-]*)$": { "$ref": "#/definitions/property" }
+      },
+      "additionalProperties": false
+    },
+    "targets": {
+      "type": "object",
+      "patternProperties": {
+        "^([A-Za-z_][A-Za-z\\d_-]*)$": { "$ref": "#/definitions/target" }
+      },
+      "additionalProperties": false
+    },
+    "intellisenseImports": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Additional schemas to be imported only when directly editing the file for which this schema is a sidecar."
+    },
+    "types": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/definitions/valueType" },
+      "description": "Custom type definitions"
+    },
+    "metadata": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/metadataOverride" },
+      "description": "Apply metadata to existing item types"
+    }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "property": {
+      "description": "Defines a property",
+      "oneOf": [
+        {
+          "description": "Description of the property",
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "description": {
+              "type": "string",
+              "description": "Description of the property."
+            },
+            "type": { "$ref": "#/definitions/valueType" },
+            "defaultValue": {
+              "type": "string",
+              "description": "The default value of the property."
+            },
+            "isList": { "$ref": "#/definitions/valueIsList" },
+            "listSeparators": { "$ref": "#/definitions/valueListSeparators" },
+            "isLiteral": {
+              "description": "Permit only literal values (i.e. no expressions). Defaults to false.",
+              "type": "boolean",
+              "default": false
+            },
+            "deprecationMessage": { "$ref": "#/definitions/deprecationMessage" },
+            "versionInfo": { "$ref": "#/definitions/versionInfo" },
+            "helpUrl": { "$ref": "#/definitions/helpUrl" }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "item": {
+      "description": "Defines an item",
+      "oneOf": [
+        {
+          "description": "Description of the item",
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "description": {
+              "type": "string",
+              "description": "Description of the item."
+            },
+            "includeDescription": {
+              "type": "string",
+              "description": "Describes the item values listed in the Include attribute e.g. 'source files'."
+            },
+            "type": { "$ref": "#/definitions/valueType" },
+            "metadata": {
+              "type": "object",
+              "patternProperties": {
+                "^([A-Za-z_][A-Za-z\\d_-]*)$": { "$ref": "#/definitions/metadata" }
+              },
+              "additionalProperties": false
+            },
+            "packageType": {
+              "description": "Only applies to items of type `nuget-id`. Restricts the package type."
+            },
+            "isSingleton": {
+              "description": "Specifies that there may only be a single item of this type. This behavior is rare and unidiomatic.",
+              "type": "boolean",
+              "default": false
+            },
+            "deprecationMessage": { "$ref": "#/definitions/deprecationMessage" },
+            "versionInfo": { "$ref": "#/definitions/versionInfo" },
+            "helpUrl": { "$ref": "#/definitions/helpUrl" }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "metadata": {
+      "description": "Defines a metadata value",
+      "oneOf": [
+        {
+          "description": "Description of the metadata",
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "description": { "type": "string" },
+            "includeDescription": { "type": "string" },
+            "type": { "$ref": "#/definitions/valueType" },
+            "defaultValue": {
+              "type": "string",
+              "description": "The default value of the metadata."
+            },
+            "isList": { "$ref": "#/definitions/valueIsList" },
+            "listSeparators": { "$ref": "#/definitions/valueListSeparators" },
+            "isRequired": {
+              "description": "Whether this metadata is required on items of this type",
+              "type": "boolean"
+            },
+            "deprecationMessage": { "$ref": "#/definitions/deprecationMessage" },
+            "versionInfo": { "$ref": "#/definitions/versionInfo" },
+            "helpUrl": { "$ref": "#/definitions/helpUrl" }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "target": {
+      "oneOf": [
+        {
+          "type": "string",
+          "description": "Description of the target"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "description": {
+              "type": "string",
+              "description": "Description of the target"
+            },
+            "deprecationMessage": { "$ref": "#/definitions/deprecationMessage" },
+            "versionInfo": { "$ref": "#/definitions/versionInfo" },
+            "helpUrl": { "$ref": "#/definitions/helpUrl" }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "metadataOverride": {
+      "type": "object",
+      "properties": {
+        "$appliesTo": {
+          "description": "Item type or array of item types to which to apply this metadata",
+          "oneOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^([A-Za-z_][A-Za-z\\d_-]*)$"
+              }
+            },
+            {
+              "type": "string",
+              "pattern": "^([A-Za-z_][A-Za-z\\d_-]*)$"
+            }
+          ]
+        }
+      },
+      "patternProperties": {
+        "^([A-Za-z_][A-Za-z\\d_-]*)$": { "$ref": "#/definitions/metadata" }
+      },
+      "additionalProperties": false
+    },
+    "valueIsList": {
+      "description": "Whether the value permits lists. The default semicolon separator can be overridden with \"listSeparators\" property.",
+      "type": "boolean",
+      "default": false
+    },
+    "valueListSeparators": {
+      "description": "Overrides the list separator characters for this value. Defaults to \";\"",
+      "type": "string",
+      "enum": [ ";", ",", ";," ],
+      "default": ";"
+    },
+    "valueType": {
+      "description": "The type of the value",
+      "oneOf": [
+        { "$ref": "#/definitions/valueTypeRef" },
+        { "$ref": "#/definitions/valueTypeIntrinsic" },
+        { "$ref": "#/definitions/valueTypeCustomMinimal" },
+        { "$ref": "#/definitions/valueTypeCustom" }
+      ]
+    },
+    "valueTypeDefinition": {
+      "oneOf": [
+        { "$ref": "#/definitions/valueTypeCustomMinimal" },
+        { "$ref": "#/definitions/valueTypeCustom" }
+      ]
+    },
+    "valueTypeCustomMinimal": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "valueTypeRef": {
+      "type": "object",
+      "properties": {
+        "$ref": {
+          "description": "JSON pointer to an existing type definition",
+          "type": "string",
+          "format": "json-pointer"
+        }
+      },
+      "additionalProperties": false
+    },
+    "valueTypeCustom": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Overrides the name displayed for this type in the UI. If not provided, falls back to the name of the `baseType`, otherwise the type is displayed as an anonymous type.",
+          "type": "string",
+          "pattern": "^([a-z][a-z\\d-]*)$"
+        },
+        "description": {
+          "description": "Description of the type",
+          "type": "string"
+        },
+        "values": {
+          "description": "The values this type can have",
+          "type": "object",
+          "additionalProperties": {
+            "oneOf": [
+              {
+                "type": "string",
+                "description": "Description of the value"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "description": {
+                    "type": "string",
+                    "description": "Description of the value"
+                  },
+                  "deprecationMessage": { "$ref": "#/definitions/deprecationMessage" },
+                  "versionInfo": { "$ref": "#/definitions/versionInfo" },
+                  "helpUrl": { "$ref": "#/definitions/helpUrl" },
+                  "aliases": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "Aliases for this value. They will not be shown in completion, but validation and Find References will consider them to be equivalent."
+                  }
+                },
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "allowUnknownValues": {
+          "description": "Whether to allow unknown values",
+          "type": "boolean"
+        },
+        "baseType": {
+          "description": "If specified, the type's values conform to this underlying type and will inherit validation and commands that apply to that type",
+          "enum": [
+            "guid",
+            "int",
+            "warning-code"
+          ]
+        },
+        "caseSensitive": {
+          "description": "Whether values should be compared in a case-sensitive way",
+          "type": "boolean"
+        },
+        "helpUrl": {
+          "description": "Documentation link to be displayed in UI.",
+          "type": "string"
+        },
+        "analyzerHints": {
+          "type": "object",
+          "properties": {
+            "GuidFormat": {
+              "type": "string",
+              "enum": [
+                "N",
+                "D",
+                "B",
+                "P"
+              ],
+              "description": "Constrains a `guid`-derived type to a specific `Guid.TryParseExact` format"
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "valueTypeIntrinsic": {
+      "type": "string",
+      "anyOf": [
+        {
+          "const": "data",
+          "description": "A string containing arbitrary data"
+        },
+        {
+          "const": "bool",
+          "description": "A boolean value"
+        },
+        {
+          "const": "int",
+          "description": "An integer value"
+        },
+        {
+          "const": "string",
+          "description": "A string value"
+        },
+        {
+          "const": "guid",
+          "description": "A GUID value"
+        },
+        {
+          "const": "url",
+          "description": "A URL"
+        },
+        {
+          "const": "version",
+          "description": "A version of the form `major.minor[.build[.revision]]."
+        },
+        {
+          "const": "version-suffixed",
+          "description": "A version that may have a prerelease tag e.g. `1.0.2-beta`"
+        },
+        {
+          "const": "lcid",
+          "description": "A Windows language code identifier (LCID)"
+        },
+        {
+          "const": "culture",
+          "description": "A .NET culture name"
+        },
+        {
+          "const": "target-name",
+          "description": "An MSBuild target name"
+        },
+        {
+          "const": "item-name",
+          "description": "An MSBuild item name"
+        },
+        {
+          "const": "property-name",
+          "description": "An MSBuild property name"
+        },
+        {
+          "const": "sdk",
+          "description": "An MSBuild SDK ID without a version"
+        },
+        {
+          "const": "sdk-version",
+          "description": "An MSBuild SDK ID with a version"
+        },
+        {
+          "const": "label",
+          "description": "A GUID value"
+        },
+        {
+          "const": "importance",
+          "description": "An MSBuild message importance level"
+        },
+        {
+          "const": "runtime-id",
+          "description": "A .NET Runtime ID (RID)"
+        },
+        {
+          "const": "target-framework",
+          "description": "A .NET target framework in short form e.g. `net8.0-windows`"
+        },
+        {
+          "const": "target-framework-version",
+          "description": "A .NET target framework version e.g. `4.8`"
+        },
+        {
+          "const": "target-framework-identifier",
+          "description": "A .NET target framework identifier e.g. `.NETStandard`"
+        },
+        {
+          "const": "target-framework-profile",
+          "description": "A .NET target framework profile name e.g. `Client`"
+        },
+        {
+          "const": "target-framework-moniker",
+          "description": "A .NET target framework in long form e.g. `.NETFramework,Version=3.5,Profile=Client`"
+        },
+        {
+          "const": "nuget-id",
+          "description": "A NuGet package ID"
+        },
+        {
+          "const": "nuget-version",
+          "description": "A NuGet package version"
+        },
+        {
+          "const": "project-file",
+          "description": "The path of an MSBuild file, either absolute or relative to the project file"
+        },
+        {
+          "const": "file",
+          "description": "The path of a file, either absolute or relative to the project file"
+        },
+        {
+          "const": "folder",
+          "description": "The path of a directory, without a trailing slash, either absolute or relative to the project file"
+        },
+        {
+          "const": "folder-with-slash",
+          "description": "The path of a directory, with a trailing slash, either absolute or relative to the project file"
+        },
+        {
+          "const": "file-or-folder",
+          "description": "The path of a directory or file, either absolute or relative to the project file"
+        },
+        {
+          "const": "extension",
+          "description": "A file value"
+        },
+        {
+          "const": "configuration",
+          "description": "A value of the MSBuild `Configuration` property"
+        },
+        {
+          "const": "platform",
+          "description": "A value of the MSBuild `Platform` property"
+        },
+        {
+          "const": "clr-namespace",
+          "description": "A .NET namespace name, in language-agnostic form."
+        },
+        {
+          "const": "clr-type",
+          "description": "A .NET namespace or qualified type name, in language-agnostic form i.e. C# generic syntax is not allowed, but CLR generic syntax ``A`1[B,C]`` is allowed. If you need to support C# generic syntax, use `csharp-type` instead."
+        },
+        {
+          "const": "clr-type-name",
+          "description": "A .NET unqualified type name. May not include generics of any form. This is typically used for the name of a type to be generated at build time."
+        },
+        {
+          "const": "csharp-type",
+          "description": "C# namespace or qualified type name. May include generics in C# format e.g. `MyNamespace.MyType<int>`. If you need .NET language-agnostic format, use `clr-type` instead."
+        },
+        {
+          "const": "warning-code",
+          "description": "A warning code from the compiler, analyzers, MSBuild, etc."
+        }
+      ]
+    },
+    "deprecationMessage": {
+      "type": "string",
+      "description": "Indicates that the symbol is deprecated and explains why.",
+      "minLength": 1
+    },
+    "versionInfo": {
+      "type": "object",
+      "properties": {
+        "kind": { "$ref": "#/definitions/versionKind" },
+        "introduced": {
+          "type": "string",
+          "description": "The version in which this symbol was introduced. Depending on the value of `versionKind`, this version may refer to MSBuild, the .NET SDK, or a NuGet package."
+        },
+        "deprecated": {
+          "type": "string",
+          "description": "The version in which this symbol was deprecated. Only valid when `deprecationMessage` is set. Depending on the value of `versionKind`, this version may refer to MSBuild, the .NET SDK, or a NuGet package."
+        },
+        "ignored": {
+          "type": "boolean",
+          "description": "If the symbol is deprecated, indicates that it is ignored and assignments may be removed safely."
+        }
+      },
+      "additionalProperties": false
+    },
+    "helpUrl": {
+      "type": "string",
+      "description": "Documentation link to be displayed in UI.",
+      "minLength": 1,
+      "format": "uri"
+    },
+    "versionKind": {
+      "description": "Explicitly specify what the `since` and `deprecated` versions refer to. A default value is inferred e.g. schemas in the .NET SDK directory default to `DotNetSdk`, and schemas in the MSBuild `bin` directory or bundled with editor default to `MSBuild`.",
+      "type": "string",
+      "anyOf": [
+        {
+          "const": "MSBuild",
+          "description": "The symbol was deprecated or introduced in a specific version of MSBuild"
+        },
+        {
+          "const": "DotNetSdk",
+          "description": "The symbol was deprecated or introduced in a specific version of the .NET SDK"
+        },
+        {
+          "const": "NuGetPackage",
+          "description": "The symbol was deprecated or introduced in a specific version of a NuGet package"
+        }
+      ]
+    }
+  }
+}

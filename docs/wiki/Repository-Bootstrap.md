@@ -21,7 +21,7 @@ configuration on every compile and fails the build (`PRSGD0006`-`PRSGD0009`) whe
 overridden, hidden, or silenced through `NoWarn`. A stale copy that predates the current policy (for
 example one that still hides `IDE1006`) is therefore reported rather than obeyed — refresh it with
 `PurviewRepoBootstrapMode=Always`. Opt out with `DisablePurviewStylePolicyValidation=true`; see
-[Style policy](Analyzers.md#style-policy).
+[Style policy](analyzers/Analyzers.md#style-policy).
 
 The write is atomic (a temporary file is renamed into place) and retried quietly, so parallel projects
 sharing the repository root cannot corrupt it or fail the build by racing. An existing file is never
@@ -114,11 +114,16 @@ error by default, including the destination path and the underlying OS error.
 
 ## Repository root discovery
 
-All bootstrap targets locate the repository root by:
+All bootstrap targets locate the repository root the same way, chosen by `PurviewRepositoryRootStrategy`:
 
-1. Running `git rev-parse --show-toplevel` from the `Directory.Build.props` directory.
-2. Falling back to probing upward for a `.git` marker.
-3. Finally falling back to the `Directory.Build.props` directory itself.
+1. With `PurviewRepositoryRootStrategy=Git` only, `git rev-parse --show-toplevel` from the
+   `Directory.Build.props` directory. The default, `Markers`, starts no process.
+2. The `Directory.Build.props` directory, then up to four of its parents, in that order: the first that
+   holds a `.git` folder or file is the root.
+3. Otherwise, the `Directory.Build.props` directory itself.
+
+`Git` reports the worktree root, so for a submodule or a linked worktree it can answer differently from
+the nearest `.git`.
 
 Set the `RepositoryEditorConfigFilePath`, `RepositoryGlobalJsonFilePath` or
 `RepositoryDirectoryBuildRspFilePath` property explicitly to override discovery.

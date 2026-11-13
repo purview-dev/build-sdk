@@ -100,8 +100,10 @@ A project that declares neither `TargetFramework` nor `TargetFrameworks` gets th
 `All`) resolves the same way; an unknown name fails with `PurviewInvalidTargetFrameworkSet`. A Roslyn
 component keeps `netstandard2.0` and ignores the sets (`PurviewTargetFrameworkSetIgnored`).
 
-The declaration is read from the **project XML** before the body is evaluated, so a `Condition` on a
-`TargetFramework`, `TargetFrameworks` or `PurviewTargetFrameworkSet` is not seen and is reported as
+An explicit `TargetFramework` or `TargetFrameworks` always wins, wherever it is set: one the SDK cannot
+see in the project XML (a `Condition`, an imported file, a `Directory.Build.props` value) is reconciled
+after the project body, before the .NET SDK decides whether to multi-target. `PurviewTargetFrameworkSet`
+is still read from the **project XML**, so a `Condition` on it is not seen and is reported as
 `PurviewConditionedProjectDeclaration`. See `purview-buildsdk-configuration` for how to set them.
 
 ## Namespace and identity
@@ -109,8 +111,10 @@ The declaration is read from the **project XML** before the body is evaluated, s
 1. `PurviewLogicalProjectName` is `NamespacePrefix` plus the project name, de-duplicated when the
    project name already starts with the prefix's tail.
 2. `RootNamespace` defaults to `PurviewLogicalProjectName`.
-3. Known suffixes are stripped from `RootNamespace` — shared and shared-testing names, and segments
-   such as `Core`, `EF`, `Shared`, `ClientShared`, `ServiceDefaults`.
+3. Known suffixes are stripped from `RootNamespace` in two passes: while `Sdk.props` evaluates, the
+   shared, server-shared and shared-testing names plus `Core`, `EF`, `Shared`, `ClientShared` and
+   `ServiceDefaults`; then, during the build, the wider `NamespaceRemoveSuffix` list (`Infrastructure`,
+   `Abstractions`, `Contracts`, …). A `RootNamespace` declared in the project file is left as written.
 4. Test suffixes are stripped too, so `Acme.Api.UnitTests` maps back to `Acme.Api`.
 5. `AssemblyName` and `PackageId` default to the fully evaluated `RootNamespace` — except where
    stripping removed a segment, where they use the full `PurviewLogicalProjectName` so the artifact
@@ -152,10 +156,10 @@ read the SDK's compiler-visible properties (`build_property.*`) rather than re-d
 | `PDS0008` | A BFF's authentication cookie is not set `HttpOnly = false` |
 | `PDS0009` | A BFF's authentication cookie is not set `SameSite = None` |
 
-`PDS0004` follows .NET naming guidance: well-known framework spellings (`Sql`, `Guid`, `Uuid`,
-`Url`, `Dns`, `Tcp`, `Http`, `Xml`, `Db`, …) are exempt — `Db` among them, so `DbContext`,
-`DbConnection` and `DbSet` are never flagged. A small set is still uppercased: `Api`, `Ai`, `Ui`,
-`Io`, `Os`, `Cpu`, `Gpu`, `Cli`, `Gui`, `Ram`, `Ssh`. Members mandated by a contract — interface
+`PDS0004` follows .NET naming guidance: well-known framework spellings (`Sql`, `Uuid`, `Url`, `Dns`,
+`Tcp`, `Http`, `Xml`, `Db`, …) are exempt — `Db` among them, so `DbContext`, `DbConnection` and `DbSet`
+are never flagged. A small set is still uppercased: `Api`, `Ai`, `Ui`, `Io`, `Os`, `Cpu`, `Gpu`, `Cli`,
+`Gui`, `Ram`, `Ssh`, `Dsl`. Members mandated by a contract — interface
 implementations and base-class overrides — are never renamed.
 
 Customise through `dotnet_analyzer_configuration.pds0004.allowed_words` (exempt segments),
@@ -170,9 +174,11 @@ diagnostics under `Extensions/`, so no `#pragma` suppressions are needed there.
 Two Visual Studio refactorings ship with them, both described in
 [references/detection.md](references/detection.md).
 
-## When changing a detection rule
+## When a classification is wrong
 
-1. Keep the `.csproj` filename equal to its directory name.
-2. Update `README.md` and the shipped skills in the same change — a rule true in code and false in
-   prose is this repository's recurring failure.
-3. Add or update the integration test in `src/tests/BuildSdk.IntegrationTests/` that pins it.
+1. Confirm the computed value with `dotnet msbuild <project> -getProperty:<Flag>` before changing
+   anything.
+2. Prefer fixing the name or placement so the convention applies; keep the `.csproj` filename equal
+   to its directory name.
+3. Otherwise set the flag explicitly before the SDK import (`IsBffProject` and `IsClientSideProject`
+   can also be set in the project), and say why in a comment.

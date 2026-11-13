@@ -11,17 +11,164 @@ release summarise what the commits recorded rather than what was written at the 
 
 ## [Unreleased]
 
+### Added
+
+- **csproj IntelliSense for every SDK property.** The package now ships
+  `Sdk/Sdk.props.buildschema.json`, an [MSBuild Editor](https://marketplace.visualstudio.com/items?itemName=mhutch.msbuildeditor)
+  sidecar describing each of the SDK's own properties: description, type (enumerations included) and
+  default, and whether it must be set before the `Sdk.props` import. Install the extension to get
+  completion in any project that imports the SDK; without it the file is inert. Properties MSBuild and
+  the .NET SDK already describe are not redescribed.
+- **The schema is held to the code.** `PropertySchemaTests` fails when a property is defined with no
+  schema entry (or the reverse), a `CompilerVisibleProperty` or analyzer `build_property.*` read is
+  undescribed or unexported, a schema default differs from the evaluated default, a pre-import claim
+  does not match what `Sdk.props` reads, a README or wiki table omits a property or states another
+  default, the schema fails the MSBuild Editor meta-schema (vendored, validated offline), or the
+  packed `.nupkg` lacks the sidecar. `just properties-check` runs them. It replaces the hand-maintained
+  list in `CompilerVisiblePropertyTests`.
+- **`ValidatePurviewPropertySchema`**, an opt-in target for packages that ship their own
+  `.props`/`.targets` and sidecars: `EnablePurviewPropertySchemaValidation=true` runs it before `Pack`
+  and fails on `PRPSC0001` (an undescribed `CompilerVisibleProperty`), `PRPSC0002` (a described property
+  nothing defines), `PRPSC0003` (an unreadable sidecar) and `PRPSC0004` (a sidecar MSBuild Editor will
+  never load because it is not named `<file>.buildschema.json`). `PurviewPropertySchemaDirectory` and
+  `PurviewPropertySchemaIgnoredProperties` configure it. Off by default: no consumer build changes.
+- The `purview-buildsdk-msbuild-properties` skill: adding, renaming, deprecating and removing a property,
+  when it must be set before the import, when to make it compiler-visible, and where a sidecar must sit
+  for `Sdk/`, `build/` and `buildTransitive/` deliveries — and declaring a new sidecar in
+  `.config/purview-build.json` `PackValidation.RequiredContent`, which Purview.Build's pack validation
+  otherwise rejects as undeclared content.
+- **The `purview-buildsdk-justfile` skill: a shared, modular `Justfile`.** The root `Justfile` imports
+  one barrel, `.build/just/index.just`, over modules the skill ships in `assets/just/` and a repository
+  copies verbatim: `dotnet.just` (`ensure-tools`, `restore`, `build`, `clean`, `test`, `pack`),
+  `version.just` (`version`, and `just bump major|minor|patch`, which resets the parts after the one
+  bumped), `utilities.just` (`lint-check`, `lint-fix`, `vs`, `scrub`), `purview-build.just`
+  (`pipeline-pr`, `pipeline-build`, `pipeline-tests`), `skills.just` (every `skills-*` target), and
+  `env.just`, which exports telemetry opt-outs and `DOTNET_CLI_ENABLEAOT` to every recipe without overriding
+  a value already set. It deliberately does not force the MSBuild server on: a shared server keeps the
+  NuGet settings it first read, which breaks a build under another `nuget.config` (`MSB4242`). Two modules are
+  optional, switched on by copying the file: `purview-build-nuget.just` (`pipeline-pack-validate`,
+  `pipeline-local-release`, `pipeline-release`) and `docs.just` (`docs`, `docs-install`, `docs-check` for
+  a pm-docs-site project site). A module's variables are defaults the root `Justfile` overrides.
+- **The `purview-buildsdk-docs-sync` skill: keep skills, agent instructions, READMEs and the wiki true.**
+  It treats the code as the only source of truth — every claim is checked against the `.props`/
+  `.targets`, the `Justfile`, the analyzer descriptors and the tests, never against another document —
+  and runs a change as a sweep across all four surfaces. It works out which README a package actually
+  ships (a project's own `README.md`, else the repository's; `Sdk/*.md` packs to the package root), and
+  keeps `docs/wiki/` hierarchical: root pages only where the documentation site depends on their URL,
+  everything else in one topic folder, `_Sidebar.md` and `Home.md` in step. Its references cover how to
+  check each kind of claim and a wiki-structure test to add.
+### Fixed
+
+- **A relative `RootPackageJson` resolves from the project directory.** It resolved against the build's
+  working directory, so one build read a different `package.json` - or none - depending on where
+  `dotnet` was started. An absolute path is unchanged; in `Directory.Build.props` prefer
+  `$(MSBuildThisFileDirectory)package.json`, because a relative value resolves per project.
+- **A file linked beneath `Sdk/` packs where a physical file at that path would.** `IncludeLinkedSdkFiles`
+  stripped `Sdk/` from every link, so a linked `Sdk/Props/X.props` packed as `Props/X.props`. It now
+  applies the `PurviewAutoSdkPack` table: `build/`, `buildTransitive/`, `buildMultiTargeting/`, `.github/`
+  and top-level documents and images to the root, everything else under `Sdk/`. `SdkFolderPackingTests`
+  packs both kinds side by side.
+- **The property schema no longer says to set `SourceLinkPackageName`, `DisableSourceLink`,
+  `AutoIncludeUsings`, `ExcludePurviewTelemetry`, `ExcludeMSTelemetryExtension`, `PurviewAutoSdkPack`,
+  `IsSharedProject` or `TargetProjectName` before the import.** `Sdk.props` reads each only on items, which
+  MSBuild evaluates after the project body, so a project file works. `PropertySchemaTests` now counts only
+  property-pass reads as pre-import.
+- **An explicit `TargetFramework` or `TargetFrameworks` always wins over the curated target framework
+  sets.** The SDK only recognised an unconditional declaration in the project body. A value set in
+  `Directory.Build.props` (before or after the import), under a `Condition`, or in a file the project
+  imports left the set's `TargetFrameworks` list in place underneath it: NuGet restored the set's
+  frameworks while the build compiled the explicit one, and the build failed with `NETSDK1005`. The
+  inverse - a single-entry set such as `Latest` plus an explicit `TargetFrameworks` - silently built one
+  framework. A new `Targets/TargetFrameworkOwnership.targets`, imported by the .NET SDK through
+  `BeforeMicrosoftNETSdkTargets`, now withdraws the SDK's value once the project has set its own. Inner
+  builds are untouched, so the TFM list stays identical across Visual Studio's evaluations. A value set
+  in `Directory.Build.targets` is still too late to take part. Projects that did not set a TFM, or set
+  one unconditionally in the project body, are unaffected.
+- `PurviewConditionedProjectDeclaration` no longer fires for a conditioned `TargetFramework` or
+  `TargetFrameworks`, because that declaration is now honoured. It still fires for `IsRoslynComponent`,
+  `IsRoslynComponentOnly`, `IsPackable`, `PurviewTargetFrameworkSet` and `RootNamespace`.
+
 ### Changed
 
+- **The skill targets are a thin wrapper over the standard skills CLI, with nothing bespoke.**
+  `InstallPurviewSkills` runs `skills add "<source>" --skill "*"` for `PurviewSkillsSource` (append
+  `#<ref>` to pin), or `skills experimental_install` to restore `skills-lock.json` without one.
+  `UpdatePurviewSkills` re-adds every lockfile source at its latest. `CheckPurviewSkills` and
+  `FixPurviewSkills` are unchanged. All run from the repository root, once per solution.
 - **The C# 15 updated memory-safety rules are off by default.** A `net11.0`+ target no longer compiles
   with `<Features>updated-memory-safety-rules</Features>` unless asked. The updated model is an
   experimental compiler feature, so it is an opt-in: set `MemorySafetyRules=2` to enable it. Tier `1`
   (preview pointer syntax, which also selects `LangVersion=preview`) and tier `0` (off) are unchanged,
   and an unrecognised tier still fails with `PRCFG0001`. `AllowUnsafeBlocks` remains at its compiler
   default (`false`). Both .NET 11 compiler opt-ins are now opt-in, alongside Runtime Async.
+- **`purview-buildsdk-skills-justfile` is folded into `purview-buildsdk-justfile`.** Its recipes are now
+  the `skills.just` module and its guidance `references/skills-recipes.md`, so the two cannot disagree.
+  The recipes name the solution unconditionally. A repository that installed the old skill keeps it until
+  it is removed: run `npx skills add purview-dev/build-sdk` for the new one and
+  `npx skills remove purview-buildsdk-skills-justfile` for the old. In an existing `Justfile`,
+  `ensure-pipeline-tool` and `restore-tools` become `ensure-tools`, the `current_version` recipe becomes
+  `version`, and `Justfile.skills.just` is replaced by the barrel.
+- This repository's own `Justfile` uses the modules, keeping only `version-sync`, `properties-check`,
+  `test-linux` and `skills-validate`. `just bump` runs `version-sync` afterwards.
+
+### Removed
+
+- **The package-to-skill mapping**, which read a `.agents/skills/` folder inside each restored package
+  plus its nuspec commit. No package built by this SDK carried one, so it never found anything. With it
+  went `ListPurviewSkills`, `RecommendPurviewSkills` and `VerifyPurviewSkills`, the
+  `ResolvePurviewSkillSources` and `EvaluatePurviewSkillState` tasks, `PurviewSkillsContinueOnError`,
+  and `PRSKL0001`, `PRSKL0002`, `PRSKL0010`-`PRSKL0014` and `PRSKL0017`. Install a repository's skills
+  with `-t:InstallPurviewSkills -p:PurviewSkillsSource=owner/repo#<ref>`, or `bun x skills add` directly.
+  The `skills-list`, `skills-recommend` and `skills-verify` `just` recipes are gone with them.
 
 ### Documentation
 
+- **The wiki is organised into topic folders.** `docs/wiki/` now has `concepts/`, `configuration/`,
+  `testing/`, `analyzers/`, `packaging/`, `tooling/` and `development/`, with
+  `Getting-Started.md`, `Configuration-Reference.md` and `Repository-Bootstrap.md` kept at the root
+  because purview.dev links to them. `Home.md` is a sectioned index, `_Sidebar.md` carries the same
+  sections, and `Performance.md`, which was missing from the sidebar, is listed. A new
+  `tooling/Justfile.md` describes the shared `just` modules. `DocumentationWikiTests` holds the
+  structure, the indexes and every link to it, and `PropertySchemaTests` now reads property tables
+  from every folder.
+- **The README, wiki, skills and agent instructions were audited against the code**, and these were
+  wrong:
+  - **Pre-import claims.** `SourceLinkPackageName`, `DisableSourceLink`, `AutoIncludeUsings` and
+    `PurviewSharedTestingOutputType` were documented as "too late in a `.csproj`". All four work
+    there, because the SDK reads them only on items, or in `Sdk.targets`.
+  - **`RootPackageJson`.** It was said to resolve a relative path from the project directory. It
+    resolves from the build's working directory, so the docs and the schema now recommend an absolute
+    path.
+  - **Missing `package.json`.** A git repository with no root `package.json` fails the build. That
+    is now stated, and `Getting-Started.md` gains a `package.json` step.
+  - **Detection lists.** `IsAspireHostProject` also matches `Aspire.AppHost.Sdk`. `IsCLIProject` is
+    a name rule. `*.ClientShared`/`ClientShared` are client-side names. Test detection accepts any
+    `.<Word>Tests` suffix, and the 53 `TestType` names only drive `InternalsVisibleTo`.
+  - **Repository root discovery.** The bootstrap's default walk (`Markers`) starts no git process, and
+    `git rev-parse` runs only with `PurviewRepositoryRootStrategy=Git`.
+  - **Templates and examples.** `templates/Directory.Packages.props` pins versions; it does not float
+    them. The assembly identifier example was wrong. The quick-reference commands produced a nested
+    folder.
+  - **Analyzers and code fixes.** The `PDS0004` acronym lists were incomplete. The `PDS0002` code fix
+    and the Move/Rename extensions refactoring are separate things.
+  - **Skills.** Packages built with this SDK carry no `.agents/skills/` folder, so package-driven skill
+    resolution finds nothing for them. The docs no longer claim otherwise.
+  - **Pipeline.** `pipeline-tests` packs and validates like the other pipeline recipes.
+  - **Published skills.** They no longer carry guidance about working in this repository.
+- **Configuration tables corrected against the code.** `IncludeSource` was documented as `true` for
+  packable projects; it is `false` for every project, and the documentation now says so (the default is
+  unchanged). Properties that are unset by design (`PurviewRuntimeAsync`, `PurviewBrowserSafe`,
+  `DisablePurviewServerSharedReferenceCheck`, `PurviewSkillsDryRun`, ...) no longer claim a `false`
+  default. About fifty properties that were undocumented, or documented only in prose, now have rows,
+  including new *Target framework sets*, *Project detection*, *Blazor WebAssembly and browser-safe
+  libraries* and *Roslyn components and analyzers* tables in the README.
+- The README and wiki *Compiler-visible SDK properties* tables now list every exported property; 22
+  were missing from the README and 41 from the wiki.
+- `PurviewHomepage`, `PurviewProjectUrl` and `PurviewDocsUrl` were documented as SDK properties. They are
+  this repository's own convention in `src/Directory.Build.props`; the SDK neither defines nor reads
+  them, and the docs now say that.
+- Removed the README's `Sdk/.agents/**` packing row and the generated-`.gitignore` paragraph, which
+  described the agent-folder mirror removed earlier.
 - Made required settings and versions explicit in the README quick start, the wiki, and the
   `purview-buildsdk-adoption` and `purview-buildsdk-configuration` skills: `NamespacePrefix` is
   required and pre-import, the SDK version lives in `global.json`, the product version comes from
@@ -31,7 +178,7 @@ release summarise what the commits recorded rather than what was written at the 
   rule.
 - Documented the compiler-visible properties (`CompilerVisibleProperty` → `build_property.*`) for
   analyzers and source generators.
-- **Documented SourceLink end to end.** A new [SourceLink](docs/wiki/SourceLink.md) wiki page, a README
+- **Documented SourceLink end to end.** A new [SourceLink](docs/wiki/packaging/SourceLink.md) wiki page, a README
   section, and skill coverage now explain how to point `SourceLinkPackageName` at the provider for the
   repository host — including `Microsoft.SourceLink.AzureRepos.Git` for Azure DevOps Services and
   `Microsoft.SourceLink.AzureDevOpsServer.Git` plus a `SourceLinkAzureDevOpsServerGitHost` item for
@@ -430,7 +577,7 @@ dotnet msbuild <project> -t:VerifyPurviewSkills
   `IsRoslynComponentOnly`, `IsPackable`, `TargetFramework(s)`, `RootNamespace`,
   `PurviewTargetFrameworkSet`) each used to re-read and re-strip the file, so every evaluation of
   every project paid six times over. Measured at ~0.59 ms saved per project, ~117 ms on a 200-project
-  solution — see [`docs/wiki/Performance.md`](docs/wiki/Performance.md).
+  solution — see [`docs/wiki/Performance.md`](docs/wiki/development/Performance.md).
 
 ### Fixed
 

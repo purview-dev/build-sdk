@@ -1,0 +1,37 @@
+<Project>
+	<!-- =====================================================================
+	     TARGET FRAMEWORK OWNERSHIP - RECONCILIATION
+
+	     Imported by the .NET SDK through BeforeMicrosoftNETSdkTargets (set in Sdk.props): after the
+	     project body has been evaluated, and before IsCrossTargetingBuild is decided from
+	     TargetFramework and TargetFrameworks. That is the only point where a value the project set
+	     after this SDK's props - under a Condition, or in a file it imports - can still take part.
+
+	     Sdk.props records what it assigned. When the project has since set the *other* property, the
+	     SDK's value is withdrawn, so the project's explicit choice is the only one left:
+
+	       - the SDK assigned a TargetFrameworks list and the project set TargetFramework: the list is
+	         cleared, so NuGet restores the framework that is actually built;
+	       - the SDK assigned a single TargetFramework and the project set TargetFrameworks: the single
+	         value is cleared, so the project multi-targets instead of silently building one framework.
+
+	     Never inside an inner build. There TargetFramework is a global property, the list must stay
+	     identical to the outer evaluation's, and the SDK did not assign the single value anyway.
+	     ===================================================================== -->
+	<PropertyGroup
+		Label="Target Framework Ownership Reconciliation"
+		Condition="'$(IsCSharpProject)' == 'true' AND '$(_PurviewTargetFrameworkIsGlobal)' != 'true'"
+	>
+		<TargetFrameworks
+			Condition="'$(_PurviewSdkAssignedTargetFrameworks)' != '' AND '$(TargetFrameworks)' == '$(_PurviewSdkAssignedTargetFrameworks)' AND '$(TargetFramework)' != ''"
+		></TargetFrameworks>
+		<TargetFramework
+			Condition="'$(_PurviewSdkAssignedTargetFramework)' != '' AND '$(TargetFramework)' == '$(_PurviewSdkAssignedTargetFramework)' AND '$(TargetFrameworks)' != ''"
+		></TargetFramework>
+	</PropertyGroup>
+
+	<Import
+		Project="$(_PurviewChainedBeforeMicrosoftNETSdkTargets)"
+		Condition="'$(_PurviewChainedBeforeMicrosoftNETSdkTargets)' != '' AND Exists('$(_PurviewChainedBeforeMicrosoftNETSdkTargets)')"
+	/>
+</Project>

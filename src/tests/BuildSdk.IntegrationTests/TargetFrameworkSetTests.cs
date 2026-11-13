@@ -466,4 +466,283 @@ sealed class TargetFrameworkSetTests
 		await Assert.That(properties["TargetFramework"]).IsEqualTo("net10.0");
 		await Assert.That(properties["TargetFrameworks"]).IsEmpty();
 	}
+
+	// The tests below pin the rule that an explicit TargetFramework or TargetFrameworks always wins over a
+	// curated set, wherever it is set. The project-text scan only sees an unconditional declaration in the
+	// project body; a value set before the import, under a Condition, or in a file the project imports used
+	// to leave the set's TargetFrameworks list underneath it. NuGet then restored the set's list while the
+	// build compiled the explicit framework, which fails with NETSDK1005.
+
+	[Test]
+	public async Task TargetFramework_SetBeforeTheImport_WinsOverTheDefaultSet(CancellationToken cancellationToken)
+	{
+		// Arrange
+		using var h = await ProjectHarness
+			.For("Library")
+			.WithPreImportProperty("TargetFramework", "net9.0")
+			.WithProjectFileContent(
+				"""
+				<Project Sdk="Microsoft.NET.Sdk">
+					<PropertyGroup>
+					</PropertyGroup>
+				</Project>
+				"""
+			)
+			.BuildAsync(cancellationToken);
+
+		// Act
+		var properties = await h.GetPropertiesAsync(cancellationToken, "TargetFramework", "TargetFrameworks");
+
+		// Assert
+		await Assert.That(properties["TargetFramework"]).IsEqualTo("net9.0");
+		await Assert.That(properties["TargetFrameworks"]).IsEmpty();
+	}
+
+	[Test]
+	public async Task TargetFramework_SetBeforeTheImportWithASelectedSet_WinsOverTheSet(
+		CancellationToken cancellationToken
+	)
+	{
+		// Arrange
+		using var h = await ProjectHarness
+			.For("Library")
+			.WithPreImportProperty("PurviewTargetFrameworkSet", "All")
+			.WithPreImportProperty("TargetFramework", "net9.0")
+			.WithProjectFileContent(
+				"""
+				<Project Sdk="Microsoft.NET.Sdk">
+					<PropertyGroup>
+					</PropertyGroup>
+				</Project>
+				"""
+			)
+			.BuildAsync(cancellationToken);
+
+		// Act
+		var properties = await h.GetPropertiesAsync(cancellationToken, "TargetFramework", "TargetFrameworks");
+
+		// Assert
+		await Assert.That(properties["TargetFramework"]).IsEqualTo("net9.0");
+		await Assert.That(properties["TargetFrameworks"]).IsEmpty();
+	}
+
+	[Test]
+	public async Task TargetFrameworks_SetBeforeTheImportWithASingleTargetSet_WinsOverTheSet(
+		CancellationToken cancellationToken
+	)
+	{
+		// Arrange
+		using var h = await ProjectHarness
+			.For("Library")
+			.WithPreImportProperty("PurviewTargetFrameworkSet", "Latest")
+			.WithPreImportProperty("TargetFrameworks", "net9.0;net10.0")
+			.WithProjectFileContent(
+				"""
+				<Project Sdk="Microsoft.NET.Sdk">
+					<PropertyGroup>
+					</PropertyGroup>
+				</Project>
+				"""
+			)
+			.BuildAsync(cancellationToken);
+
+		// Act
+		var properties = await h.GetPropertiesAsync(cancellationToken, "TargetFramework", "TargetFrameworks");
+
+		// Assert
+		await Assert.That(properties["TargetFrameworks"]).IsEqualTo("net9.0;net10.0");
+		await Assert.That(properties["TargetFramework"]).IsEmpty();
+	}
+
+	[Test]
+	public async Task TargetFramework_DeclaredWithAFiringCondition_WinsOverTheDefaultSet(
+		CancellationToken cancellationToken
+	)
+	{
+		// Arrange
+		using var h = await ProjectHarness
+			.For("Library")
+			.WithProjectFileContent(
+				"""
+				<Project Sdk="Microsoft.NET.Sdk">
+					<PropertyGroup>
+						<TargetFramework Condition="'$(Configuration)' != 'NeverUsed'">net9.0</TargetFramework>
+					</PropertyGroup>
+				</Project>
+				"""
+			)
+			.BuildAsync(cancellationToken);
+
+		// Act
+		var properties = await h.GetPropertiesAsync(cancellationToken, "TargetFramework", "TargetFrameworks");
+
+		// Assert
+		await Assert.That(properties["TargetFramework"]).IsEqualTo("net9.0");
+		await Assert.That(properties["TargetFrameworks"]).IsEmpty();
+	}
+
+	[Test]
+	public async Task TargetFramework_DeclaredWithAConditionThatDoesNotFire_KeepsTheDefaultSet(
+		CancellationToken cancellationToken
+	)
+	{
+		// Arrange
+		using var h = await ProjectHarness
+			.For("Library")
+			.WithProjectFileContent(
+				"""
+				<Project Sdk="Microsoft.NET.Sdk">
+					<PropertyGroup>
+						<TargetFramework Condition="'$(Configuration)' == 'NeverUsed'">net9.0</TargetFramework>
+					</PropertyGroup>
+				</Project>
+				"""
+			)
+			.BuildAsync(cancellationToken);
+
+		// Act
+		var properties = await h.GetPropertiesAsync(cancellationToken, "TargetFramework", "TargetFrameworks");
+
+		// Assert
+		await Assert.That(properties["TargetFrameworks"]).IsEqualTo("net10.0;net11.0");
+		await Assert.That(properties["TargetFramework"]).IsEmpty();
+	}
+
+	[Test]
+	public async Task TargetFrameworks_DeclaredWithAFiringConditionUnderASingleTargetSet_WinsOverTheSet(
+		CancellationToken cancellationToken
+	)
+	{
+		// Arrange
+		using var h = await ProjectHarness
+			.For("Library")
+			.WithPreImportProperty("PurviewTargetFrameworkSet", "Latest")
+			.WithProjectFileContent(
+				"""
+				<Project Sdk="Microsoft.NET.Sdk">
+					<PropertyGroup>
+						<TargetFrameworks Condition="'$(Configuration)' != 'NeverUsed'">net9.0;net10.0</TargetFrameworks>
+					</PropertyGroup>
+				</Project>
+				"""
+			)
+			.BuildAsync(cancellationToken);
+
+		// Act
+		var properties = await h.GetPropertiesAsync(cancellationToken, "TargetFramework", "TargetFrameworks");
+
+		// Assert
+		await Assert.That(properties["TargetFrameworks"]).IsEqualTo("net9.0;net10.0");
+		await Assert.That(properties["TargetFramework"]).IsEmpty();
+	}
+
+	[Test]
+	public async Task TargetFramework_SetInAFileTheProjectImports_WinsOverTheDefaultSet(
+		CancellationToken cancellationToken
+	)
+	{
+		// Arrange
+		using var h = await ProjectHarness
+			.For("Library")
+			.WithProjectFileContent(
+				"""
+				<Project Sdk="Microsoft.NET.Sdk">
+					<Import Project="TargetFramework.props" />
+				</Project>
+				"""
+			)
+			.BuildAsync(cancellationToken);
+		await File.WriteAllTextAsync(
+			Path.Combine(h.ProjectDirectory, "TargetFramework.props"),
+			"""
+			<Project>
+				<PropertyGroup>
+					<TargetFramework>net9.0</TargetFramework>
+				</PropertyGroup>
+			</Project>
+			""",
+			cancellationToken
+		);
+
+		// Act
+		var properties = await h.GetPropertiesAsync(cancellationToken, "TargetFramework", "TargetFrameworks");
+
+		// Assert
+		await Assert.That(properties["TargetFramework"]).IsEqualTo("net9.0");
+		await Assert.That(properties["TargetFrameworks"]).IsEmpty();
+	}
+
+	/// <summary>
+	/// The reconciliation must never fire inside an inner build, where TargetFramework arrives as a global
+	/// property: the list has to stay identical to the outer evaluation's, or Visual Studio loses the TFM
+	/// dimension it is building (see MultiTargetSet_ResolvesIdenticallyUnderAnInnerBuildTargetFramework).
+	/// </summary>
+	[Test]
+	public async Task TargetFrameworks_DeclaredWithAFiringConditionUnderAnInnerBuild_KeepsTheList(
+		CancellationToken cancellationToken
+	)
+	{
+		// Arrange
+		using var h = await ProjectHarness
+			.For("Library")
+			.WithPreImportProperty("PurviewTargetFrameworkSet", "Latest")
+			.WithProjectFileContent(
+				"""
+				<Project Sdk="Microsoft.NET.Sdk">
+					<PropertyGroup>
+						<TargetFrameworks Condition="'$(Configuration)' != 'NeverUsed'">net9.0;net10.0</TargetFrameworks>
+					</PropertyGroup>
+				</Project>
+				"""
+			)
+			.BuildAsync(cancellationToken);
+		var globals = new Dictionary<string, string>(StringComparer.Ordinal) { ["TargetFramework"] = "net9.0" };
+
+		// Act
+		var properties = await h.GetPropertiesAsync(
+			globals,
+			cancellationToken,
+			"TargetFramework",
+			"TargetFrameworks",
+			"TargetPath"
+		);
+
+		// Assert
+		await Assert.That(properties["TargetFramework"]).IsEqualTo("net9.0");
+		await Assert.That(properties["TargetFrameworks"]).IsEqualTo("net9.0;net10.0");
+		await Assert.That(properties["TargetPath"]).IsNotEmpty();
+	}
+
+	/// <summary>
+	/// The evaluation tests above pin the properties; this one pins the consequence. Before the fix the
+	/// restore produced assets for the set's frameworks only and the build failed with NETSDK1005.
+	/// </summary>
+	[Test]
+	public async Task TargetFramework_SetBeforeTheImport_RestoresAndBuilds(CancellationToken cancellationToken)
+	{
+		// Arrange
+		using var h = await ProjectHarness
+			.For("Library")
+			.WithPreImportProperty("TargetFramework", "net10.0")
+			.WithPreImportProperty("PurviewTargetFrameworkSet", "Broad")
+			// The throwaway solution has no Directory.Packages.props entries for the packages the SDK adds.
+			.WithPreImportProperty("ExcludePurviewTelemetry", "true")
+			.WithPreImportProperty("DisableSourceLink", "true")
+			.WithProjectFileContent(
+				"""
+				<Project Sdk="Microsoft.NET.Sdk">
+					<PropertyGroup>
+					</PropertyGroup>
+				</Project>
+				"""
+			)
+			.BuildAsync(cancellationToken);
+
+		// Act
+		var (exitCode, stdOut, stdErr) = await h.RunMSBuildAsync("-restore -t:Build", cancellationToken);
+
+		// Assert
+		await Assert.That(exitCode).IsEqualTo(0).Because(TestHelpers.GenerateError(stdOut, stdErr));
+		await Assert.That(stdOut + stdErr).DoesNotContain("NETSDK1005");
+	}
 }

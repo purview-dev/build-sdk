@@ -25,17 +25,17 @@ Pre-import properties include:
 - `NamespacePrefix`
 - `UsePackageJsonVersion`, `RootPackageJson`
 - `EnableAssemblyNameGeneration`
-- `PurviewSharedTestingOutputType`, `PurviewTestContextNoWarn`
-- `AutoIncludeUsings`
+- `PurviewTestContextNoWarn`, `DisablePurviewTestContextRuleSet`
 - `DisablePurviewBlazorWebAssemblyDefaults`
-- repo-wide testing-framework selection you want every project to inherit
+- `TestingFramework`, `SubstituteFramework`, `TestDataFramework` — even for a single project
 
-A target framework is a special case: the SDK reads `TargetFramework`/`TargetFrameworks` and
-`PurviewTargetFrameworkSet` from the **project XML**, so they can live in the project or in
-`Directory.Build.props`, but must be declared **unconditionally** either way — see
-[Setting the target framework(s)](#setting-the-target-frameworks).
+A target framework is a special case. An explicit `TargetFramework`/`TargetFrameworks` always wins,
+wherever it is set except `Directory.Build.targets`. `PurviewTargetFrameworkSet` is read from the
+**project XML**, so it can live in the project or in `Directory.Build.props` but must be declared
+**unconditionally** — see [Setting the target framework(s)](#setting-the-target-frameworks).
 
-Everything else is read in `Sdk.targets` and can be set in a project file. Prefer repo-wide defaults
+Everything else is read in `Sdk.targets`, or only after the project body, and can be set in a project
+file — `PurviewSharedTestingOutputType` and `AutoIncludeUsings` among them. Prefer repo-wide defaults
 in `Directory.Build.props` unless the setting is deliberately project-specific.
 
 ## Required settings and versions
@@ -56,10 +56,11 @@ A project that declares neither `TargetFramework` nor `TargetFrameworks` gets th
 `net10.0;net11.0` (`Current`). Pick one of three routes, narrowest first:
 
 1. **Explicit declaration** — `<TargetFramework>net10.0</TargetFramework>` for one target,
-   `<TargetFrameworks>net10.0;net11.0</TargetFrameworks>` for many. Declare it **unconditionally**: the
-   SDK reads it from the project XML before the body is evaluated, so a `Condition` on it is not seen
-   (and is reported as `PurviewConditionedProjectDeclaration`). A project declaring `TargetFrameworks`
-   keeps `TargetFramework` empty.
+   `<TargetFrameworks>net10.0;net11.0</TargetFrameworks>` for many. An explicit value **always wins**
+   over every set, wherever it is set — the project (with or without a `Condition`), a file it
+   imports, or `Directory.Build.props` before or after the import. Only `Directory.Build.targets` is
+   too late, because the .NET SDK has already decided whether to multi-target. A project declaring
+   `TargetFrameworks` keeps `TargetFramework` empty.
 2. **A curated set** — `<PurviewTargetFrameworkSet>Supported</PurviewTargetFrameworkSet>` in
    `Directory.Build.props` (repository-wide) or the `.csproj`. Sets: `Current` (default),
    `Latest` (`net11.0`), `Supported` (`net10.0;net11.0`), `Broad` (`net8.0;net9.0;net10.0`), `All`
@@ -84,13 +85,13 @@ one is reported as `PurviewTargetFrameworkSetIgnored`. The full table is in
 | `IsPackable` | `false` | Opts a project into the packable defaults |
 | `UsePackageJsonVersion` | `true` | `true`, `false` or `Strict` — version from `package.json` |
 | `ExcludePurviewTelemetry` | `false` | Drops the telemetry source generator |
-| `DisableSourceLink` | `false` | Drops SourceLink from packable projects |
+| `DisableSourceLink` | `false` | Stops the SDK adding the SourceLink provider package to any project |
 | `EnableAssemblyNameGeneration` | `true` | `AssemblyName`/`PackageId` follow the resolved `RootNamespace` |
 | `PurviewBrowserSafe` | *(unset)* | On a class library a WebAssembly client downloads: trim, AOT and browser-unsupported APIs fail the build |
 | `IsBffProject` | name ends `Bff` | Classifies a BFF host; `false` opts out |
 | `PurviewBrowserSafeReferenceCheckAsError` | `false` | Makes `PRBLZ0001` (a client reference that is not browser-safe) an error |
 | `MemorySafetyRules` | `0` | C# 15 memory-safety tier on `net11.0`+: `0` off (default), `1` preview syntax, `2` updated rules (`updated-memory-safety-rules`, opt-in — an experimental compiler feature) |
-| `PurviewRuntimeAsync` | `false` | Opts a `net11.0`+ target into `runtime-async=on`; `UseRuntimeAsync=true` also opts in |
+| `PurviewRuntimeAsync` | *(unset, treated as false)* | Opts a `net11.0`+ target into `runtime-async=on`; `UseRuntimeAsync=true` also opts in |
 | `IsClientSideProject` | *(computed)* | Whether the project's assemblies can reach a browser; overrides the `ServerShared` classification |
 | `PurviewAutoServerSharedReference` | `true` | Adds a sibling `ServerShared` reference to a non-client-side project |
 | `PurviewMultiThreadedBuild` | `true` | Bootstraps a `Directory.Build.rsp` enabling MSBuild `-mt` |
@@ -175,14 +176,14 @@ on the command line, and a repository-wide choice belongs in `Directory.Build.pr
 | `PurviewSkillsDryRun` | `false` | Install and update print commands instead of running them |
 
 On a command line, `dotnet msbuild -p:` splits values on `,` and `;` — write
-`-p:PurviewSkillsAgents=claude-code%2Ccodex`. For `just` recipes, see `purview-buildsdk-skills-justfile`.
+`-p:PurviewSkillsAgents=claude-code%2Ccodex`. For `just` recipes, see `purview-buildsdk-justfile`.
 
 ## SourceLink
 
 Every non-test project gets a SourceLink provider package — `SourceLinkPackageName`, default
 `Microsoft.SourceLink.GitHub`, added with `PrivateAssets="all"` so a debugger can step into a consumed
 package's source and the `.nuspec` records the repository URL and commit. A repository on another host
-selects the matching package **before the SDK import**:
+selects the matching package in `Directory.Build.props`, so every project agrees:
 
 | Host | Provider package |
 | -- | -- |
@@ -193,15 +194,14 @@ selects the matching package **before the SDK import**:
 | Bitbucket | `Microsoft.SourceLink.Bitbucket.Git` |
 
 Because CPM is on, the chosen provider also needs a `PackageVersion` in `Directory.Packages.props`. Use
-`DisableSourceLink=true` (pre-import) to opt out. The host matrix, the on-premises Azure DevOps Server
+`DisableSourceLink=true` (in `Directory.Build.props`, or one project) to opt out. The host matrix, the on-premises Azure DevOps Server
 host item, the CPM requirement and the self-hosted case are in
 [references/sourcelink.md](references/sourcelink.md).
 
-## Guidance when changing SDK configuration
+## Guidance when changing configuration
 
-1. Preserve existing defaults unless the task explicitly changes product behaviour.
-2. Keep `README.md`, the property declaration, its validation and the shipped skills aligned — a
-   property documented in one place and absent from another is the failure mode this repository
-   keeps hitting.
-3. A new property that affects import-time behaviour must say so in its documentation.
-4. Add the property to the `CompilerVisibleProperty` list if an analyzer would benefit from it.
+1. Preserve existing defaults unless the task explicitly changes behaviour, and do not restate an SDK
+   default in a project file.
+2. Confirm a change with `dotnet msbuild <project> -getProperty:<Name>` rather than reasoning about it.
+3. For a package that ships its **own** MSBuild properties — adding one, renaming it, documenting it in
+   a `.buildschema.json` sidecar, or exporting it to analyzers — use `purview-buildsdk-msbuild-properties`.
