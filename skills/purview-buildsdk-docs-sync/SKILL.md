@@ -106,8 +106,13 @@ drift this skill exists to prevent.
      and to that section's table in `Home.md`.
    - A new topic area gets a folder, a sidebar section and a `Home.md` heading, all with the same
      name.
-8. **Changelog.** Add one `[Unreleased]` entry per user-visible change: `### Documentation` for a
-   docs-only fix, naming what was wrong.
+8. **Changelog.** Add one entry per user-visible change: `### Documentation` for a docs-only fix,
+   naming what was wrong. It goes under the heading for the version in `package.json`
+   (`## [x.y.z] - <date>`, created when a bump moves the version), **not** under `[Unreleased]`. A
+   merge to `main` publishes that version, so an entry parked under `[Unreleased]` reads as unreleased
+   until it is already live, and the changelog is out of date the moment it ships. `[Unreleased]` is
+   only for a pre-release version (`x.y.z-alpha.1`, `-beta`, `-rc`), whose changes genuinely have not
+   shipped as a release yet.
 9. **Verify** (below), and state the commands you ran.
 
 ## Verify

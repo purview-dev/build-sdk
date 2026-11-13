@@ -6,10 +6,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Ver
 `version` field in `package.json`, which is the single source of truth: a merge to `main` publishes
 that version to nuget.org.
 
+So changes are recorded under the heading for the version in `package.json`, not under
+`[Unreleased]`: an entry parked there would read as unreleased until it was already live. `[Unreleased]`
+is used only while the version is a pre-release (`-alpha`, `-beta`, `-rc`).
+
 This file was reconstructed from the conventional-commit history at 1.0.7, so entries before that
 release summarise what the commits recorded rather than what was written at the time.
 
-## [Unreleased]
+## [2.1.0] - 2026-11-13
 
 ### Added
 
@@ -645,7 +649,9 @@ dotnet msbuild <project> -t:VerifyPurviewSkills
 - `.editorconfig` values missing test projects.
 - Source-generator resolution on pack.
 
-[Unreleased]: https://github.com/purview-dev/build-sdk/compare/v1.3.2...HEAD
+[2.1.0]: https://github.com/purview-dev/build-sdk/compare/v2.0.1...v2.1.0
+[2.0.1]: https://github.com/purview-dev/build-sdk/compare/v2.0.0...v2.0.1
+[2.0.0]: https://github.com/purview-dev/build-sdk/compare/v1.3.2...v2.0.0
 [1.3.2]: https://github.com/purview-dev/build-sdk/compare/v1.3.1...v1.3.2
 [1.3.1]: https://github.com/purview-dev/build-sdk/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/purview-dev/build-sdk/compare/v1.2.0...v1.3.0

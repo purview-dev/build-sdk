@@ -135,7 +135,9 @@ just pipeline-pack-validate    # or: dotnet purview-build --Build:RunPack=true -
 
 5. **Document it** in the package's README or docs table, with the same default.
 
-6. **Record it** in `CHANGELOG.md` under `[Unreleased]` → `### Added`.
+6. **Record it** in `CHANGELOG.md` under the heading for the version in `package.json` →
+   `### Added`. Not `[Unreleased]`: a merge to `main` publishes that version, so the entry would read as
+   unreleased until it was already live. `[Unreleased]` is only for a pre-release version.
 
 7. **Check it.** Run `dotnet msbuild <project> -t:ValidatePurviewPropertySchema` (see below), then the
    package's own tests. If this property brought the package's **first** sidecar, or a new

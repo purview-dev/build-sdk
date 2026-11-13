@@ -44,7 +44,7 @@ skill. In this repository, adding a property means:
 4. `README.md` and `docs/wiki/Configuration-Reference.md` — a row in the table for its area (the
    Default cell opens with the backticked default, or italics when there is none), plus a row in each
    *Compiler-visible SDK properties* table when exported.
-5. `CHANGELOG.md` — `[Unreleased]`.
+5. `CHANGELOG.md` — under the `package.json` version's heading (see the Changelog row below).
 6. `just properties-check` — every failure names the file and the row to add.
 
 A property that must not appear in IntelliSense goes in
@@ -85,7 +85,7 @@ Find the row and make sure every file agrees.
 | Property schema | `src/src/BuildSdk/Sdk/Sdk.props.buildschema.json` | Description, type and `defaultValue` — what csproj IntelliSense shows. `PropertySchemaTests` fails when it disagrees with the code or the docs. |
 | Compiler-visible description | `src/src/BuildSdk/Sdk/Sdk.props` | The `CompilerVisibleProperty` `<Description>`, which is what an analyzer author reads. |
 | Pinning test | `src/tests/BuildSdk.IntegrationTests/Dotnet11FeaturesTests.cs` | The test that fails when the default changes silently. |
-| Changelog | `CHANGELOG.md` | A `[Unreleased]` entry: `### Changed` for behaviour, `### Documentation` for docs-only. |
+| Changelog | `CHANGELOG.md` | An entry under `## [<package.json version>] - <date>`: `### Changed` for behaviour, `### Documentation` for docs-only. Never `[Unreleased]` during active development — a merge to `main` publishes the version, so the entry would read as unreleased until it was already live. `[Unreleased]` is only for a pre-release version (`-alpha`, `-beta`, `-rc`). |
 | README | `README.md` | The feature table row, the property table(s), the quick start, and the `.NET 11 features` section + tiers paragraph. |
 | Wiki | `docs/wiki/Configuration-Reference.md`, `Getting-Started.md`, `configuration/Version-Detection.md`, `concepts/Project-Type-Detection.md` | The property tables, the required-settings and target-framework sections, and the compiler-visible section. |
 | Shipped skills | `skills/purview-buildsdk-*/SKILL.md` and `references/*.md` | The property tables and the sections below. |
@@ -123,7 +123,7 @@ which does not exist.
 6. `docs/wiki/Configuration-Reference.md` — the General row **and** the `.NET 11 features` table.
 7. Skills — the `MemorySafetyRules`/`PurviewRuntimeAsync` rows in
    `skills/purview-buildsdk-configuration/SKILL.md` and `references/properties.md`.
-8. `CHANGELOG.md` — a `[Unreleased]` `### Changed` entry that names the old default, the new one, how to
+8. `CHANGELOG.md` — a `### Changed` entry under the `package.json` version's heading that names the old default, the new one, how to
    opt in, and what is unchanged.
 
 Keep `AllowUnsafeBlocks` (and anything else) at its compiler default: a feature flip must not quietly
