@@ -9,33 +9,20 @@ namespace Purview.BuildSdk;
 /// </summary>
 sealed class PurviewSkillUpdateTests
 {
-	const string PackageId = "Purview.Example";
-	const string PackageVersion = "1.2.3";
-	const string PackageSource = "purview-dev/purview-example";
+	const string PurviewSource = "purview-dev/build-sdk";
 	const string OtherSource = "vercel-labs/agent-skills";
 	const string OldCommit = "aaaaaaaabbbbbbbbccccccccddddddddeeeeeeee";
 
 	static string LockFilePath(ProjectHarness harness) => Path.Combine(harness.SolutionDirectory, "skills-lock.json");
 
-	/// <summary>
-	/// One package shipping <c>purview-alpha</c>, installed at an old ref, plus two skills from a
-	/// repository no package speaks for.
-	/// </summary>
-	static void GivenInstalledSkills(ProjectHarness harness)
-	{
-		var packagesRoot = Path.Combine(harness.SolutionDirectory, "packages");
-		SkillPackageFixtures.WritePackage(packagesRoot, PackageId, PackageVersion, ["purview-alpha"]);
-		SkillPackageFixtures.WriteAssetsFile(
-			Path.Combine(harness.SolutionDirectory, "obj", "project.assets.json"),
-			(PackageId, PackageVersion)
-		);
-		SkillPackageFixtures.WriteLockFile(
+	/// <summary>One skill pinned at an old ref, plus two skills from a second repository.</summary>
+	static void GivenInstalledSkills(ProjectHarness harness) =>
+		SkillLockFileFixtures.WriteLockFile(
 			LockFilePath(harness),
-			("purview-alpha", PackageSource, OldCommit),
+			("purview-buildsdk-testing", PurviewSource, OldCommit),
 			("web-design", OtherSource, null),
 			("frontend-design", OtherSource, null)
 		);
-	}
 
 	static async Task<(int Code, string Output)> RunAsync(
 		ProjectHarness harness,
@@ -44,13 +31,8 @@ sealed class PurviewSkillUpdateTests
 		CancellationToken cancellationToken = default
 	)
 	{
-		var packagesRoot = Path.Combine(harness.SolutionDirectory, "packages");
-		var assetsPath = Path.Combine(harness.SolutionDirectory, "obj", "project.assets.json");
-
 		var (code, stdOut, stdErr) = await harness.RunMSBuildAsync(
-			$"-v:n \"-t:{target}\" "
-				+ $"-p:ProjectAssetsFile=\"{assetsPath}\" -p:NuGetPackageFolders=\"{packagesRoot}\" "
-				+ $"-p:PurviewSkillsInstallRoot=\"{harness.SolutionDirectory}\" {extraArguments}",
+			$"-v:n \"-t:{target}\" -p:PurviewSkillsInstallRoot=\"{harness.SolutionDirectory}\" {extraArguments}",
 			cancellationToken
 		);
 
@@ -58,7 +40,7 @@ sealed class PurviewSkillUpdateTests
 	}
 
 	[Test]
-	public async Task Update_ReAddsEachSource_PinningThePackagesOwnCommit(CancellationToken cancellationToken)
+	public async Task Update_ReAddsEachSource_AtItsLatest_WithEverySkill(CancellationToken cancellationToken)
 	{
 		using var harness = await ProjectHarness.CreateAsync("SkillUpdate", cancellationToken: cancellationToken);
 		GivenInstalledSkills(harness);
@@ -71,16 +53,12 @@ sealed class PurviewSkillUpdateTests
 		);
 
 		await Assert.That(code).IsZero().Because(output);
-		// The package's source moves to the commit the referenced version was built from, not to the
-		// newest skill and not left at the old ref.
-		await Assert
-			.That(output)
-			.Contains($"add \"{PackageSource}#{SkillPackageFixtures.DefaultCommit}\" --skill \"purview-alpha\"");
-		// Every other source is re-added once, with every skill it has, so a skill the repository has
-		// gained since the last install comes in too.
+		// Each unique source once, unpinned, with every skill it has - so a skill the repository has
+		// gained since the last install comes in too, and the old ref is not kept.
+		await Assert.That(output).Contains($"add \"{PurviewSource}\" --skill \"*\"");
 		await Assert.That(output).Contains($"add \"{OtherSource}\" --skill \"*\"");
 		await Assert.That(output).DoesNotContain("--skill \"web-design\"");
-		await Assert.That(output).DoesNotContain(OldCommit + "\" --skill");
+		await Assert.That(output).DoesNotContain(OldCommit);
 		// No agents named: the CLI auto-detects, so no agent flag is passed.
 		await Assert.That(output).DoesNotContain("--agent");
 		// The re-adds are the whole update: 'skills add' refreshes installed skills and adds new ones,
@@ -107,34 +85,6 @@ sealed class PurviewSkillUpdateTests
 		// split a comma-separated agent list either, so each agent gets its own flag.
 		await Assert.That(output).Contains("--agent \"claude-code\" --agent \"codex\" -y");
 		await Assert.That(output).DoesNotContain("claude-code,codex\"");
-	}
-
-	[Test]
-	public async Task Update_AddsASkillThePackageHasGained(CancellationToken cancellationToken)
-	{
-		using var harness = await ProjectHarness.CreateAsync("SkillUpdate", cancellationToken: cancellationToken);
-		GivenInstalledSkills(harness);
-		// The referenced version now ships a second skill the lockfile has never recorded.
-		SkillPackageFixtures.WritePackage(
-			Path.Combine(harness.SolutionDirectory, "packages"),
-			PackageId,
-			PackageVersion,
-			["purview-alpha", "purview-beta"]
-		);
-
-		var (code, output) = await RunAsync(
-			harness,
-			"UpdatePurviewSkills",
-			"-p:PurviewSkillsCommand=echo",
-			cancellationToken
-		);
-
-		await Assert.That(code).IsZero().Because(output);
-		await Assert
-			.That(output)
-			.Contains(
-				$"add \"{PackageSource}#{SkillPackageFixtures.DefaultCommit}\" --skill \"purview-alpha\" --skill \"purview-beta\""
-			);
 	}
 
 	[Test]
@@ -173,7 +123,7 @@ sealed class PurviewSkillUpdateTests
 		await Assert.That(code).IsNotEqualTo(0);
 		await Assert.That(output).Contains("PRSKL0008");
 		await Assert.That(output).Contains($"re-adding '{OtherSource}' failed");
-		await Assert.That(output).Contains($"re-adding '{PackageSource}#{SkillPackageFixtures.DefaultCommit}' failed");
+		await Assert.That(output).Contains($"re-adding '{PurviewSource}' failed");
 		await Assert.That(output).DoesNotContain("source(s) refreshed.");
 	}
 
@@ -181,8 +131,6 @@ sealed class PurviewSkillUpdateTests
 	public async Task Update_WithoutALockFile_ReportsHowToInstall(CancellationToken cancellationToken)
 	{
 		using var harness = await ProjectHarness.CreateAsync("SkillUpdate", cancellationToken: cancellationToken);
-		GivenInstalledSkills(harness);
-		File.Delete(LockFilePath(harness));
 
 		var (code, output) = await RunAsync(
 			harness,

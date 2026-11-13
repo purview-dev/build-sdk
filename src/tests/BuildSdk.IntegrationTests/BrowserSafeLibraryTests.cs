@@ -71,8 +71,9 @@ sealed class BrowserSafeLibraryTests
 		await Assert.That(warningsAsErrors).Contains("IL2026");
 		await Assert.That(warningsAsErrors).Contains("IL2057");
 		await Assert.That(warningsAsErrors).Contains("IL3050");
-		// The aim is to make *these* failures fatal, not to change the project's whole warning policy.
-		await Assert.That(evaluation.Properties["TreatWarningsAsErrors"]).IsNotEqualTo("true");
+		// The SDK-wide default. The browser-safe ids are listed individually as well, so they stay fatal in a
+		// project that turns TreatWarningsAsErrors off (BrowserSafe_KeepsWhatTheProjectSet).
+		await Assert.That(evaluation.Properties["TreatWarningsAsErrors"]).IsEqualTo("true");
 	}
 
 	[Test]
@@ -85,6 +86,7 @@ sealed class BrowserSafeLibraryTests
 				<PurviewBrowserSafe>true</PurviewBrowserSafe>
 				<IsAotCompatible>false</IsAotCompatible>
 				<WarningsAsErrors>CS0168</WarningsAsErrors>
+				<TreatWarningsAsErrors>false</TreatWarningsAsErrors>
 				""",
 				"""<SupportedPlatform Include="browser" />"""
 			),
@@ -92,13 +94,15 @@ sealed class BrowserSafeLibraryTests
 		);
 
 		var evaluation = await h.EvaluateAsync(
-			["IsAotCompatible", "WarningsAsErrors"],
+			["IsAotCompatible", "WarningsAsErrors", "TreatWarningsAsErrors"],
 			["SupportedPlatform"],
 			cancellationToken
 		);
 
 		await Assert.That(evaluation.Properties["IsAotCompatible"]).IsEqualTo("false");
 		await Assert.That(evaluation.Properties["WarningsAsErrors"]).StartsWith("CS0168;");
+		await Assert.That(evaluation.Properties["WarningsAsErrors"]).Contains("CA1416");
+		await Assert.That(evaluation.Properties["TreatWarningsAsErrors"]).IsEqualTo("false");
 		await Assert.That(evaluation.Items["SupportedPlatform"].Count(p => p == "browser")).IsEqualTo(1);
 	}
 
@@ -209,8 +213,10 @@ sealed class BrowserSafeLibraryTests
 	[Test]
 	public async Task BrowserSafeWarningsAsErrorsFalse_ReflectionIsAWarning(CancellationToken cancellationToken)
 	{
+		// The opt-out hands the ids back to the project's own warning policy, so that policy has to allow
+		// warnings for one to be seen.
 		using var h = await CreateLibraryAsync(
-			"<PurviewBrowserSafe>true</PurviewBrowserSafe><PurviewBrowserSafeWarningsAsErrors>false</PurviewBrowserSafeWarningsAsErrors>",
+			"<PurviewBrowserSafe>true</PurviewBrowserSafe><PurviewBrowserSafeWarningsAsErrors>false</PurviewBrowserSafeWarningsAsErrors><TreatWarningsAsErrors>false</TreatWarningsAsErrors>",
 			ReflectionSource,
 			cancellationToken
 		);

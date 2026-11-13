@@ -27,11 +27,11 @@ static class BlazorFixtures
 			</Project>
 			""";
 
-	public static string Client(string properties = "", string items = "") =>
+	public static string Client(string properties = "", string items = "", string targetFramework = "net10.0") =>
 		$"""
 			<Project Sdk="Microsoft.NET.Sdk.BlazorWebAssembly">
 				<PropertyGroup>
-					<TargetFramework>net10.0</TargetFramework>
+					<TargetFramework>{targetFramework}</TargetFramework>
 					<DisableSourceLink>true</DisableSourceLink>
 					{properties}
 				</PropertyGroup>
@@ -105,11 +105,16 @@ static class BlazorFixtures
 	/// <summary>
 	/// Replaces the harness's central package versions with the ones a Blazor Web App restores: the
 	/// WebAssembly packages for the TFM the fixtures target, and the automatic Purview telemetry packages.
+	/// Pass <paramref name="webAssemblyVersion"/> for a client on another TFM.
 	/// </summary>
-	public static Task WritePackageVersionsAsync(ProjectHarness owner, CancellationToken cancellationToken) =>
+	public static Task WritePackageVersionsAsync(
+		ProjectHarness owner,
+		CancellationToken cancellationToken,
+		string webAssemblyVersion = "10.0.*"
+	) =>
 		File.WriteAllTextAsync(
 			Path.Combine(owner.SolutionDirectory, "Directory.Packages.props"),
-			"""
+			$$"""
 			<Project>
 				<PropertyGroup>
 					<CentralPackageFloatingVersionsEnabled>true</CentralPackageFloatingVersionsEnabled>
@@ -118,8 +123,8 @@ static class BlazorFixtures
 					<PackageVersion Include="Microsoft.SourceLink.GitHub" Version="*" />
 					<PackageVersion Include="Purview.Telemetry.SourceGenerator" Version="*" />
 					<PackageVersion Include="Microsoft.Extensions.Telemetry.Abstractions" Version="10.*" />
-					<PackageVersion Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.*" />
-					<PackageVersion Include="Microsoft.AspNetCore.Components.WebAssembly.Server" Version="10.0.*" />
+					<PackageVersion Include="Microsoft.AspNetCore.Components.WebAssembly" Version="{{webAssemblyVersion}}" />
+					<PackageVersion Include="Microsoft.AspNetCore.Components.WebAssembly.Server" Version="{{webAssemblyVersion}}" />
 				</ItemGroup>
 			</Project>
 			""",

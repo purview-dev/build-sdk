@@ -77,9 +77,10 @@ sealed class BlazorWebAppTests
 		// Compiling is not evidence that they work in the browser, so this publishes a client that exercises
 		// both - generated activity, log and metric code, and a Telemetry.Abstractions type - and runs it on
 		// the published WebAssembly runtime, booted under Node.
+		// The probe is runtime evidence, not style: its IDE suggestions must not fail the publish.
 		using var client = await BlazorFixtures.CreateAsync(
 			"Shop.Client",
-			BlazorFixtures.Client(),
+			BlazorFixtures.Client("<TreatWarningsAsErrors>false</TreatWarningsAsErrors>"),
 			cancellationToken: cancellationToken
 		);
 		await BlazorFixtures.WritePackageVersionsAsync(client, cancellationToken);

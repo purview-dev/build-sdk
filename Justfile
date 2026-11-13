@@ -1,99 +1,38 @@
+# Recipes for working on Purview.BuildSdk. Run `just` for the list.
+#
+# The shared recipes - .NET, version, pipeline, agent skills and utilities - come from .build/just/,
+# imported through its barrel. Those files are the purview-buildsdk-justfile skill's assets, copied
+# verbatim: change a recipe in skills/purview-buildsdk-justfile/assets/just/ and copy it back
+# (JustModuleParityTests fails while the two differ). This file holds only what belongs to this
+# repository - the values the modules read, and the recipes nothing else needs.
+
 set quiet
 
-import "Justfile.skills.just"
+# Let a definition here override a module's default variable or no-op hook.
+set allow-duplicate-variables
+set allow-duplicate-recipes
+
+import ".build/just/index.just"
 
 solution_file := "src/BuildSdk.slnx"
-build_configuration := "Debug"
-artifacts_folder := "./artifacts"
 
-pipeline_tool := "dotnet purview-build"
-
-current_version := `bun -p "require('./package.json').version"`
+# ValidatePurviewSkills is the pack-time check and runs in each project it is invoked on, so it names
+# the one project that packs - rather than the solution, which would validate the same folder once
+# per project.
+skills_validate_project := "src/src/BuildSdk/BuildSdk.csproj"
 
 [private]
 default:
     just --list
 
-# Restore the repository's .NET local tools (.config/dotnet-tools.json)
-[private]
-ensure-pipeline-tool:
-    dotnet tool restore
-
-# Run the PR pipeline (restore, build, lint, tests)
-[group('Pipeline')]
-pipeline-pr *args: ensure-pipeline-tool
-    echo "Running PR pipeline..."
-    {{ pipeline_tool }} {{ args }}
-
-# Run the build pipeline (restore, build, lint)
-[group('Pipeline')]
-pipeline-build *args: ensure-pipeline-tool
-    echo "Running build pipeline..."
-    {{ pipeline_tool }} --Build:RunTests=false --Release:Mode=None {{ args }}
-
-# Run the release pipeline (restore, build, lint, tests, pack, publish, GitHub release)
-[group('Pipeline')]
-pipeline-release *args: ensure-pipeline-tool
-    echo "Running release pipeline..."
-    {{ pipeline_tool }} --Release:Mode=NuGet {{ args }}
-
-# Run the release pipeline (restore, build, lint, tests, pack, local nuget publish)
-# Note: `just` runs recipes through the shell, which strips backslashes from unquoted arguments.
-# Use the LOCAL_NUGET_FEED_PATH environment variable or forward slashes, e.g.
-# just pipeline-local-release --PublishLocalNuGet:LocalFeedPath=p:/_sync-projects/.local-nuget/
-[group('Pipeline')]
-pipeline-local-release *args: ensure-pipeline-tool
-    echo "Running local release pipeline..."
-    {{ pipeline_tool }} --Release:Mode=LocalNuGet {{ args }}
-
-# Run the pipeline with tests enabled
-[group('Pipeline')]
-pipeline-tests *args: ensure-pipeline-tool
-    echo "Running tests pipeline..."
-    {{ pipeline_tool }} --Build:RunTests=true --Release:Mode=None {{ args }}
-
-# Run the pipeline through pack + validate (restore, build, lint, tests, pack, validate pack contents) without publishing/releasing
-[group('Pipeline')]
-pipeline-pack-validate *args: ensure-pipeline-tool
-    echo "Running pack + validate pipeline..."
-    {{ pipeline_tool }} --Build:RunPack=true --Build:ValidatePack=true --Release:Mode=None {{ args }}
-
-# Open the solution in Visual Studio/ Registered application
-[group('Utilities')]
-vs:
-    open {{ solution_file }}
-
-# Build the solution for the specified configuration (default: Release)
-[group('Build and Test')]
-build *args:
-    echo "==> Building {{ BLUE }}{{ solution_file }}{{ NORMAL }} ({{ GREEN }}{{ current_version }}{{ NORMAL }}) with configuration {{ YELLOW }}{{ build_configuration }}{{ NORMAL }}"
-    dotnet build {{ solution_file }} --configuration {{ build_configuration }} {{ args }}
-
-# Cleans the solution for the specified configuration (default: Release)
-[group('Build and Test')]
-clean *args:
-    echo "==> Cleaning {{ BLUE }}{{ solution_file }}{{ NORMAL }} ({{ GREEN }}{{ current_version }}{{ NORMAL }}) with configuration {{ YELLOW }}{{ build_configuration }}{{ NORMAL }}"
-    dotnet clean {{ solution_file }} --configuration {{ build_configuration }} {{ args }}
-
-# Restore local .NET tools
-[group('Utilities')]
-restore-tools:
-    dotnet tool restore
-
-# Restore NuGet packages for the solution
-[group('Build and Test')]
-restore *args:
-    dotnet restore {{ solution_file }} {{ args }}
-
-# Displays the current package version from package.json
-[group('Build and Test')]
-current_version:
-    echo "==> Current version: {{ GREEN }}{{ current_version }}{{ NORMAL }} (defined in package.json and automatically included in the build output through the Purview.BuildSdk package)"
+# A bump changes package.json, so the copy-paste pins must follow it.
+_after-bump: version-sync
 
 # Rewrite the Purview.BuildSdk pins in the docs, starter template and .editorconfig marker
 #
-# Run after bumping package.json. Packed files are stamped at pack time and need nothing.
-[group('Build and Test')]
+# `just bump` runs this itself. Packed files are stamped at pack time and need nothing.
+[doc('Rewrite the Purview.BuildSdk pins in the docs, starter template and .editorconfig marker')]
+[group('Version')]
 version-sync:
     echo "==> Syncing version pins to {{ GREEN }}{{ current_version }}{{ NORMAL }}"
     bun scripts/sync-version.ts
@@ -102,34 +41,33 @@ version-sync:
 #
 # What the pre-commit hook runs, so a stale .editorconfig marker or quick-start snippet cannot be
 # committed in the first place.
-[group('Build and Test')]
+[doc('Check the version pins without writing anything; non-zero when a pin is stale')]
+[group('Version')]
 version-sync-check:
     echo "==> Checking version pins against {{ GREEN }}{{ current_version }}{{ NORMAL }}"
     bun scripts/sync-version.ts --check
-
-# Run tests for a specific project with a filter (e.g., "/*/*/*/*/", or "/*/*/*/*[Category=Unit]" to run just unit tests) and configuration (e.g., "Release")
-[group('Build and Test')]
-test filter="/*/*/*/*/" *args:
-    echo "==> Testing {{ BLUE }}{{ solution_file }}{{ NORMAL }} ({{ GREEN }}{{ build_configuration }}{{ NORMAL }}) with filter {{ YELLOW }}{{ filter }}{{ NORMAL }}"
-    dotnet test --project {{ solution_file }} --configuration {{ build_configuration }} --treenode-filter "{{ filter }}" --ignore-exit-code 8 {{ args }}
 
 # Run the SDK integration tests in the same Linux SDK environment used by CI
 [group('Build and Test')]
 test-linux:
     pwsh -NoProfile -File ./scripts/test-linux-docker.ps1
 
-# Pack all packable projects
+# Check every SDK property against Sdk.props.buildschema.json
+#
+# Definitions, defaults, the compiler-visible list, the README and wiki tables, the meta-schema and
+# the PRPSC target. No --ignore-exit-code 8: a filter that matches nothing must fail, not pass.
+[doc('Check every SDK property against Sdk.props.buildschema.json')]
 [group('Build and Test')]
-pack artifact_folder=artifacts_folder *args:
-    echo "==> Packing {{ BLUE }}{{ solution_file }}{{ NORMAL }} ({{ GREEN }}{{ current_version }}{{ NORMAL }}) to {{ YELLOW }}{{ artifact_folder }}{{ NORMAL }}"
-    dotnet pack "{{ solution_file }}" --configuration "{{ build_configuration }}" --output "{{ artifact_folder }}" {{ args }}
+properties-check *args:
+    echo "==> Checking SDK properties against {{ GREEN }}Sdk.props.buildschema.json{{ NORMAL }}"
+    dotnet test --project src/tests/BuildSdk.IntegrationTests/BuildSdk.IntegrationTests.csproj --configuration {{ build_configuration }} --treenode-filter "/*/*/(PropertySchemaTests)|(PropertySchemaValidationTargetTests)/*" {{ args }}
 
-# Format the code with CSharpier
-[group('Utilities')]
-lint-fix:
-    dotnet csharpier format .
-
-# Check formatting with CSharpier
-[group('Utilities')]
-lint-check:
-    dotnet csharpier check .
+# Validate the authored skills in skills/ against the Agent Skills specification
+#
+# The same check the pack runs (PRSKL0005). The broader rule set - names, descriptions, optional
+# fields, bundled links, body size - runs as RepositorySkillTests in `just test`.
+[doc('Validate the authored skills in skills/ against the Agent Skills specification')]
+[group('Agent Skills')]
+skills-validate *args:
+    echo "==> Validating authored skills in {{ BLUE }}skills/{{ NORMAL }}"
+    dotnet msbuild "{{ skills_validate_project }}" -t:ValidatePurviewSkills -v:n {{ args }}

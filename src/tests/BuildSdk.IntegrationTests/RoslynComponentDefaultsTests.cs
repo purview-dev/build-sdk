@@ -61,9 +61,12 @@ sealed class RoslynComponentDefaultsTests
 
 	// A Condition cannot be evaluated before the project body, so a conditioned declaration must not be
 	// counted: if it never fires, the Roslyn component has to fall back to netstandard2.0 rather than the
-	// generic .NET default. The author is warned instead of being silently misread.
+	// generic .NET default. It is not misread either - the body still wins when the condition fires - so
+	// there is nothing to warn about.
 	[Test]
-	public async Task ConditionedTargetFramework_KeepsTheRoslynDefaultAndWarns(CancellationToken cancellationToken)
+	public async Task ConditionedTargetFramework_ThatDoesNotFire_KeepsTheRoslynDefaultWithoutWarning(
+		CancellationToken cancellationToken
+	)
 	{
 		using var harness = await ProjectHarness
 			.For("SourceGeneration")
@@ -82,7 +85,59 @@ sealed class RoslynComponentDefaultsTests
 		var properties = await harness.GetPropertiesAsync(cancellationToken, "TargetFramework");
 		await Assert.That(properties["TargetFramework"]).IsEqualTo("netstandard2.0");
 
+		var (_, stdOut, stdErr) = await harness.RunMSBuildAsync("-t:Build", cancellationToken);
+		await Assert.That(stdOut + stdErr).DoesNotContain("PurviewConditionedProjectDeclaration");
+	}
+
+	[Test]
+	public async Task ConditionedTargetFrameworks_ThatFires_WinsOverTheRoslynDefault(
+		CancellationToken cancellationToken
+	)
+	{
+		// Arrange
+		using var harness = await ProjectHarness
+			.For("SourceGeneration")
+			.WithProjectFileContent(
+				"""
+				<Project Sdk="Microsoft.NET.Sdk">
+					<PropertyGroup>
+						<IsRoslynComponent>true</IsRoslynComponent>
+						<TargetFrameworks Condition="'$(Configuration)' != 'NeverUsed'">netstandard2.0;net10.0</TargetFrameworks>
+					</PropertyGroup>
+				</Project>
+				"""
+			)
+			.BuildAsync(cancellationToken);
+
+		// Act
+		var properties = await harness.GetPropertiesAsync(cancellationToken, "TargetFramework", "TargetFrameworks");
+
+		// Assert
+		await Assert.That(properties["TargetFrameworks"]).IsEqualTo("netstandard2.0;net10.0");
+		await Assert.That(properties["TargetFramework"]).IsEmpty();
+	}
+
+	[Test]
+	public async Task ConditionedIsPackable_StillWarns(CancellationToken cancellationToken)
+	{
+		// Arrange
+		using var harness = await ProjectHarness
+			.For("Library")
+			.WithProjectFileContent(
+				"""
+				<Project Sdk="Microsoft.NET.Sdk">
+					<PropertyGroup>
+						<IsPackable Condition="'$(Configuration)' == 'Release'">true</IsPackable>
+					</PropertyGroup>
+				</Project>
+				"""
+			)
+			.BuildAsync(cancellationToken);
+
+		// Act
 		var (_, stdOut, _) = await harness.RunMSBuildAsync("-t:Build", cancellationToken);
+
+		// Assert
 		await Assert.That(stdOut).Contains("PurviewConditionedProjectDeclaration");
 	}
 
@@ -176,6 +231,9 @@ sealed class RoslynComponentDefaultsTests
 						<IsPackable>true</IsPackable>
 						<ExcludePurviewTelemetry>true</ExcludePurviewTelemetry>
 						<DisableSourceLink>true</DisableSourceLink>
+						<!-- The stub RuntimeDependency.dll is not a real assembly, so loading it as an analyzer is
+						     CS8034. Only where it is packed is under test. -->
+						<TreatWarningsAsErrors>false</TreatWarningsAsErrors>
 					</PropertyGroup>
 					<ItemGroup>
 						<ProjectReference
@@ -663,6 +721,8 @@ sealed class RoslynComponentDefaultsTests
 						<IsPackable>true</IsPackable>
 						<ExcludePurviewTelemetry>true</ExcludePurviewTelemetry>
 						<DisableSourceLink>true</DisableSourceLink>
+						<!-- The stub SharedRuntime.dll is not a real assembly (CS8034 as an analyzer). -->
+						<TreatWarningsAsErrors>false</TreatWarningsAsErrors>
 					</PropertyGroup>
 					<ItemGroup>
 						<ProjectReference

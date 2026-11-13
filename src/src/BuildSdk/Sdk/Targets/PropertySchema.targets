@@ -1,0 +1,377 @@
+<Project>
+	<!-- =====================================================================
+	     PROPERTY SCHEMA VALIDATION (PRPSC)
+
+	     A package that ships MSBuild properties describes them for csproj IntelliSense with an MSBuild
+	     Editor sidecar: '<file>.buildschema.json' beside the .props/.targets file it describes. This
+	     checks that the sidecars and the files agree, so a property a package's analyzers read is never
+	     undocumented, and a documented property never names something the package no longer has.
+
+	     Opt-in and never part of an ordinary build. It runs before Pack when
+	     EnablePurviewPropertySchemaValidation=true, and whenever it is named:
+
+	         dotnet msbuild <project> -t:ValidatePurviewPropertySchema
+
+	     It reads every .props/.targets file under PurviewPropertySchemaDirectory (default: the project's
+	     Sdk/ folder, which PurviewAutoSdkPack ships) and every sidecar beside them:
+
+	       PRPSC0001  a CompilerVisibleProperty with no entry in any sidecar;
+	       PRPSC0002  a sidecar entry no file defines, reads or exports;
+	       PRPSC0003  a sidecar that is not valid JSON or has no "properties" object;
+	       PRPSC0004  a sidecar with no .props/.targets beside it, which MSBuild Editor never loads.
+
+	     PurviewPropertySchemaIgnoredProperties names properties to skip in PRPSC0001, for an export the
+	     package does not own - Version, RootNamespace and the like, which MSBuild already describes.
+
+	     Purview.BuildSdk holds its own sidecar to a stricter standard in its test suite
+	     (PropertySchemaTests); this target is the part of that check another package can reuse.
+	     ===================================================================== -->
+	<UsingTask
+		TaskName="ValidatePurviewPropertySchemaFiles"
+		TaskFactory="RoslynCodeTaskFactory"
+		AssemblyFile="$([System.IO.Path]::Combine('$(MSBuildToolsPath)', 'Microsoft.Build.Tasks.Core.dll'))"
+	>
+		<ParameterGroup>
+			<Directory ParameterType="System.String" Required="true" />
+			<IgnoredProperties ParameterType="System.String" />
+		</ParameterGroup>
+		<Task>
+			<!-- A Class-type task ignores <Using> elements, so the usings live in the code. -->
+			<Code Type="Class" Language="cs">
+				<![CDATA[
+				using System;
+				using System.Collections.Generic;
+				using System.IO;
+				using System.Linq;
+				using System.Text.RegularExpressions;
+				using System.Xml;
+				using System.Xml.Linq;
+
+				public class ValidatePurviewPropertySchemaFiles : Microsoft.Build.Utilities.Task
+				{
+					const string SidecarSuffix = ".buildschema.json";
+
+					[Microsoft.Build.Framework.Required]
+					public string Directory { get; set; }
+
+					public string IgnoredProperties { get; set; }
+
+					public override bool Execute()
+					{
+						if (!System.IO.Directory.Exists(Directory))
+						{
+							Log.LogMessage(Microsoft.Build.Framework.MessageImportance.Normal,
+								"No property schema validation: '{0}' does not exist.", Directory);
+							return true;
+						}
+
+						var ignored = new HashSet<string>(
+							(IgnoredProperties ?? "").Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries).Select(s => s.Trim()),
+							StringComparer.Ordinal);
+
+						var msbuildFiles = System.IO.Directory.EnumerateFiles(Directory, "*.*", SearchOption.AllDirectories)
+							.Where(f => f.EndsWith(".props", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".targets", StringComparison.OrdinalIgnoreCase))
+							.OrderBy(f => f, StringComparer.Ordinal)
+							.ToList();
+						var sidecars = System.IO.Directory.EnumerateFiles(Directory, "*" + SidecarSuffix, SearchOption.AllDirectories)
+							.OrderBy(f => f, StringComparer.Ordinal)
+							.ToList();
+
+						// Everything a sidecar entry may legitimately describe: what the files define, read or export.
+						var known = new HashSet<string>(StringComparer.Ordinal);
+						var exported = new List<Tuple<string, string, int>>();
+						var reference = new Regex(@"\$\((?<name>[A-Za-z_][A-Za-z0-9_]*)");
+
+						foreach (var file in msbuildFiles)
+						{
+							XDocument document;
+							try
+							{
+								document = XDocument.Load(file, LoadOptions.SetLineInfo);
+							}
+							catch (XmlException)
+							{
+								continue;
+							}
+
+							foreach (var element in document.Descendants())
+							{
+								var parent = element.Parent == null ? "" : element.Parent.Name.LocalName;
+								if (parent == "PropertyGroup")
+									known.Add(element.Name.LocalName);
+
+								if (parent == "ItemGroup" && element.Name.LocalName == "CompilerVisibleProperty")
+								{
+									var include = (string)element.Attribute("Include") ?? "";
+									foreach (var name in include.Split(';').Select(n => n.Trim()).Where(n => n.Length > 0 && !n.StartsWith("@(", StringComparison.Ordinal) && !n.StartsWith("$(", StringComparison.Ordinal)))
+									{
+										known.Add(name);
+										exported.Add(Tuple.Create(name, file, ((IXmlLineInfo)element).LineNumber));
+									}
+								}
+
+								foreach (var text in element.Attributes().Select(a => a.Value).Concat(element.Nodes().OfType<XText>().Select(t => t.Value)))
+								{
+									foreach (Match match in reference.Matches(text))
+										known.Add(match.Groups["name"].Value);
+								}
+							}
+						}
+
+						var described = new Dictionary<string, string>(StringComparer.Ordinal);
+						foreach (var sidecar in sidecars)
+						{
+							var describedFile = sidecar.Substring(0, sidecar.Length - SidecarSuffix.Length);
+							if (!File.Exists(describedFile))
+							{
+								Log.LogError(null, "PRPSC0004", null, sidecar, 0, 0, 0, 0,
+									"'{0}' describes '{1}', which does not exist. MSBuild Editor loads a sidecar only from '<imported file>{2}' beside the file it imports, so this one is never read. Rename it after the .props/.targets file it describes.",
+									Path.GetFileName(sidecar), Path.GetFileName(describedFile), SidecarSuffix);
+							}
+
+							List<string> names;
+							string error;
+							if (!TryReadPropertyNames(File.ReadAllText(sidecar), out names, out error))
+							{
+								Log.LogError(null, "PRPSC0003", null, sidecar, 0, 0, 0, 0,
+									"'{0}' cannot be read as a property schema: {1}.", Path.GetFileName(sidecar), error);
+								continue;
+							}
+
+							foreach (var name in names)
+							{
+								if (!described.ContainsKey(name))
+									described[name] = sidecar;
+							}
+						}
+
+						foreach (var export in exported)
+						{
+							if (described.ContainsKey(export.Item1) || ignored.Contains(export.Item1))
+								continue;
+
+							Log.LogError(null, "PRPSC0001", null, export.Item2, export.Item3, 0, 0, 0,
+								"'{0}' is exported as a CompilerVisibleProperty but no property schema describes it, so an analyzer author cannot find out what build_property.{0} means. Add it under \"properties\" in '{1}{2}' (beside this file), or list it in PurviewPropertySchemaIgnoredProperties if the package does not own it.",
+								export.Item1, Path.GetFileName(export.Item2), SidecarSuffix);
+						}
+
+						foreach (var entry in described.OrderBy(e => e.Key, StringComparer.Ordinal))
+						{
+							if (known.Contains(entry.Key))
+								continue;
+
+							Log.LogError(null, "PRPSC0002", null, entry.Value, 0, 0, 0, 0,
+								"'{0}' describes the property '{1}', but no .props/.targets file under '{2}' defines, reads or exports it. Remove the entry, or define the property with its default.",
+								Path.GetFileName(entry.Value), entry.Key, Directory);
+						}
+
+						return !Log.HasLoggedErrors;
+					}
+
+					// A deliberately small JSON reader: only the member names of the top-level "properties"
+					// object are needed, and a task cannot take a package dependency.
+					static bool TryReadPropertyNames(string json, out List<string> names, out string error)
+					{
+						names = new List<string>();
+						error = null;
+						var position = 0;
+						try
+						{
+							SkipWhitespace(json, ref position);
+							if (position >= json.Length || json[position] != '{')
+								throw new FormatException("the document is not a JSON object");
+
+							var found = false;
+							foreach (var member in ReadObjectMembers(json, ref position))
+							{
+								if (member.Key != "properties")
+									continue;
+
+								if (member.Value == null)
+									throw new FormatException("\"properties\" is not an object");
+
+								names.AddRange(member.Value);
+								found = true;
+							}
+
+							SkipWhitespace(json, ref position);
+							if (position != json.Length)
+								throw new FormatException("unexpected content after the root object");
+
+							if (!found)
+								throw new FormatException("it has no \"properties\" object");
+
+							return true;
+						}
+						catch (FormatException ex)
+						{
+							error = ex.Message;
+							return false;
+						}
+					}
+
+					// Yields each member of the object at 'position': its name, and - when its value is an
+					// object - that object's member names. Nested values are read and discarded.
+					static List<KeyValuePair<string, List<string>>> ReadObjectMembers(string json, ref int position)
+					{
+						var members = new List<KeyValuePair<string, List<string>>>();
+						Expect(json, ref position, '{');
+						SkipWhitespace(json, ref position);
+						if (Peek(json, position) == '}')
+						{
+							position++;
+							return members;
+						}
+
+						while (true)
+						{
+							SkipWhitespace(json, ref position);
+							var name = ReadString(json, ref position);
+							SkipWhitespace(json, ref position);
+							Expect(json, ref position, ':');
+							SkipWhitespace(json, ref position);
+
+							List<string> childNames = null;
+							if (Peek(json, position) == '{')
+								childNames = ReadObjectMembers(json, ref position).Select(m => m.Key).ToList();
+							else
+								SkipValue(json, ref position);
+
+							members.Add(new KeyValuePair<string, List<string>>(name, childNames));
+							SkipWhitespace(json, ref position);
+							var next = Peek(json, position);
+							position++;
+							if (next == '}')
+								return members;
+							if (next != ',')
+								throw new FormatException("expected ',' or '}' at offset " + (position - 1));
+						}
+					}
+
+					static void SkipValue(string json, ref int position)
+					{
+						var c = Peek(json, position);
+						if (c == '{')
+						{
+							ReadObjectMembers(json, ref position);
+						}
+						else if (c == '[')
+						{
+							position++;
+							SkipWhitespace(json, ref position);
+							if (Peek(json, position) == ']')
+							{
+								position++;
+								return;
+							}
+
+							while (true)
+							{
+								SkipWhitespace(json, ref position);
+								SkipValue(json, ref position);
+								SkipWhitespace(json, ref position);
+								var next = Peek(json, position);
+								position++;
+								if (next == ']')
+									return;
+								if (next != ',')
+									throw new FormatException("expected ',' or ']' at offset " + (position - 1));
+							}
+						}
+						else if (c == '"')
+						{
+							ReadString(json, ref position);
+						}
+						else
+						{
+							var start = position;
+							while (position < json.Length && "-+.0123456789eEtruefalsn".IndexOf(json[position]) >= 0)
+								position++;
+							var literal = json.Substring(start, position - start);
+							double number;
+							if (literal != "true" && literal != "false" && literal != "null"
+								&& !double.TryParse(literal, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out number))
+								throw new FormatException("unexpected value at offset " + start);
+						}
+					}
+
+					static string ReadString(string json, ref int position)
+					{
+						Expect(json, ref position, '"');
+						var builder = new System.Text.StringBuilder();
+						while (true)
+						{
+							if (position >= json.Length)
+								throw new FormatException("unterminated string");
+
+							var c = json[position++];
+							if (c == '"')
+								return builder.ToString();
+
+							if (c != '\\')
+							{
+								builder.Append(c);
+								continue;
+							}
+
+							if (position >= json.Length)
+								throw new FormatException("unterminated escape");
+
+							var escaped = json[position++];
+							if (escaped == 'u')
+							{
+								if (position + 4 > json.Length)
+									throw new FormatException("truncated \\u escape");
+								builder.Append((char)Convert.ToInt32(json.Substring(position, 4), 16));
+								position += 4;
+							}
+							else
+							{
+								builder.Append(escaped == 'n' ? '\n' : escaped == 't' ? '\t' : escaped == 'r' ? '\r' : escaped == 'b' ? '\b' : escaped == 'f' ? '\f' : escaped);
+							}
+						}
+					}
+
+					static void Expect(string json, ref int position, char expected)
+					{
+						if (Peek(json, position) != expected)
+							throw new FormatException("expected '" + expected + "' at offset " + position);
+						position++;
+					}
+
+					static char Peek(string json, int position) => position < json.Length ? json[position] : '\0';
+
+					static void SkipWhitespace(string json, ref int position)
+					{
+						while (position < json.Length && char.IsWhiteSpace(json[position]))
+							position++;
+					}
+				}
+				]]>
+			</Code>
+		</Task>
+	</UsingTask>
+
+	<Target
+		Name="ValidatePurviewPropertySchema"
+		Label="Checks that the package's MSBuild Editor sidecar schemas agree with its .props/.targets files (PRPSC)."
+	>
+		<PropertyGroup>
+			<_PurviewPropertySchemaDirectory>$(PurviewPropertySchemaDirectory)</_PurviewPropertySchemaDirectory>
+			<_PurviewPropertySchemaDirectory Condition="'$(_PurviewPropertySchemaDirectory)' == ''"
+				>$([MSBuild]::NormalizeDirectory('$(MSBuildProjectDirectory)', 'Sdk'))</_PurviewPropertySchemaDirectory>
+		</PropertyGroup>
+		<ValidatePurviewPropertySchemaFiles
+			Directory="$(_PurviewPropertySchemaDirectory)"
+			IgnoredProperties="$(PurviewPropertySchemaIgnoredProperties)"
+		/>
+	</Target>
+
+	<!-- The opt-in pack gate. Separate from the target above so naming the target always runs it. -->
+	<Target
+		Name="_ValidatePurviewPropertySchemaBeforePack"
+		BeforeTargets="Pack"
+		Condition="'$(EnablePurviewPropertySchemaValidation)' == 'true'"
+		DependsOnTargets="ValidatePurviewPropertySchema"
+	/>
+</Project>

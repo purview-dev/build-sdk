@@ -4,103 +4,93 @@ using Purview.BuildSdk.Infra;
 
 namespace Purview.BuildSdk;
 
-// CA1308: NuGet's global-packages layout is lowercase on disk and in the assets file's "path" value,
-// so a fake restored package has to be written to the lowercase folder to be found at all. This is
-// not normalisation for comparison.
-#pragma warning disable CA1308
-
 /// <summary>
-/// Verifies the command <c>InstallPurviewSkills</c> hands to the skills CLI. The CLI does not split a
-/// comma-separated <c>--skill</c> value - it matches nothing and reports "No matching skills found" -
-/// so the shape of this command is a correctness concern, not a formatting one.
+/// Verifies the command <c>InstallPurviewSkills</c> hands to the skills CLI, and the repository root it
+/// runs from. The target is a thin wrapper: <c>skills add &lt;source&gt;</c> for an explicit
+/// <c>PurviewSkillsSource</c>, or <c>skills experimental_install</c> to restore <c>skills-lock.json</c>.
 /// </summary>
+/// <remarks>
+/// <c>echo</c> stands in for the CLI so a test asserts on the command without needing Node, a network,
+/// or a real install. Exec runs through the platform shell, and echo is a builtin of both cmd and sh,
+/// so this is identical on Windows, Linux and macOS. The throwaway solution is not a git repository and
+/// has no <c>AGENTS.md</c>, so the repository root is named explicitly where a test needs one.
+/// </remarks>
 sealed class PurviewSkillInstallCommandTests
 {
-	static void WriteFakePackage(string packagesRoot, string packageId, string version, string[] skillNames)
-	{
-		var packageRoot = Path.Combine(packagesRoot, packageId.ToLowerInvariant(), version);
-		Directory.CreateDirectory(packageRoot);
-
-		foreach (var skillName in skillNames)
-		{
-			var skillDirectory = Path.Combine(packageRoot, ".agents", "skills", skillName);
-			Directory.CreateDirectory(skillDirectory);
-			File.WriteAllText(
-				Path.Combine(skillDirectory, "SKILL.md"),
-				$"---\nname: {skillName}\ndescription: Use when exercising skill installation.\n---\n"
-			);
-		}
-
-		File.WriteAllText(
-			Path.Combine(packageRoot, $"{packageId.ToLowerInvariant()}.nuspec"),
-			$"""
-			<?xml version="1.0" encoding="utf-8"?>
-			<package xmlns="http://schemas.microsoft.com/packaging/2012/06/nuspec.xsd">
-				<metadata>
-					<id>{packageId}</id>
-					<version>{version}</version>
-					<repository type="git" url="https://github.com/purview-dev/purview-example/" commit="0123456789abcdef0123456789abcdef01234567" />
-				</metadata>
-			</package>
-			"""
-		);
-	}
-
-	static void WriteAssetsFile(string assetsPath, string packageId, string version)
-	{
-		Directory.CreateDirectory(Path.GetDirectoryName(assetsPath)!);
-		File.WriteAllText(
-			assetsPath,
-			$$"""
-			{
-				"version": 3,
-				"libraries": {
-					"{{packageId}}/{{version}}": {
-						"sha512": "",
-						"type": "package",
-						"path": "{{packageId.ToLowerInvariant()}}/{{version}}",
-						"files": []
-					}
-				}
-			}
-			"""
-		);
-	}
-
 	[Test]
-	public async Task InstallPurviewSkills_RepeatsTheSkillFlagPerSkill(CancellationToken cancellationToken)
+	public async Task InstallPurviewSkills_FromASource_AddsEverySkillItHas(CancellationToken cancellationToken)
 	{
 		using var harness = await ProjectHarness.CreateAsync("SkillInstaller", cancellationToken: cancellationToken);
 
-		var packagesRoot = Path.Combine(harness.SolutionDirectory, "packages");
-		WriteFakePackage(packagesRoot, "Purview.Example", "1.2.3", ["purview-alpha", "purview-beta"]);
-
-		var assetsPath = Path.Combine(harness.SolutionDirectory, "obj", "project.assets.json");
-		WriteAssetsFile(assetsPath, "Purview.Example", "1.2.3");
-
-		// 'echo' stands in for the CLI so the test asserts on the command without needing Node, a
-		// network, or a real install. Exec runs through the platform shell, and echo is a builtin of
-		// both cmd and sh, so this is identical on Windows, Linux and macOS.
-		// The throwaway solution is not a git repository and has no AGENTS.md, so the repository root
-		// is named explicitly - the CLI always runs from a repository root and never falls back to
-		// the project folder.
 		var (exitCode, stdOut, stdErr) = await harness.RunMSBuildAsync(
 			"-t:InstallPurviewSkills -v:n "
-				+ $"-p:ProjectAssetsFile=\"{assetsPath}\" -p:NuGetPackageFolders=\"{packagesRoot}\" "
 				+ $"-p:PurviewSkillsInstallRoot=\"{harness.SolutionDirectory}\" "
+				+ "-p:PurviewSkillsSource=purview-dev/engineering-playbook#abc123 "
 				+ "-p:PurviewSkillsCommand=echo -p:PurviewSkillsAgents=claude-code",
 			cancellationToken
 		);
 
 		await Assert.That(exitCode).IsZero().Because(TestHelpers.GenerateError(stdOut, stdErr));
+		// The caller's source and ref verbatim, every skill it has, then the agent selection.
+		await Assert
+			.That(stdOut)
+			.Contains("add \"purview-dev/engineering-playbook#abc123\" --skill \"*\" --agent \"claude-code\" -y");
+	}
 
-		// The pinned source, then one --skill flag per resolved skill, then the agent selection.
-		await Assert.That(stdOut).Contains("purview-dev/purview-example#0123456789abcdef0123456789abcdef01234567");
-		await Assert.That(stdOut).Contains("--skill \"purview-alpha\" --skill \"purview-beta\"");
-		await Assert.That(stdOut).Contains("--agent \"claude-code\"");
-		await Assert.That(stdOut).Contains("-y");
-		// The comma form is the bug this test exists to prevent.
-		await Assert.That(stdOut).DoesNotContain("purview-alpha,purview-beta");
+	[Test]
+	public async Task InstallPurviewSkills_WithoutAgents_LetsTheCliAutoDetect(CancellationToken cancellationToken)
+	{
+		using var harness = await ProjectHarness.CreateAsync("SkillInstaller", cancellationToken: cancellationToken);
+
+		var (exitCode, stdOut, stdErr) = await harness.RunMSBuildAsync(
+			"-t:InstallPurviewSkills -v:n "
+				+ $"-p:PurviewSkillsInstallRoot=\"{harness.SolutionDirectory}\" "
+				+ "-p:PurviewSkillsSource=purview-dev/build-sdk -p:PurviewSkillsCommand=echo",
+			cancellationToken
+		);
+
+		await Assert.That(exitCode).IsZero().Because(TestHelpers.GenerateError(stdOut, stdErr));
+		await Assert.That(stdOut).Contains("--skill \"*\" -y");
+		await Assert.That(stdOut).DoesNotContain("--agent");
+	}
+
+	[Test]
+	public async Task InstallPurviewSkills_WithoutASource_RestoresTheLockFile(CancellationToken cancellationToken)
+	{
+		using var harness = await ProjectHarness.CreateAsync("SkillRestorer", cancellationToken: cancellationToken);
+		await File.WriteAllTextAsync(
+			Path.Combine(harness.SolutionDirectory, "skills-lock.json"),
+			/*lang=json,strict*/"""{"version": 1, "skills": {}}""",
+			cancellationToken
+		);
+
+		var (exitCode, stdOut, stdErr) = await harness.RunMSBuildAsync(
+			"-t:InstallPurviewSkills -v:n "
+				+ $"-p:PurviewSkillsInstallRoot=\"{harness.SolutionDirectory}\" -p:PurviewSkillsCommand=echo",
+			cancellationToken
+		);
+
+		// A fresh clone gets its skills back the standard way: the CLI restores what the lockfile records.
+		await Assert.That(exitCode).IsZero().Because(TestHelpers.GenerateError(stdOut, stdErr));
+		await Assert.That(stdOut).Contains("experimental_install");
+		await Assert.That(stdOut).DoesNotContain(" add ");
+	}
+
+	[Test]
+	public async Task InstallPurviewSkills_WithoutASourceOrALockFile_SaysWhatToDo(CancellationToken cancellationToken)
+	{
+		using var harness = await ProjectHarness.CreateAsync("SkillNothing", cancellationToken: cancellationToken);
+
+		var (exitCode, stdOut, stdErr) = await harness.RunMSBuildAsync(
+			"-t:InstallPurviewSkills -v:n "
+				+ $"-p:PurviewSkillsInstallRoot=\"{harness.SolutionDirectory}\" -p:PurviewSkillsCommand=echo",
+			cancellationToken
+		);
+
+		await Assert.That(exitCode).IsNotEqualTo(0);
+		var output = stdOut + stdErr;
+		await Assert.That(output).Contains("PRSKL0007");
+		await Assert.That(output).Contains("PurviewSkillsSource");
 	}
 
 	/// <summary>
@@ -109,33 +99,37 @@ sealed class PurviewSkillInstallCommandTests
 	/// mapping is not a formatting detail: it is a command that does not run.
 	/// </summary>
 	[Test]
-	[Arguments("npx", "npx skills")]
-	[Arguments("bunx", "bunx skills")]
-	[Arguments("bun", "bun x skills")]
-	[Arguments("pnpm", "pnpm dlx skills")]
-	[Arguments("yarn", "yarn dlx skills")]
-	[Arguments("deno", "deno run -A npm:skills")]
+	[Arguments("npx", "npx -y skills@1")]
+	[Arguments("bunx", "bunx skills@1")]
+	[Arguments("bun", "bun x skills@1")]
+	[Arguments("pnpm", "pnpm dlx skills@1")]
+	[Arguments("yarn", "yarn dlx skills@1")]
+	[Arguments("deno", "deno run -A npm:skills@1")]
 	[Arguments("skills", "skills")]
 	// A runner this SDK has never heard of still resolves, rather than being silently dropped.
-	[Arguments("future-runner", "future-runner skills")]
-	public async Task SkillsRunner_DrivesTheRecommendedCommand(
+	[Arguments("future-runner", "future-runner skills@1")]
+	public async Task SkillsRunner_DrivesTheExecutedCommand(
 		string runner,
-		string expectedPrefix,
+		string expectedLauncher,
 		CancellationToken cancellationToken
 	)
 	{
-		using var harness = await ProjectHarness.CreateAsync("SkillRunner", cancellationToken: cancellationToken);
+		// An empty PATH means no runner is found, so the dry run falls back to the configured one.
+		using var harness = await ProjectHarness.CreateAsync(
+			"SkillRunner",
+			extraEnv: new Dictionary<string, string> { ["PATH"] = string.Empty },
+			cancellationToken: cancellationToken
+		);
 
 		var (exitCode, stdOut, stdErr) = await harness.RunMSBuildAsync(
-			"-t:_ResolvePurviewSkillRecommendationPaths "
-				+ "-getProperty:_PurviewSkillsCommandDisplay "
-				+ $"-p:PurviewSkillsRunner={runner}",
+			"-t:InstallPurviewSkills -v:n "
+				+ $"-p:PurviewSkillsInstallRoot=\"{harness.SolutionDirectory}\" "
+				+ $"-p:PurviewSkillsSource=purview-dev/build-sdk -p:PurviewSkillsDryRun=true -p:PurviewSkillsRunner={runner}",
 			cancellationToken
 		);
 
 		await Assert.That(exitCode).IsZero().Because(TestHelpers.GenerateError(stdOut, stdErr));
-		// Recommendation text is the command a developer copies, so it carries no version pin.
-		await Assert.That(stdOut.Trim()).IsEqualTo(expectedPrefix);
+		await Assert.That(stdOut).Contains($"Agent skills (dry run): {expectedLauncher} add \"purview-dev/build-sdk\"");
 	}
 
 	[Test]
@@ -150,30 +144,6 @@ sealed class PurviewSkillInstallCommandTests
 
 		await Assert.That(exitCode).IsZero().Because(TestHelpers.GenerateError(stdOut, stdErr));
 		await Assert.That(stdOut.Trim()).IsEqualTo("bun");
-	}
-
-	[Test]
-	public async Task InstallPurviewSkills_WithoutAgents_LetsTheCliAutoDetect(CancellationToken cancellationToken)
-	{
-		using var harness = await ProjectHarness.CreateAsync("SkillInstaller", cancellationToken: cancellationToken);
-
-		var packagesRoot = Path.Combine(harness.SolutionDirectory, "packages");
-		WriteFakePackage(packagesRoot, "Purview.Example", "1.2.3", ["purview-alpha"]);
-
-		var assetsPath = Path.Combine(harness.SolutionDirectory, "obj", "project.assets.json");
-		WriteAssetsFile(assetsPath, "Purview.Example", "1.2.3");
-
-		var (exitCode, stdOut, stdErr) = await harness.RunMSBuildAsync(
-			"-t:InstallPurviewSkills -v:n "
-				+ $"-p:ProjectAssetsFile=\"{assetsPath}\" -p:NuGetPackageFolders=\"{packagesRoot}\" "
-				+ $"-p:PurviewSkillsInstallRoot=\"{harness.SolutionDirectory}\" "
-				+ "-p:PurviewSkillsCommand=echo",
-			cancellationToken
-		);
-
-		await Assert.That(exitCode).IsZero().Because(TestHelpers.GenerateError(stdOut, stdErr));
-		await Assert.That(stdOut).Contains("--skill \"purview-alpha\" -y");
-		await Assert.That(stdOut).DoesNotContain("--agent");
 	}
 
 	/// <summary>
@@ -228,15 +198,9 @@ sealed class PurviewSkillInstallCommandTests
 			cancellationToken: cancellationToken
 		);
 
-		var packagesRoot = Path.Combine(harness.SolutionDirectory, "packages");
-		WriteFakePackage(packagesRoot, "Purview.Example", "1.2.3", ["purview-alpha"]);
-
-		var assetsPath = Path.Combine(harness.SolutionDirectory, "obj", "project.assets.json");
-		WriteAssetsFile(assetsPath, "Purview.Example", "1.2.3");
-
 		var (exitCode, stdOut, stdErr) = await harness.RunMSBuildAsync(
 			"-t:InstallPurviewSkills -v:n "
-				+ $"-p:ProjectAssetsFile=\"{assetsPath}\" -p:NuGetPackageFolders=\"{packagesRoot}\"",
+				+ $"-p:PurviewSkillsInstallRoot=\"{harness.SolutionDirectory}\" -p:PurviewSkillsSource=purview-dev/build-sdk",
 			cancellationToken
 		);
 
@@ -245,62 +209,10 @@ sealed class PurviewSkillInstallCommandTests
 		var output = stdOut + stdErr;
 		await Assert.That(output).Contains("PRSKL0004");
 		await Assert.That(output).Contains("npm install -g skills");
-		await Assert.That(output).Contains("ListPurviewSkills");
-	}
-
-	[Test]
-	public async Task ListPurviewSkills_ReportsCliAvailabilityWithoutNeedingIt(CancellationToken cancellationToken)
-	{
-		using var harness = await ProjectHarness.CreateAsync(
-			"SkillListNoCli",
-			extraEnv: new Dictionary<string, string> { ["PATH"] = string.Empty },
-			cancellationToken: cancellationToken
-		);
-
-		var packagesRoot = Path.Combine(harness.SolutionDirectory, "packages");
-		WriteFakePackage(packagesRoot, "Purview.Example", "1.2.3", ["purview-alpha"]);
-
-		var assetsPath = Path.Combine(harness.SolutionDirectory, "obj", "project.assets.json");
-		WriteAssetsFile(assetsPath, "Purview.Example", "1.2.3");
-
-		var (exitCode, stdOut, stdErr) = await harness.RunMSBuildAsync(
-			"-t:ListPurviewSkills -v:n "
-				+ $"-p:ProjectAssetsFile=\"{assetsPath}\" -p:NuGetPackageFolders=\"{packagesRoot}\"",
-			cancellationToken
-		);
-
-		// Listing resolves and reports with no Node tooling present - it must not fail.
-		await Assert.That(exitCode).IsZero().Because(TestHelpers.GenerateError(stdOut, stdErr));
-		await Assert.That(stdOut).Contains("Skills CLI: no runner found on PATH");
-		await Assert.That(stdOut).Contains("purview-dev/purview-example");
-	}
-
-	[Test]
-	public async Task InstallPurviewSkills_WithExplicitSource_NeedsNoRestore(CancellationToken cancellationToken)
-	{
-		using var harness = await ProjectHarness.CreateAsync(
-			"SkillExplicitSource",
-			cancellationToken: cancellationToken
-		);
-
-		// No ProjectAssetsFile is written: an explicit source does not come from the restore graph,
-		// so PRSKL0001 must not fire.
-		var (exitCode, stdOut, stdErr) = await harness.RunMSBuildAsync(
-			"-t:InstallPurviewSkills -v:n "
-				+ "-p:ProjectAssetsFile=\"does-not-exist.json\" "
-				+ $"-p:PurviewSkillsInstallRoot=\"{harness.SolutionDirectory}\" "
-				+ "-p:PurviewSkillsSource=purview-dev/engineering-playbook#abc123 "
-				+ "-p:PurviewSkillsCommand=echo -p:PurviewSkillsAgents=claude-code",
-			cancellationToken
-		);
-
-		await Assert.That(exitCode).IsZero().Because(TestHelpers.GenerateError(stdOut, stdErr));
-		await Assert.That(stdOut + stdErr).DoesNotContain("PRSKL0001");
-		await Assert.That(stdOut).Contains("add \"purview-dev/engineering-playbook#abc123\"");
 	}
 
 	/// <summary>
-	/// Resolves the repository root the install and recommendation targets run from, by asking
+	/// Resolves the repository root every skill target runs from, by asking
 	/// MSBuild for the property the shared resolution target computes.
 	/// </summary>
 	static async Task<string> ResolveRepositoryRootAsync(
@@ -538,16 +450,8 @@ sealed class PurviewSkillInstallCommandTests
 			cancellationToken: cancellationToken
 		);
 
-		var packagesRoot = Path.Combine(harness.SolutionDirectory, "packages");
-		WriteFakePackage(packagesRoot, "Purview.Example", "1.2.3", ["purview-alpha"]);
-
-		var assetsPath = Path.Combine(harness.SolutionDirectory, "obj", "project.assets.json");
-		WriteAssetsFile(assetsPath, "Purview.Example", "1.2.3");
-
 		var (exitCode, stdOut, stdErr) = await harness.RunMSBuildAsync(
-			"-t:InstallPurviewSkills -v:n "
-				+ $"-p:ProjectAssetsFile=\"{assetsPath}\" -p:NuGetPackageFolders=\"{packagesRoot}\" "
-				+ "-p:PurviewSkillsCommand=echo",
+			"-t:InstallPurviewSkills -v:n -p:PurviewSkillsSource=purview-dev/build-sdk -p:PurviewSkillsCommand=echo",
 			cancellationToken
 		);
 
@@ -558,5 +462,3 @@ sealed class PurviewSkillInstallCommandTests
 		await Assert.That(output).Contains("PurviewSkillsInstallRoot");
 	}
 }
-
-#pragma warning restore CA1308

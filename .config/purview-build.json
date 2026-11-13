@@ -21,10 +21,13 @@
 				"Sdk/Props/PackedVersion.props",
 				"Sdk/Props/VersionDetection.props",
 				"Sdk/Sdk.props",
+				"Sdk/Sdk.props.buildschema.json",
 				"Sdk/Sdk.targets",
 				"Sdk/Targets/Blazor.targets",
 				"Sdk/Targets/Modern.targets",
+				"Sdk/Targets/PropertySchema.targets",
 				"Sdk/Targets/ServerShared.targets",
+				"Sdk/Targets/TargetFrameworkOwnership.targets",
 				"Sdk/Targets/VersionDetection.targets"
 			],
 			"purview.skills.testing": [

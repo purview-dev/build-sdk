@@ -72,12 +72,13 @@
 		<EnforceCodeStyleInBuild Condition="'$(EnforceCodeStyleInBuild)' == ''">true</EnforceCodeStyleInBuild>
 		<EnableAssemblyNameGeneration Condition="'$(EnableAssemblyNameGeneration)' == ''"
 			>true</EnableAssemblyNameGeneration>
-		<!-- Skills are checked and installed only by a target a person invokes:
-		     -t:RecommendPurviewSkills, -t:VerifyPurviewSkills, -t:InstallPurviewSkills,
-		     -t:UpdatePurviewSkills, -t:CheckPurviewSkills, -t:FixPurviewSkills or
-		     -t:ListPurviewSkills. There is deliberately no build hook: reading the restore graph
-		     and the lockfile on every build of every project was measured as the largest
-		     avoidable cost in an up-to-date build, and it existed only to print advice. -->
+		<!-- Opt-in: a package that ships .props/.targets with a .buildschema.json sidecar turns this on to
+		     check the two agree before Pack (PRPSC, Targets/PropertySchema.targets). -->
+		<EnablePurviewPropertySchemaValidation Condition="'$(EnablePurviewPropertySchemaValidation)' == ''"
+			>false</EnablePurviewPropertySchemaValidation>
+		<!-- Skills are installed only by a target a person invokes - -t:InstallPurviewSkills,
+		     -t:UpdatePurviewSkills, -t:CheckPurviewSkills or -t:FixPurviewSkills - each a thin wrapper
+		     over the standard skills CLI. There is deliberately no build hook. -->
 		<!-- Overrides where skills-lock.json is read from. Empty resolves to the repository root,
 		     which is where the CLI writes it for a project-scope install. -->
 		<PurviewSkillsLockFile Condition="'$(PurviewSkillsLockFile)' == ''"></PurviewSkillsLockFile>
@@ -95,8 +96,7 @@
 		     skill directories exist. -->
 		<PurviewSkillsAgents Condition="'$(PurviewSkillsAgents)' == ''"></PurviewSkillsAgents>
 		<!-- Pinned to a major so a future breaking release of the CLI cannot change what the install
-		     target does. Recommendation text deliberately omits the pin: it is a command for a human
-		     to run, not a reproducible invocation. -->
+		     target does. -->
 		<PurviewSkillsPackage Condition="'$(PurviewSkillsPackage)' == ''">skills@1</PurviewSkillsPackage>
 		<!-- Markers that identify a repository root, most authoritative first. Each is searched all
 		     the way up from the project before the next is tried, so '.git/' wins over a nearer
@@ -177,6 +177,10 @@
 		<MaxCpuCount Condition="'$(MaxCpuCount)' == ''"></MaxCpuCount>
 		<NoWarn Condition="'$(NoWarn)' == ''"></NoWarn>
 		<Nullable Condition="'$(Nullable)' == ''">enable</Nullable>
+		<!-- Every project, not only Roslyn components: a warning nobody is made to fix is one that ships.
+		     Compiler, analyzer and NuGet warnings fail the build; MSBuild <Warning> tasks do not. Set
+		     TreatWarningsAsErrors=false in a project or Directory.Build.props to opt out. -->
+		<TreatWarningsAsErrors Condition="'$(TreatWarningsAsErrors)' == ''">true</TreatWarningsAsErrors>
 		<OutputType Condition="'$(OutputType)' == ''"></OutputType>
 		<Packable Condition="'$(Packable)' == ''">false</Packable>
 		<PackageTags Condition="'$(PackageTags)' == ''"></PackageTags>
@@ -200,9 +204,8 @@
 		<!-- Runtime Async is resolved per-TFM in Targets/Modern.targets, after the project body, so
 		     PurviewRuntimeAsync=true or UseRuntimeAsync=true works from the project file as well as
 		     from Directory.Build.props. It defaults to off: it changes how every await compiles. -->
-		<!-- MSBuild's single-process multithreaded build (-mt). Applied through the bootstrapped
-		     Directory.Build.rsp, because -mt is a build-host switch and cannot be set from a project. -->
-		<PurviewMultiThreadedBuild Condition="'$(PurviewMultiThreadedBuild)' == ''">true</PurviewMultiThreadedBuild>
+		<!-- PurviewMultiThreadedBuild (MSBuild's -mt) is defaulted in Sdk.targets, after the project body,
+		     because whether the user set it decides what a Blazor WebAssembly client writes. -->
 		<PurviewNamespacePrefix Condition="'$(PurviewNamespacePrefix)' == ''"></PurviewNamespacePrefix>
 		<PurviewProjectShortName Condition="'$(PurviewProjectShortName)' == ''"></PurviewProjectShortName>
 		<PurviewTestType Condition="'$(PurviewTestType)' == ''"></PurviewTestType>

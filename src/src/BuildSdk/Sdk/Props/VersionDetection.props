@@ -36,8 +36,12 @@
 			>$(_CachedPackageJsonVersion)</_PackageJsonVersion>
 	</PropertyGroup>
 
+	<!-- A relative RootPackageJson is relative to the project, as every MSBuild path property is.
+	     NormalizePath with a single argument resolves against the process's working directory, so the
+	     same build read a different package.json - or none - depending on where dotnet was started.
+	     An absolute path passes through unchanged. -->
 	<PropertyGroup Condition="'$(_UsePackageJsonVersionEnabled)' == 'true' and '$(_RootPackageJsonWasSpecified)' == 'true'">
-		<RootPackageJson>$([MSBuild]::NormalizePath('$(RootPackageJson)'))</RootPackageJson>
+		<RootPackageJson>$([MSBuild]::NormalizePath('$(MSBuildProjectDirectory)', '$(RootPackageJson)'))</RootPackageJson>
 	</PropertyGroup>
 
 	<PropertyGroup Condition="'$(_UsePackageJsonVersionEnabled)' == 'true' and '$(_RootPackageJsonWasSpecified)' != 'true'">

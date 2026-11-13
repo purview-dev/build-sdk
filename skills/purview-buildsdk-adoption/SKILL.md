@@ -49,7 +49,7 @@ where noted:
 | What | Where | Notes |
 | -- | -- | -- |
 | `NamespacePrefix` | `Directory.Build.props`, above the import | Required — the build fails without it unless `DisableNamespacePrefixCheck=true`. |
-| SDK version | `global.json` → `msbuild-sdks.Purview.BuildSdk` | The pinned `Purview.BuildSdk` version, e.g. `2.0.1`. The SDK bootstraps `global.json` when it is missing and writes the version it was packed as (`PurviewBuildSdkVersionForGlobalJson`). |
+| SDK version | `global.json` → `msbuild-sdks.Purview.BuildSdk` | The pinned `Purview.BuildSdk` version, e.g. `2.0.1`. The SDK bootstraps `global.json` when it is missing and writes `PurviewBuildSdkVersionForGlobalJson` — the restored package version, else the version it was packed as. |
 | Product version | repo-root `package.json` → `version` | Drives `Version` and `PackageVersion`. `UsePackageJsonVersion` / `RootPackageJson` are pre-import. |
 | Package versions | `Directory.Packages.props` | CPM is on; a `PackageVersion` is a minimum, not an exact pin. |
 
@@ -70,13 +70,17 @@ This is the single most common adoption failure.
 Set before the import:
 
 - `NamespacePrefix`
-- `UsePackageJsonVersion`, `RootPackageJson`
+- `UsePackageJsonVersion`, `RootPackageJson`, `RepoRoot`
 - `EnableAssemblyNameGeneration`
-- `AutoIncludeUsings`
-- `PurviewSharedTestingOutputType`, `PurviewTestContextNoWarn`
-- any repo-wide testing-framework selection you want every project to inherit
+- `TestingFramework`, `SubstituteFramework`, `TestDataFramework` — even for a single project; a
+  value in the `.csproj` is too late and the defaults (`TUnit`, `TUnitMocks`, `Bogus`) stay
+- `PurviewTestContextNoWarn`, `DisablePurviewTestContextRuleSet`
+- `DisablePurviewBlazorWebAssemblyDefaults`
+- `PurviewTargetFrameworks<Set>`, when redefining a framework set
 
-Everything else is read in `Sdk.targets` and can be set in a project file.
+Most other properties are read in `Sdk.targets`, or only after the project body, and can be set in a
+project file — `PurviewSharedTestingOutputType` and `AutoIncludeUsings` among them. `purview-buildsdk-configuration` lists
+which is which.
 
 When a property appears to have no effect, confirm what MSBuild actually resolved before changing
 anything else:
@@ -90,11 +94,14 @@ dotnet msbuild <project> -getProperty:NamespacePrefix -getProperty:RootNamespace
 Versions come from `package.json`. Resolution order:
 
 1. An explicit `RootPackageJson`.
-2. CI workspace variables.
-3. The `.git` root.
-4. A nearby `package.json`.
+2. An explicit `RepoRoot`, else CI workspace variables (`GITHUB_WORKSPACE`,
+   `BUILD_SOURCESDIRECTORY`, `BUILD_REPOSITORY_LOCALPATH`, `CI_PROJECT_DIR`).
+3. The nearest `.git` above the project.
+4. The nearest `package.json` above the project.
 
-On success both `Version` and `PackageVersion` are set from the `version` field.
+The `package.json` at that root is read, and on success both `Version` and `PackageVersion` are set
+from its `version` field. A root that is found but has no `package.json`, or a `package.json` with no
+`version`, already fails the build.
 
 If the version looks wrong, do not guess at the discovery — make it fail loudly instead:
 
@@ -102,8 +109,8 @@ If the version looks wrong, do not guess at the discovery — make it fail loudl
 <UsePackageJsonVersion>Strict</UsePackageJsonVersion>
 ```
 
-`Strict` fails the build when discovery or resolution cannot succeed, rather than silently skipping
-it and leaving the default `1.0.0`. Set `VersionDetectionLogEnabled=true` to see what it found.
+`Strict` also fails the build when no repository root can be discovered at all, rather than silently
+skipping detection and leaving the default `0.0.1`. Set `VersionDetectionLogEnabled=true` to see what it found.
 
 ## 4. Naming and placement
 
@@ -124,7 +131,7 @@ cleaning them up are separate targets a person runs by name — `InstallPurviewS
 repository refuse to run inside a build (`PRSKL0009`). Do not hook them into one. The skills CLI does
 the installing, through `bun x` by default; with `PurviewSkillsAgents` unset it auto-detects agents.
 
-If the repository uses `just`, add recipes for them — see `purview-buildsdk-skills-justfile`. For what each
+If the repository uses `just`, add recipes for them — see `purview-buildsdk-justfile`. For what each
 target does and the `PRSKL*` diagnostics, see `purview-buildsdk-skill-installation`.
 
 ## 6. Target frameworks
@@ -138,9 +145,9 @@ dotnet msbuild <project> -getProperty:TargetFramework -getProperty:TargetFramewo
 
 To set it:
 
-- **Declare it explicitly** — `TargetFramework` (one) or `TargetFrameworks` (many). It must be declared
-  **unconditionally**: the SDK reads it from the project XML before the body is evaluated, so a
-  `Condition` on it is not seen (`PurviewConditionedProjectDeclaration`).
+- **Declare it explicitly** — `TargetFramework` (one) or `TargetFrameworks` (many). An explicit value
+  always wins over every set, wherever it is set (the project, with or without a `Condition`, a file it
+  imports, or `Directory.Build.props`) — but not in `Directory.Build.targets`, which is too late.
 - **Select a curated set** — `<PurviewTargetFrameworkSet>Supported</PurviewTargetFrameworkSet>` in
   `Directory.Build.props` or the `.csproj` (`Current`, `Latest`, `Supported`, `Broad`, `All`), so a
   lifecycle change is one SDK bump rather than an edit in every project.
@@ -154,7 +161,8 @@ A Roslyn component targets `netstandard2.0` and ignores the sets. Full detail in
 
 The SDK adds a SourceLink provider package (`SourceLinkPackageName`, default
 `Microsoft.SourceLink.GitHub`) to every non-test project, and `PublishRepositoryUrl=true` writes the
-repository URL and commit into the packed `.nuspec`. Match the repository host **before the SDK import**:
+repository URL and commit into the packed `.nuspec`. Match the repository host in
+`Directory.Build.props`, so every project gets the same provider:
 
 | Host | Package |
 | -- | -- |

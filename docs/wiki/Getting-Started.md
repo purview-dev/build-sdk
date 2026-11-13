@@ -15,15 +15,15 @@ pinned SDK version — bump it deliberately, because a released version can chan
     "runner": "Microsoft.Testing.Platform"
   },
   "msbuild-sdks": {
-    "Purview.BuildSdk": "2.0.1"
+    "Purview.BuildSdk": "2.1.0"
   }
 }
 ```
 
 > [!NOTE]
 > The SDK can also bootstrap a `global.json` for you at the repository root when one is missing; see
-> [Repository Bootstrap](Repository-Bootstrap.md). The value it writes is the version the package was
-> packed as (`PurviewBuildSdkVersionForGlobalJson`).
+> [Repository Bootstrap](Repository-Bootstrap.md). The value it writes is the restored package's version,
+> else the version it was packed as (`PurviewBuildSdkVersionForGlobalJson`).
 
 ## 2. Create `Directory.Build.props` at the repo root
 
@@ -62,9 +62,23 @@ build depend on the day it ran.
 > `Directory.Packages.props` at your repo root for CPM to work, even if it only contains the packages
 > the SDK adds automatically.
 
+## 5. Add `package.json` at the repo root
+
+The product version comes from the `version` field of a repository-root `package.json`:
+
+```json
+{
+  "version": "1.0.0"
+}
+```
+
+In a git repository with no root `package.json` the build fails, because version detection found a
+repository root but no file in it. Add one, point `RootPackageJson` at another file, or set
+`UsePackageJsonVersion=false` before the import. See [Version Detection](configuration/Version-Detection.md).
+
 ## Required settings and versions
 
-The four values above are the ones that decide whether the SDK behaves as documented:
+These four values decide whether the SDK behaves as documented:
 
 | Setting | Where it goes | Notes |
 | -- | -- | -- |
@@ -78,7 +92,8 @@ The four values above are the ones that decide whether the SDK behaves as docume
 A project that declares neither `TargetFramework` nor `TargetFrameworks` gets the SDK's default set,
 `net10.0;net11.0`. To change it:
 
-- declare `TargetFramework` (one) or `TargetFrameworks` (many) **unconditionally** in the project; or
+- declare `TargetFramework` (one) or `TargetFrameworks` (many) — an explicit value always wins over
+  every set, in the project, a file it imports, or `Directory.Build.props`; or
 - select a named set with `<PurviewTargetFrameworkSet>Supported</PurviewTargetFrameworkSet>` in
   `Directory.Build.props` or the `.csproj` (`Current`, `Latest`, `Supported`, `Broad`, `All`).
 
@@ -86,10 +101,10 @@ See [Target framework sets](Configuration-Reference.md#target-framework-sets).
 
 ## Next steps
 
-- Read the policy-level guidance in [Engineering Principles](Engineering-Principles.md).
-- Understand how projects are detected and named in [Project Type Detection](Project-Type-Detection.md)
-  and [Project Naming Conventions](Project-Naming-Conventions.md).
+- Read the policy-level guidance in [Engineering Principles](concepts/Engineering-Principles.md).
+- Understand how projects are detected and named in [Project Type Detection](concepts/Project-Type-Detection.md)
+  and [Project Naming Conventions](concepts/Project-Naming-Conventions.md).
 - Browse every configurable property in the [Configuration Reference](Configuration-Reference.md).
-- Learn how the package version is sourced in [Version Detection](Version-Detection.md).
-- See how test projects are wired up in [Testing Wiring](Testing-Wiring.md).
-- Read how packages are produced in [Packaging](Packaging.md).
+- Learn how the package version is sourced in [Version Detection](configuration/Version-Detection.md).
+- See how test projects are wired up in [Testing Wiring](testing/Testing-Wiring.md).
+- Read how packages are produced in [Packaging](packaging/Packaging.md).

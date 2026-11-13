@@ -428,7 +428,7 @@
 			<Description>Overrides how the skills CLI is invoked. Empty detects 'skills', then PurviewSkillsRunner, then PurviewSkillsRunnerCandidates on PATH.</Description>
 		</CompilerVisibleProperty>
 		<CompilerVisibleProperty Include="PurviewSkillsSource">
-			<Description>Installs from an explicit git source (owner/repo, optionally '#ref') instead of from referenced packages.</Description>
+			<Description>The git source InstallPurviewSkills adds through the skills CLI (owner/repo, optionally '#ref'); unset restores skills-lock.json.</Description>
 		</CompilerVisibleProperty>
 		<CompilerVisibleProperty Include="PurviewSkillsLockFile">
 			<Description>Overrides where the skills CLI's skills-lock.json is read from. Defaults to the repository root.</Description>
@@ -516,7 +516,7 @@
 			<Description>True when SdkProjectName is Microsoft.NET.Sdk.Worker.</Description>
 		</CompilerVisibleProperty>
 		<CompilerVisibleProperty Include="IsAspireHostProject">
-			<Description>True when the project SDK starts with Aspire.Sdk.Host.</Description>
+			<Description>True when the project SDK starts with Aspire.Sdk.Host or Aspire.AppHost.Sdk.</Description>
 		</CompilerVisibleProperty>
 		<CompilerVisibleProperty Include="IsBlazorWebAssemblyProject">
 			<Description>True when SdkProjectName is Microsoft.NET.Sdk.BlazorWebAssembly.</Description>
@@ -567,7 +567,7 @@
 			<Description>When true, a net11.0+ project compiles with the runtime-async compiler feature. Defaults to false; UseRuntimeAsync=true also opts in.</Description>
 		</CompilerVisibleProperty>
 		<CompilerVisibleProperty Include="PurviewMultiThreadedBuild">
-			<Description>When true (default), boots a Directory.Build.rsp that enables MSBuild's multithreaded build (-mt).</Description>
+			<Description>When true (default), boots a Directory.Build.rsp that enables MSBuild's multithreaded build (-mt). Left unset, a Blazor WebAssembly client writes -mt:false instead.</Description>
 		</CompilerVisibleProperty>
 		<CompilerVisibleProperty Include="EditorConfigFilePath">
 			<Description>Path to the SDK-provided .editorconfig used for build-time style enforcement.</Description>
@@ -591,7 +591,7 @@
 			<Description>When true, bootstraps a managed Directory.Build.rsp that enables MSBuild's multithreaded build (-mt).</Description>
 		</CompilerVisibleProperty>
 		<CompilerVisibleProperty Include="DisableAutoCopySdkFiles">
-			<Description>When true, disables SDK auto-copy bootstrapping for repository files such as .editorconfig and global.json.</Description>
+			<Description>When true, disables SDK auto-copy bootstrapping for repository files: .editorconfig, global.json and Directory.Build.rsp.</Description>
 		</CompilerVisibleProperty>
 		<CompilerVisibleProperty Include="PurviewBuildSdkVersionForGlobalJson">
 			<Description>Version written to the msbuild-sdks Purview.BuildSdk entry when bootstrapping global.json.</Description>
@@ -609,7 +609,7 @@
 			<Description>Name of the generated assembly identifier marker class. Derived from the project name with the namespace prefix stripped, suffixed with Assembly.</Description>
 		</CompilerVisibleProperty>
 		<CompilerVisibleProperty Include="IsCLIProject">
-			<Description>True when the project is a CLI project.</Description>
+			<Description>True when the project name ends with CLI, Console, CommandLine, QuickStart or QuickStarts.</Description>
 		</CompilerVisibleProperty>
 		<CompilerVisibleProperty Include="IsSharedProject">
 			<Description>True when the project is a shared project.</Description>
@@ -618,7 +618,7 @@
 			<Description>True for ServerShared helper projects (ServerSharedFramework, etc.), which are referenced automatically only by projects that cannot run in a browser.</Description>
 		</CompilerVisibleProperty>
 		<CompilerVisibleProperty Include="IsClientSideProject">
-			<Description>True when the project's assemblies are downloaded to a browser: a WebAssembly client, a PurviewBrowserSafe library, a Razor class library, or a project named with a client-side suffix (*.Client, *.Browser, *.Wasm, *.WebAssembly, *.Components). Set explicitly to override.</Description>
+			<Description>True when the project's assemblies are downloaded to a browser: a WebAssembly client, a PurviewBrowserSafe library, a Razor class library, or a project named with a client-side suffix (*.Client, *.ClientShared, *.Browser, *.Wasm, *.WebAssembly, *.Components, or exactly ClientShared or Components). Set explicitly to override.</Description>
 		</CompilerVisibleProperty>
 	</ItemGroup>
 
@@ -640,7 +640,7 @@
 			<Description>Nullable reference-types context used to build the Roslyn component. Defaults to enable.</Description>
 		</CompilerVisibleProperty>
 		<CompilerVisibleProperty Include="TreatWarningsAsErrors">
-			<Description>Treats all compiler/analyzer warnings as errors. Defaults to true for Roslyn components.</Description>
+			<Description>Treats all compiler, analyzer and NuGet warnings as errors. Defaults to true for every project; set false to opt out.</Description>
 		</CompilerVisibleProperty>
 		<CompilerVisibleProperty Include="EnforceExtendedAnalyzerRules">
 			<Description>Enforces Roslyn analyzer best-practice rules. Defaults to true for Roslyn components.</Description>
@@ -657,6 +657,41 @@
 	</ItemGroup>
 
 	<!-- =====================================================================
+	     TARGET FRAMEWORK OWNERSHIP
+
+	     An explicit TargetFramework or TargetFrameworks always wins over anything this SDK would assign,
+	     wherever it is set. The project-text scan above only sees an unconditional declaration in the
+	     project body, so three other routes need handling: a value set before this import, a value set
+	     under a Condition, and a value set in a file the project imports. Each used to leave a curated
+	     set's TargetFrameworks list underneath the explicit TargetFramework; NuGet restored the list while
+	     the build compiled the single framework, and the build failed with NETSDK1005.
+
+	     A value set before the import is visible here, but an inner build also arrives with
+	     TargetFramework set - as a global property - and must still resolve the same TargetFrameworks
+	     list as the outer evaluation (see the resolution group below). The two are told apart by trying
+	     to overwrite the value: MSBuild silently ignores an assignment to a global property, so the probe
+	     only sticks when the value is the project's own, and is then put back.
+
+	     Values set after this import are reconciled in Targets/TargetFrameworkOwnership.targets, which
+	     the .NET SDK imports through BeforeMicrosoftNETSdkTargets: after the project body, but before it
+	     decides IsCrossTargetingBuild. Directory.Build.targets is imported too late to take part.
+	     ===================================================================== -->
+	<PropertyGroup Label="Target Framework Ownership" Condition="'$(IsCSharpProject)' == 'true'">
+		<_PurviewTargetFrameworkBeforeProbe>$(TargetFramework)</_PurviewTargetFrameworkBeforeProbe>
+		<TargetFramework>_purview-global-property-probe_</TargetFramework>
+		<_PurviewTargetFrameworkIsGlobal Condition="'$(TargetFramework)' != '_purview-global-property-probe_'"
+			>true</_PurviewTargetFrameworkIsGlobal>
+		<TargetFramework>$(_PurviewTargetFrameworkBeforeProbe)</TargetFramework>
+		<_PurviewTargetFrameworkSetBeforeImport
+			Condition="'$(TargetFramework)' != '' AND '$(_PurviewTargetFrameworkIsGlobal)' != 'true'"
+			>true</_PurviewTargetFrameworkSetBeforeImport>
+
+		<!-- Chained rather than replaced, so a value someone else set before this import still runs. -->
+		<_PurviewChainedBeforeMicrosoftNETSdkTargets>$(BeforeMicrosoftNETSdkTargets)</_PurviewChainedBeforeMicrosoftNETSdkTargets>
+		<BeforeMicrosoftNETSdkTargets>$(MSBuildThisFileDirectory)Targets/TargetFrameworkOwnership.targets</BeforeMicrosoftNETSdkTargets>
+	</PropertyGroup>
+
+	<!-- =====================================================================
 	     C# PROJECT DEFAULTS
 	     ===================================================================== -->
 	<PropertyGroup
@@ -668,11 +703,13 @@
 		<TargetFrameworks></TargetFrameworks>
 		<TargetFramework Condition="'$(_PurviewProjectDeclaresTargetFramework)' != 'true'"
 			>netstandard2.0</TargetFramework>
+		<_PurviewSdkAssignedTargetFramework Condition="'$(_PurviewProjectDeclaresTargetFramework)' != 'true'"
+			>netstandard2.0</_PurviewSdkAssignedTargetFramework>
 		<EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
 		<!-- Roslyn best-practice compiler defaults. Project body values are evaluated later and win. -->
 		<LangVersion Condition="'$(LangVersion)' == '' OR '$(LangVersion)' == 'preview'">latest</LangVersion>
 		<Nullable Condition="'$(Nullable)' == ''">enable</Nullable>
-		<TreatWarningsAsErrors Condition="'$(TreatWarningsAsErrors)' == ''">true</TreatWarningsAsErrors>
+		<!-- TreatWarningsAsErrors=true comes from Props/Defaults.props, for every project. -->
 		<!-- Analyzer-only packages have no lib/ folder; suppress NU5128 so TreatWarningsAsErrors
 		     does not fail the pack. No symbol package is produced by default (the PDB ships in
 		     analyzers/dotnet/cs beside the analyzer assembly), and any explicit opt-in uses the
@@ -777,7 +814,7 @@
 	-->
 	<PropertyGroup
 		Label="Curated Target Framework Set Resolution"
-		Condition="'$(IsCSharpProject)' == 'true' AND '$(IsRoslynComponent)' != 'true' AND '$(_PurviewProjectDeclaresTargetFramework)' != 'true' AND '$(TargetFrameworks)' == ''"
+		Condition="'$(IsCSharpProject)' == 'true' AND '$(IsRoslynComponent)' != 'true' AND '$(_PurviewProjectDeclaresTargetFramework)' != 'true' AND '$(_PurviewTargetFrameworkSetBeforeImport)' != 'true' AND '$(TargetFrameworks)' == ''"
 	>
 		<!-- 'Current' when nothing is selected, so the set mechanism - not a literal buried further down
 		     this file - is what decides a project's targets. It resolves to every release still in
@@ -798,12 +835,20 @@
 		<!-- A single entry becomes TargetFramework, so a one-TFM set does not pay for an outer build.
 		     Guarded on an empty TargetFramework so an inner build's global property is never fought:
 		     unlike TargetFrameworks above, this one is per-evaluation by nature. -->
+		<_PurviewSdkAssignedTargetFramework
+			Condition="'$(TargetFramework)' == '' AND '$(_PurviewResolvedTargetFrameworkSet)' != '' AND !$(_PurviewResolvedTargetFrameworkSet.Contains(';'))"
+			>$(_PurviewResolvedTargetFrameworkSet)</_PurviewSdkAssignedTargetFramework>
 		<TargetFramework
 			Condition="'$(TargetFramework)' == '' AND '$(_PurviewResolvedTargetFrameworkSet)' != '' AND !$(_PurviewResolvedTargetFrameworkSet.Contains(';'))"
 			>$(_PurviewResolvedTargetFrameworkSet)</TargetFramework>
 		<TargetFrameworks
 			Condition="'$(_PurviewResolvedTargetFrameworkSet)' != '' AND $(_PurviewResolvedTargetFrameworkSet.Contains(';'))"
 			>$(_PurviewResolvedTargetFrameworkSet)</TargetFrameworks>
+		<!-- Recorded so TargetFrameworkOwnership.targets can tell a value this SDK assigned from one the
+		     project set later, and give the project's the win. -->
+		<_PurviewSdkAssignedTargetFrameworks
+			Condition="'$(_PurviewResolvedTargetFrameworkSet)' != '' AND $(_PurviewResolvedTargetFrameworkSet.Contains(';'))"
+			>$(_PurviewResolvedTargetFrameworkSet)</_PurviewSdkAssignedTargetFrameworks>
 	</PropertyGroup>
 
 	<PropertyGroup Label="C# Project Property Groups" Condition="'$(IsCSharpProject)' == 'true'">
@@ -817,6 +862,12 @@
 		     quietly built one TFM and every multi-targeting consumer failed to reference it with
 		     "Project 'X' targets 'net10.0'. It cannot be referenced by a project that targets
 		     '.NETCoreApp,Version=v9.0'". -->
+		<_PurviewSdkAssignedTargetFrameworks
+			Condition="'$(TargetFramework)' == '' AND '$(TargetFrameworks)' == '' AND '$(_PurviewProjectDeclaresTargetFramework)' != 'true' AND $(PurviewTargetFrameworksCurrent.Contains(';'))"
+			>$(PurviewTargetFrameworksCurrent)</_PurviewSdkAssignedTargetFrameworks>
+		<_PurviewSdkAssignedTargetFramework
+			Condition="'$(TargetFramework)' == '' AND '$(TargetFrameworks)' == '' AND '$(_PurviewProjectDeclaresTargetFramework)' != 'true' AND !$(PurviewTargetFrameworksCurrent.Contains(';'))"
+			>$(PurviewTargetFrameworksCurrent)</_PurviewSdkAssignedTargetFramework>
 		<TargetFrameworks
 			Condition="'$(TargetFramework)' == '' AND '$(TargetFrameworks)' == '' AND '$(_PurviewProjectDeclaresTargetFramework)' != 'true' AND $(PurviewTargetFrameworksCurrent.Contains(';'))"
 			>$(PurviewTargetFrameworksCurrent)</TargetFrameworks>

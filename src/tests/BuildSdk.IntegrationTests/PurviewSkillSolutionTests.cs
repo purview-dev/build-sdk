@@ -18,26 +18,16 @@ sealed partial class PurviewSkillSolutionTests
 	private static partial Regex DryRunInstallLine();
 
 	// MSBuild logs this line when a target actually runs, not when a cached result is handed back.
-	[GeneratedRegex("is building \"[^\"]+\" \\([^)]+\\) on node \\d+ \\(_ListPurviewSkillsCore")]
-	private static partial Regex ListCoreRun();
-
-	[GeneratedRegex("No restored package ships agent skills\\.")]
-	private static partial Regex NoSkillsLine();
-
-	[GeneratedRegex("Purview\\.Example 1\\.2\\.3 -> purview-dev/purview-example#")]
-	private static partial Regex ExampleListedLine();
+	[GeneratedRegex("is building \"[^\"]+\" \\([^)]+\\) on node \\d+ \\(_CheckPurviewSkillsCore")]
+	private static partial Regex CheckCoreRun();
 
 	/// <summary>
-	/// Three SDK projects in one solution, each with its own restore graph. The harness's own solution
-	/// lists projects as files, so this writes one that lists them as projects.
+	/// Three SDK projects in one solution. The harness's own solution lists projects as files, so this
+	/// writes one that lists them as projects.
 	/// </summary>
 	static async Task<ProjectHarness[]> CreateSolutionAsync(CancellationToken cancellationToken)
 	{
-		var first = await ProjectHarness.CreateAsync(
-			"Alpha",
-			extraProps: "<ProjectAssetsFile>$(MSBuildProjectDirectory)/fake.assets.json</ProjectAssetsFile>",
-			cancellationToken: cancellationToken
-		);
+		var first = await ProjectHarness.CreateAsync("Alpha", cancellationToken: cancellationToken);
 
 		var projects = new List<ProjectHarness> { first };
 		foreach (var name in new[] { "Bravo", "Charlie" })
@@ -46,9 +36,6 @@ sealed partial class PurviewSkillSolutionTests
 				await ProjectHarness
 					.For(name)
 					.WithNamespacePrefix("Test")
-					.AddPropertyRaw(
-						"<ProjectAssetsFile>$(MSBuildProjectDirectory)/fake.assets.json</ProjectAssetsFile>"
-					)
 					.WithSolutionDirectory(first.SolutionDirectory)
 					.BuildAsync(cancellationToken)
 			);
@@ -69,9 +56,6 @@ sealed partial class PurviewSkillSolutionTests
 
 		// The repository root resolves from a marker, as it would in a real repository.
 		await File.WriteAllTextAsync(Path.Combine(first.SolutionDirectory, "AGENTS.md"), "# Test", cancellationToken);
-
-		foreach (var project in projects)
-			SkillPackageFixtures.WriteAssetsFile(Path.Combine(project.ProjectDirectory, "fake.assets.json"));
 
 		return [.. projects];
 	}
@@ -117,80 +101,10 @@ sealed partial class PurviewSkillSolutionTests
 		var projects = await CreateSolutionAsync(cancellationToken);
 		using var owner = projects[0];
 
-		var (code, output) = await RunOnSolutionAsync(owner, "-t:ListPurviewSkills", cancellationToken);
+		var (code, output) = await RunOnSolutionAsync(owner, "-t:CheckPurviewSkills", cancellationToken);
 
 		await Assert.That(code).IsZero().Because(output);
 		// Each project runs the public target, but only the leader runs the work behind it.
-		await Assert.That(ListCoreRun().Count(output)).IsEqualTo(1).Because(output);
-		await Assert.That(NoSkillsLine().Count(output)).IsEqualTo(1);
-	}
-
-	[Test]
-	public async Task APackageOnlyOneProjectReferences_IsFoundFromTheSolution(CancellationToken cancellationToken)
-	{
-		var projects = await CreateSolutionAsync(cancellationToken);
-		using var owner = projects[0];
-
-		var packagesRoot = Path.Combine(owner.SolutionDirectory, "packages");
-		SkillPackageFixtures.WritePackage(packagesRoot, "Purview.Example", "1.2.3", ["purview-alpha"]);
-		// Only the last project - never the leader - references the package, the way a test project
-		// is often the only one to reference a testing library.
-		SkillPackageFixtures.WriteAssetsFile(
-			Path.Combine(projects[2].ProjectDirectory, "fake.assets.json"),
-			("Purview.Example", "1.2.3")
-		);
-
-		var (code, output) = await RunOnSolutionAsync(
-			owner,
-			$"-t:ListPurviewSkills -p:NuGetPackageFolders=\"{packagesRoot}\"",
-			cancellationToken
-		);
-
-		await Assert.That(code).IsZero().Because(output);
-		await Assert.That(ExampleListedLine().Count(output)).IsEqualTo(1).Because(output);
-	}
-
-	[Test]
-	public async Task TwoVersionsOfOnePackage_AreReportedAsAConflict(CancellationToken cancellationToken)
-	{
-		var projects = await CreateSolutionAsync(cancellationToken);
-		using var owner = projects[0];
-
-		var packagesRoot = Path.Combine(owner.SolutionDirectory, "packages");
-		SkillPackageFixtures.WritePackage(packagesRoot, "Purview.Example", "1.0.0", ["purview-alpha"]);
-		SkillPackageFixtures.WritePackage(packagesRoot, "Purview.Example", "2.0.0", ["purview-alpha"]);
-		SkillPackageFixtures.WriteAssetsFile(
-			Path.Combine(projects[1].ProjectDirectory, "fake.assets.json"),
-			("Purview.Example", "1.0.0")
-		);
-		SkillPackageFixtures.WriteAssetsFile(
-			Path.Combine(projects[2].ProjectDirectory, "fake.assets.json"),
-			("Purview.Example", "2.0.0")
-		);
-
-		var (code, output) = await RunOnSolutionAsync(
-			owner,
-			$"-t:ListPurviewSkills -p:NuGetPackageFolders=\"{packagesRoot}\"",
-			cancellationToken
-		);
-
-		await Assert.That(code).IsZero().Because(output);
-		await Assert.That(output).Contains("PRSKL0017");
-		await Assert.That(output).Contains("1.0.0, 2.0.0");
-	}
-
-	[Test]
-	public async Task AnUnrestoredProject_IsNamedInPRSKL0001(CancellationToken cancellationToken)
-	{
-		var projects = await CreateSolutionAsync(cancellationToken);
-		using var owner = projects[0];
-
-		File.Delete(Path.Combine(projects[1].ProjectDirectory, "fake.assets.json"));
-
-		var (code, output) = await RunOnSolutionAsync(owner, "-t:ListPurviewSkills", cancellationToken);
-
-		await Assert.That(code).IsNotEqualTo(0);
-		await Assert.That(output).Contains("PRSKL0001");
-		await Assert.That(output).Contains("Bravo.csproj");
+		await Assert.That(CheckCoreRun().Count(output)).IsEqualTo(1).Because(output);
 	}
 }

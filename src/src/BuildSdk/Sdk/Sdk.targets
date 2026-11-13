@@ -11,6 +11,7 @@
 	<Import Project="$(MSBuildThisFileDirectory)Targets/Blazor.targets" />
 	<Import Project="$(MSBuildThisFileDirectory)Targets/ServerShared.targets" />
 	<Import Project="$(MSBuildThisFileDirectory)Targets/Modern.targets" />
+	<Import Project="$(MSBuildThisFileDirectory)Targets/PropertySchema.targets" />
 
 	<!-- =====================================================================
 	     SHARED TESTING PROJECT OUTPUT
@@ -371,210 +372,6 @@
 	</PropertyGroup>
 
 	<!-- =====================================================================
-	     RESOLVE PURVIEW SKILL SOURCES
-	     Maps every restored NuGet package that ships skills to the git source
-	     and commit the skills CLI needs to install them.
-
-	     There is deliberately no custom skills.json manifest. A package that
-	     ships skills already carries both halves of the mapping:
-
-	       * '.agents/skills/<name>/' in the package says which skills it has,
-	         which is the same folder the agent-folder mirror already reads, and
-	       * the nuspec's <repository url="..." commit="..." /> element - written
-	         by SourceLink for every package built by this SDK - says which git
-	         repository and which exact commit produced them.
-
-	     That makes version compatibility exact by construction: the commit
-	     resolved is the commit the restored package was built from, so a
-	     project on an older package version gets that version's skills rather
-	     than whatever is on the default branch. A package with no repository
-	     metadata cannot be pinned, and is reported rather than guessed at.
-
-	     Returns one item per package, with the skill names as metadata, for an
-	     explicit install target to act on. Resolution never runs during a
-	     normal build.
-
-	     Takes every project's assets file at once, because skills belong to
-	     the repository: a package referenced by two projects is one package,
-	     and is reported once. Two projects on *different* versions of one
-	     package are both returned, and named in VersionConflicts, because
-	     only one version's skills can be installed into the repository.
-	     ===================================================================== -->
-	<UsingTask
-		TaskName="ResolvePurviewSkillSources"
-		TaskFactory="RoslynCodeTaskFactory"
-		AssemblyFile="$([System.IO.Path]::Combine('$(MSBuildToolsPath)', 'Microsoft.Build.Tasks.Core.dll'))"
-	>
-		<ParameterGroup>
-			<ProjectAssetsFiles ParameterType="System.String" Required="true" />
-			<NuGetPackageFolders ParameterType="System.String" Required="false" />
-			<SkillSources ParameterType="Microsoft.Build.Framework.ITaskItem[]" Output="true" />
-			<Unresolvable ParameterType="Microsoft.Build.Framework.ITaskItem[]" Output="true" />
-			<VersionConflicts ParameterType="Microsoft.Build.Framework.ITaskItem[]" Output="true" />
-		</ParameterGroup>
-		<Task>
-			<Using Namespace="System.IO" />
-			<Using Namespace="System.Linq" />
-			<Using Namespace="System.Text.RegularExpressions" />
-			<Using Namespace="Microsoft.Build.Framework" />
-			<Using Namespace="Microsoft.Build.Utilities" />
-			<Reference Include="$([System.IO.Path]::Combine('$(MSBuildToolsPath)', 'Microsoft.Build.Framework.dll'))" />
-			<Reference Include="$([System.IO.Path]::Combine('$(MSBuildToolsPath)', 'Microsoft.Build.Utilities.Core.dll'))" />
-			<Code Type="Fragment" Language="cs">
-				<![CDATA[
-					var resolved = new List<ITaskItem>();
-					var unresolved = new List<ITaskItem>();
-					// One package at one version is one result, however many projects reference it.
-					var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-					var roots = (NuGetPackageFolders ?? string.Empty)
-						.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries)
-						.Select(root => root.TrimEnd('\\', '/'))
-						.Where(root => root.Length > 0)
-						.Distinct(StringComparer.OrdinalIgnoreCase)
-						.ToArray();
-
-					// Same "libraries" shape DiscoverAgentPackageFolders reads; the version is the
-					// segment after the id, and is reported so a diagnostic can name it.
-					var libraryPattern = new Regex(
-						"\"(?<id>[^\"/]+)/(?<version>[^\"]+)\"\\s*:\\s*\\{[^{}]*?\"type\"\\s*:\\s*\"package\"[^{}]*?\"path\"\\s*:\\s*\"(?<path>[^\"]+)\"",
-						RegexOptions.Singleline
-					);
-					// NuGet writes the repository element on one line; url and commit may appear in
-					// either order, so match the element then pull each attribute out of it.
-					var repositoryElementPattern = new Regex("<repository\\b[^>]*/?>", RegexOptions.IgnoreCase);
-					var urlPattern = new Regex("\\burl\\s*=\\s*\"(?<url>[^\"]*)\"", RegexOptions.IgnoreCase);
-					var commitPattern = new Regex("\\bcommit\\s*=\\s*\"(?<commit>[^\"]*)\"", RegexOptions.IgnoreCase);
-
-					var assetsFiles = (ProjectAssetsFiles ?? string.Empty)
-						.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries)
-						.Select(file => file.Trim())
-						.Where(file => file.Length > 0 && File.Exists(file))
-						.Distinct(StringComparer.OrdinalIgnoreCase);
-
-					foreach (var assetsFile in assetsFiles)
-					{
-						var json = File.ReadAllText(assetsFile);
-
-						foreach (Match match in libraryPattern.Matches(json))
-						{
-							var libraryPath = match.Groups["path"].Value;
-							if (string.IsNullOrEmpty(libraryPath))
-								continue;
-
-							var packageId = match.Groups["id"].Value;
-							var packageVersion = match.Groups["version"].Value;
-							if (!seen.Add(packageId + "/" + packageVersion))
-								continue;
-							var normalizedPath = libraryPath.Replace('/', Path.DirectorySeparatorChar);
-
-							foreach (var root in roots)
-							{
-								var packageRoot = Path.Combine(root, normalizedPath);
-								var skillsFolder = Path.Combine(packageRoot, ".agents", "skills");
-								if (!Directory.Exists(skillsFolder))
-									continue;
-
-								// Only a folder holding a SKILL.md is a skill; a 'references' or
-								// 'scripts' folder beside one is part of it, not another skill.
-								var skillNames = Directory.GetDirectories(skillsFolder)
-									.Where(dir => File.Exists(Path.Combine(dir, "SKILL.md")))
-									.Select(dir => Path.GetFileName(dir))
-									.OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
-									.ToArray();
-
-								if (skillNames.Length == 0)
-									break;
-
-								var repositoryUrl = string.Empty;
-								var repositoryCommit = string.Empty;
-								var nuspecFiles = Directory.GetFiles(packageRoot, "*.nuspec");
-								if (nuspecFiles.Length > 0)
-								{
-									var nuspec = File.ReadAllText(nuspecFiles[0]);
-									var element = repositoryElementPattern.Match(nuspec);
-									if (element.Success)
-									{
-										var urlMatch = urlPattern.Match(element.Value);
-										if (urlMatch.Success)
-											repositoryUrl = urlMatch.Groups["url"].Value;
-
-										var commitMatch = commitPattern.Match(element.Value);
-										if (commitMatch.Success)
-											repositoryCommit = commitMatch.Groups["commit"].Value;
-									}
-								}
-
-								// The skills CLI addresses GitHub as 'owner/repo'; a trailing slash or a
-								// '.git' suffix is normal in nuspec metadata and must be trimmed off.
-								var source = string.Empty;
-								if (repositoryUrl.Length > 0)
-								{
-									var gitHubMatch = Regex.Match(
-										repositoryUrl,
-										"github\\.com[/:](?<owner>[^/]+)/(?<repo>[^/]+?)(?:\\.git)?/?$",
-										RegexOptions.IgnoreCase
-									);
-									if (gitHubMatch.Success)
-										source = gitHubMatch.Groups["owner"].Value + "/" + gitHubMatch.Groups["repo"].Value;
-								}
-
-								var item = new TaskItem(packageId);
-								item.SetMetadata("PackageId", packageId);
-								item.SetMetadata("PackageVersion", packageVersion);
-								item.SetMetadata("Skills", string.Join(";", skillNames));
-								item.SetMetadata("SkillCount", skillNames.Length.ToString());
-								item.SetMetadata("PackageSkillsFolder", skillsFolder);
-								item.SetMetadata("RepositoryUrl", repositoryUrl);
-								item.SetMetadata("RepositoryCommit", repositoryCommit);
-								item.SetMetadata("Source", source);
-
-								if (source.Length > 0 && repositoryCommit.Length > 0)
-								{
-									// '<owner>/<repo>#<commit>' is the CLI's pinned-source syntax, and the
-									// commit is recorded in its lockfile so a restore is reproducible.
-									item.SetMetadata("SourceWithRef", source + "#" + repositoryCommit);
-									resolved.Add(item);
-								}
-								else
-								{
-									item.SetMetadata(
-										"Reason",
-										source.Length == 0
-											? "the package's nuspec has no GitHub <repository url=\"...\" /> metadata"
-											: "the package's nuspec <repository /> element has no commit attribute"
-									);
-									unresolved.Add(item);
-								}
-
-								break;
-							}
-						}
-					}
-
-					VersionConflicts = resolved
-						.Concat(unresolved)
-						.GroupBy(item => item.GetMetadata("PackageId"), StringComparer.OrdinalIgnoreCase)
-						.Where(group => group.Count() > 1)
-						.Select(group =>
-						{
-							var conflict = new TaskItem(group.Key);
-							conflict.SetMetadata(
-								"Versions",
-								string.Join(", ", group.Select(item => item.GetMetadata("PackageVersion")))
-							);
-							return (ITaskItem)conflict;
-						})
-						.ToArray();
-
-					SkillSources = resolved.ToArray();
-					Unresolvable = unresolved.ToArray();
-				]]>
-			</Code>
-		</Task>
-	</UsingTask>
-
-	<!-- =====================================================================
 	     RESOLVE PURVIEW SKILLS PROJECTS
 	     The projects a skill target answers for. Skills belong to the
 	     repository, so a skill target run against a solution must run once
@@ -640,369 +437,15 @@
 	</UsingTask>
 
 	<!-- =====================================================================
-	     EVALUATE LOCAL SKILL STATE
-	     Joins the skills a restored package ships against the skills the
-	     repository actually has installed, and classifies every one of them.
-
-	     Both halves are local, so this runs offline and spawns no process:
-
-	       * the restore graph says which packages are referenced, at which
-	         version, and which commit each was built from, and
-	       * 'skills-lock.json' - written by the skills CLI itself - says
-	         which skills are installed, from which source, at which ref.
-
-	     Reading the CLI's own lockfile is deliberate. Its JSON listing is
-	     machine-readable but omits the ref, and the ref is the whole
-	     question: without it there is nothing to compare a package's commit
-	     against. The lockfile carries it, costs no Node tooling, and this
-	     SDK therefore needs no competing manifest of its own.
-
-	     Classification, per skill:
-
-	       Satisfied  - installed from the same source at the same commit the
-	                    referenced package was built from.
-	       Missing    - the package ships it and the lockfile has no entry.
-	       Drifted    - installed from the same source at a *different* ref.
-	                    The installed skill describes some other version of
-	                    the library than the one referenced.
-	       Unknown    - installed with no ref recorded, installed from a
-	                    different source under the same name, or shipped by a
-	                    package that cannot be pinned at all.
-	       Orphaned   - in the lockfile, under an owner this project does
-	                    reference, but from a repository it no longer does.
-
-	     Orphan detection is deliberately owner-scoped. A lockfile cannot say
-	     who asked for an entry, so anything outside the owners the project
-	     references is treated as the developer's own and left alone.
-	     ===================================================================== -->
-	<UsingTask
-		TaskName="EvaluatePurviewSkillState"
-		TaskFactory="RoslynCodeTaskFactory"
-		AssemblyFile="$([System.IO.Path]::Combine('$(MSBuildToolsPath)', 'Microsoft.Build.Tasks.Core.dll'))"
-	>
-		<ParameterGroup>
-			<SkillSources ParameterType="Microsoft.Build.Framework.ITaskItem[]" Required="false" />
-			<UnresolvableSkillSources ParameterType="Microsoft.Build.Framework.ITaskItem[]" Required="false" />
-			<LockFilePath ParameterType="System.String" Required="false" />
-			<Agents ParameterType="System.String" Required="false" />
-			<CommandPrefix ParameterType="System.String" Required="false" />
-			<RepositoryRoot ParameterType="System.String" Required="false" />
-			<AgentSkillDirectoriesFound ParameterType="System.Boolean" Output="true" />
-			<Missing ParameterType="Microsoft.Build.Framework.ITaskItem[]" Output="true" />
-			<Drifted ParameterType="Microsoft.Build.Framework.ITaskItem[]" Output="true" />
-			<Unknown ParameterType="Microsoft.Build.Framework.ITaskItem[]" Output="true" />
-			<Satisfied ParameterType="Microsoft.Build.Framework.ITaskItem[]" Output="true" />
-			<Orphaned ParameterType="Microsoft.Build.Framework.ITaskItem[]" Output="true" />
-			<LockFileFound ParameterType="System.Boolean" Output="true" />
-		</ParameterGroup>
-		<Task>
-			<Using Namespace="System.IO" />
-			<Using Namespace="System.Linq" />
-			<Using Namespace="System.Text" />
-			<Using Namespace="System.Text.RegularExpressions" />
-			<Using Namespace="Microsoft.Build.Framework" />
-			<Using Namespace="Microsoft.Build.Utilities" />
-			<Reference Include="$([System.IO.Path]::Combine('$(MSBuildToolsPath)', 'Microsoft.Build.Framework.dll'))" />
-			<Reference Include="$([System.IO.Path]::Combine('$(MSBuildToolsPath)', 'Microsoft.Build.Utilities.Core.dll'))" />
-			<Code Type="Fragment" Language="cs">
-				<![CDATA[
-					var sources = SkillSources ?? new ITaskItem[0];
-					var unpinnable = UnresolvableSkillSources ?? new ITaskItem[0];
-					// No agents named means no '--agent' at all: the CLI auto-detects them. It does not
-					// split a comma-separated value, so each named agent gets its own flag.
-					var agentArguments = string.Concat(
-						(Agents ?? string.Empty)
-							.Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries)
-							.Select(agent => agent.Trim())
-							.Where(agent => agent.Length > 0)
-							.Select(agent => " --agent \"" + agent + "\"")
-					);
-					// How the repository launches the CLI - 'bun x skills', 'npx skills', and so on.
-					var cli = string.IsNullOrEmpty(CommandPrefix) ? "bun x skills" : CommandPrefix;
-
-					// ---- Read the CLI's lockfile -------------------------------------------------
-					// Entries are flat objects, so one regex over the 'skills' object is enough. A
-					// shape this does not understand degrades to "not installed", which only ever
-					// produces advice, never a failure.
-					var lockedSource = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-					var lockedRef = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-
-					LockFileFound = !string.IsNullOrEmpty(LockFilePath) && File.Exists(LockFilePath);
-					if (LockFileFound)
-					{
-						var lockText = string.Empty;
-						try { lockText = File.ReadAllText(LockFilePath); }
-						catch (IOException) { LockFileFound = false; }
-						catch (UnauthorizedAccessException) { LockFileFound = false; }
-
-						var skillsKey = lockText.IndexOf("\"skills\"", StringComparison.Ordinal);
-						var open = skillsKey < 0 ? -1 : lockText.IndexOf('{', skillsKey);
-						if (open >= 0)
-						{
-							// Walk to the matching brace rather than regexing the whole document, so a
-							// sibling key that happens to contain braces cannot be swept in.
-							var depth = 0;
-							var inString = false;
-							var escaped = false;
-							var close = -1;
-							for (var index = open; index < lockText.Length; index++)
-							{
-								var character = lockText[index];
-								if (escaped) { escaped = false; continue; }
-								if (character == '\\' && inString) { escaped = true; continue; }
-								if (character == '"') { inString = !inString; continue; }
-								if (inString) continue;
-								if (character == '{') depth++;
-								else if (character == '}')
-								{
-									depth--;
-									if (depth == 0) { close = index; break; }
-								}
-							}
-
-							if (close > open)
-							{
-								var body = lockText.Substring(open, close - open + 1);
-								var entryPattern = new Regex("\"(?<name>[^\"]+)\"\\s*:\\s*\\{(?<entry>[^{}]*)\\}", RegexOptions.Singleline);
-								// '"source"' cannot match '"sourceType"': the closing quote differs.
-								var sourcePattern = new Regex("\"source\"\\s*:\\s*\"(?<value>[^\"]*)\"");
-								var refPattern = new Regex("\"ref\"\\s*:\\s*\"(?<value>[^\"]*)\"");
-
-								foreach (Match entry in entryPattern.Matches(body))
-								{
-									var name = entry.Groups["name"].Value;
-									var text = entry.Groups["entry"].Value;
-									var sourceMatch = sourcePattern.Match(text);
-									var refMatch = refPattern.Match(text);
-									lockedSource[name] = sourceMatch.Success ? sourceMatch.Groups["value"].Value : string.Empty;
-									lockedRef[name] = refMatch.Success ? refMatch.Groups["value"].Value : string.Empty;
-								}
-							}
-						}
-					}
-
-					// ---- Has the lockfile ever been restored here? -------------------------------
-					// A lockfile is a record of an install, not proof of one: a fresh clone carries a
-					// committed skills-lock.json and no installed skills at all. Rather than hard-code
-					// the agent directories - which the CLI owns, and which change independently of
-					// this SDK - look for any dot-folder at the repository root holding a 'skills'
-					// folder.
-					//
-					// '.agents' is deliberately *included* in that scan. It used to be excluded,
-					// because the SDK's own mirror wrote there and finding it proved nothing. The
-					// mirror is gone, so '.agents/skills/' is now unambiguously the CLI's universal
-					// install location - excluding it would report PRSKL0014 ("no agent skill
-					// directory exists") against a repository whose skills are correctly installed.
-					AgentSkillDirectoriesFound = false;
-					if (!string.IsNullOrEmpty(RepositoryRoot) && Directory.Exists(RepositoryRoot))
-					{
-						// Neither of these is ever an agent directory, and '.purview' is this SDK's own.
-						var ignored = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-						{
-							".git",
-							".purview",
-						};
-
-						foreach (var directory in Directory.GetDirectories(RepositoryRoot, ".*"))
-						{
-							if (ignored.Contains(Path.GetFileName(directory)))
-								continue;
-
-							if (Directory.Exists(Path.Combine(directory, "skills")))
-							{
-								AgentSkillDirectoriesFound = true;
-								break;
-							}
-						}
-					}
-
-					// ---- Classify ----------------------------------------------------------------
-					var missing = new List<ITaskItem>();
-					var drifted = new List<ITaskItem>();
-					var unknown = new List<ITaskItem>();
-					var satisfied = new List<ITaskItem>();
-					var orphaned = new List<ITaskItem>();
-
-					var knownSources = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-					var knownOwners = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-					var claimedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-					foreach (var item in sources.Concat(unpinnable))
-					{
-						var source = item.GetMetadata("Source") ?? string.Empty;
-						if (source.Length == 0)
-							continue;
-
-						knownSources.Add(source);
-						var slash = source.IndexOf('/');
-						if (slash > 0)
-							knownOwners.Add(source.Substring(0, slash));
-					}
-
-					foreach (var item in sources)
-					{
-						var packageId = item.GetMetadata("PackageId");
-						var packageVersion = item.GetMetadata("PackageVersion");
-						var source = item.GetMetadata("Source");
-						var commit = item.GetMetadata("RepositoryCommit");
-						var sourceWithRef = item.GetMetadata("SourceWithRef");
-
-						var names = (item.GetMetadata("Skills") ?? string.Empty)
-							.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries)
-							.OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
-							.ToArray();
-
-						var missingNames = new List<string>();
-						var driftedNames = new List<string>();
-						var unknownNames = new List<string>();
-						var unknownReasons = new List<string>();
-						var satisfiedNames = new List<string>();
-
-						foreach (var name in names)
-						{
-							claimedNames.Add(name);
-
-							string installedSource;
-							if (!lockedSource.TryGetValue(name, out installedSource))
-							{
-								missingNames.Add(name);
-								continue;
-							}
-
-							// Same name, different repository: somebody installed their own skill under
-							// this name. Reporting it as drift would be wrong, and overwriting it is not
-							// this SDK's call, so it is surfaced as unknown and left alone.
-							if (!string.Equals(installedSource, source, StringComparison.OrdinalIgnoreCase))
-							{
-								unknownNames.Add(name);
-								unknownReasons.Add(name + " is installed from '" + installedSource + "', not '" + source + "'");
-								continue;
-							}
-
-							var installedRef = lockedRef[name];
-							if (installedRef.Length == 0)
-							{
-								unknownNames.Add(name);
-								unknownReasons.Add(name + " is installed with no ref recorded, so it cannot be matched to a package version");
-							}
-							else if (string.Equals(installedRef, commit, StringComparison.OrdinalIgnoreCase))
-								satisfiedNames.Add(name);
-							else
-								driftedNames.Add(name);
-						}
-
-						// The install command names each skill explicitly and repeats the flag: the CLI
-						// matches nothing when given one comma-separated value.
-						var commandFor = new Func<List<string>, string>(selected =>
-							cli + " add \"" + sourceWithRef + "\" --skill \""
-								+ string.Join("\" --skill \"", selected) + "\"" + agentArguments + " -y");
-
-						var addItem = new Func<List<ITaskItem>, List<string>, ITaskItem>((bucket, selected) =>
-						{
-							var created = new TaskItem(packageId);
-							created.SetMetadata("PackageId", packageId);
-							created.SetMetadata("PackageVersion", packageVersion);
-							created.SetMetadata("Source", source);
-							created.SetMetadata("SourceWithRef", sourceWithRef);
-							created.SetMetadata("RepositoryCommit", commit);
-							created.SetMetadata("Skills", string.Join(";", selected));
-							created.SetMetadata("SkillCount", selected.Count.ToString());
-							created.SetMetadata("Command", commandFor(selected));
-							bucket.Add(created);
-							return created;
-						});
-
-						if (missingNames.Count > 0)
-							addItem(missing, missingNames);
-
-						if (driftedNames.Count > 0)
-						{
-							var driftedItem = addItem(drifted, driftedNames);
-							driftedItem.SetMetadata(
-								"InstalledRefs",
-								string.Join(";", driftedNames.Select(name => name + "@" + lockedRef[name]))
-							);
-						}
-
-						if (unknownNames.Count > 0)
-						{
-							var unknownItem = addItem(unknown, unknownNames);
-							unknownItem.SetMetadata("Reason", string.Join("; ", unknownReasons));
-						}
-
-						if (satisfiedNames.Count > 0)
-							addItem(satisfied, satisfiedNames);
-					}
-
-					// A package that ships skills but carries no pinnable git identity is unknown
-					// rather than missing: there is no ref to compare against and none to install from.
-					foreach (var item in unpinnable)
-					{
-						foreach (var name in (item.GetMetadata("Skills") ?? string.Empty)
-							.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries))
-						{
-							claimedNames.Add(name);
-						}
-
-						var created = new TaskItem(item.GetMetadata("PackageId"));
-						created.SetMetadata("PackageId", item.GetMetadata("PackageId"));
-						created.SetMetadata("PackageVersion", item.GetMetadata("PackageVersion"));
-						created.SetMetadata("Source", item.GetMetadata("Source"));
-						created.SetMetadata("Skills", item.GetMetadata("Skills"));
-						created.SetMetadata("SkillCount", item.GetMetadata("SkillCount"));
-						created.SetMetadata("Reason", item.GetMetadata("Reason"));
-						created.SetMetadata("Command", string.Empty);
-						unknown.Add(created);
-					}
-
-					// ---- Orphans -----------------------------------------------------------------
-					foreach (var entry in lockedSource.OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase))
-					{
-						var installedSource = entry.Value;
-						var slash = installedSource.IndexOf('/');
-						if (slash <= 0 || claimedNames.Contains(entry.Key))
-							continue;
-
-						// Outside the owners this project references, an entry is the developer's own.
-						if (!knownOwners.Contains(installedSource.Substring(0, slash)) || knownSources.Contains(installedSource))
-							continue;
-
-						var created = new TaskItem(entry.Key);
-						created.SetMetadata("Skill", entry.Key);
-						created.SetMetadata("Source", installedSource);
-						created.SetMetadata("Ref", lockedRef[entry.Key]);
-						created.SetMetadata("Command", cli + " remove \"" + entry.Key + "\"");
-						orphaned.Add(created);
-					}
-
-					Missing = missing.ToArray();
-					Drifted = drifted.ToArray();
-					Unknown = unknown.ToArray();
-					Satisfied = satisfied.ToArray();
-					Orphaned = orphaned.ToArray();
-
-					// No stamp and no fingerprint: this task is reached only by a target a person
-					// invokes, so reporting every time is the point. The fingerprint existed to stop
-					// a per-build hook repeating itself once per project; that hook is gone.
-				]]>
-			</Code>
-		</Task>
-	</UsingTask>
-
-	<!-- =====================================================================
 	     READ LOCKFILE SOURCES
 	     Turns the CLI's skills-lock.json into the set of 'skills add' calls
 	     that refresh it: one per unique source. Update is 'add', not 'skills
 	     update', so that it brings in skills a source has gained as well as
 	     refreshing the ones already installed.
 
-	     A source a restored package ships is pinned to the commit that package
-	     version was built from, exactly as InstallPurviewSkills pins it, and
-	     names every skill that package version ships - re-adding it unpinned
-	     would install the newest skill and turn a satisfied entry into
-	     PRSKL0011 drift. Every other source is re-added at latest with every
-	     skill it has (the skill name '*'), which is what "update" means for a
-	     source no package version speaks for.
+	     Every source is re-added at its latest with every skill it has (the
+	     skill name '*'). The lockfile's own names are deliberately not reused:
+	     naming them would leave out a skill the source has gained since.
 	     ===================================================================== -->
 	<UsingTask
 		TaskName="ReadPurviewSkillsLockSources"
@@ -1011,7 +454,6 @@
 	>
 		<ParameterGroup>
 			<LockFilePath ParameterType="System.String" Required="true" />
-			<SkillSources ParameterType="Microsoft.Build.Framework.ITaskItem[]" Required="false" />
 			<LockFileFound ParameterType="System.Boolean" Output="true" />
 			<UpdateSources ParameterType="Microsoft.Build.Framework.ITaskItem[]" Output="true" />
 		</ParameterGroup>
@@ -1038,8 +480,7 @@
 
 					if (LockFileFound)
 					{
-						// Same reading as EvaluatePurviewSkillState: walk to the brace that closes the
-						// 'skills' object, then one regex per flat entry.
+						// Walk to the brace that closes the 'skills' object, then one regex per flat entry.
 						var namesBySource = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
 						var skillsKey = lockText.IndexOf("\"skills\"", StringComparison.Ordinal);
 						var open = skillsKey < 0 ? -1 : lockText.IndexOf('{', skillsKey);
@@ -1085,28 +526,13 @@
 							}
 						}
 
-						var packages = SkillSources ?? new ITaskItem[0];
 						foreach (var pair in namesBySource.OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase))
 						{
-							var package = packages.FirstOrDefault(item =>
-								string.Equals(item.GetMetadata("Source"), pair.Key, StringComparison.OrdinalIgnoreCase));
-
-							ITaskItem created;
-							if (package != null)
-							{
-								created = new TaskItem(package.GetMetadata("SourceWithRef"));
-								created.SetMetadata("Skills", package.GetMetadata("Skills"));
-								created.SetMetadata("Origin", package.GetMetadata("PackageId") + " " + package.GetMetadata("PackageVersion"));
-							}
-							else
-							{
-								// Every skill the source has now, not just the ones recorded: re-adding is
-								// how an update picks up a skill the source has gained since.
-								created = new TaskItem(pair.Key);
-								created.SetMetadata("Skills", "*");
-								created.SetMetadata("Origin", "skills-lock.json");
-							}
-
+							// Every skill the source has now, not just the ones recorded: re-adding is
+							// how an update picks up a skill the source has gained since.
+							var created = new TaskItem(pair.Key);
+							created.SetMetadata("Skills", "*");
+							created.SetMetadata("Origin", "skills-lock.json");
 							updates.Add(created);
 						}
 					}
@@ -1612,6 +1038,12 @@
 				destination without the prefix is the developer's and is never overwritten.
 			-->
 			<VersionMarkerPrefix ParameterType="System.String" Required="false" />
+			<!--
+				A regular expression with a 'path' group. When set, the destination is read again just before
+				the write, and kept when it matches and the file the group names, relative to the destination,
+				exists - so a decision made from an earlier read cannot undo what another project wrote since.
+			-->
+			<KeepWhenNamedFileExists ParameterType="System.String" Required="false" />
 			<Retries ParameterType="System.Int32" Required="false" />
 			<RetryDelayMilliseconds ParameterType="System.Int32" Required="false" />
 			<TreatFailureAsError ParameterType="System.Boolean" Required="false" />
@@ -1627,6 +1059,7 @@
 			<Using Namespace="System.Globalization" />
 			<Using Namespace="System.IO" />
 			<Using Namespace="System.Text" />
+			<Using Namespace="System.Text.RegularExpressions" />
 			<Using Namespace="System.Threading" />
 			<Using Namespace="Microsoft.Build.Framework" />
 			<Using Namespace="Microsoft.Build.Utilities" />
@@ -1822,6 +1255,75 @@
 					bool IsManagedByMarker(string path, string prefix) =>
 						FirstLine(path).StartsWith(prefix, StringComparison.Ordinal);
 
+					// Every project of a parallel build runs this task, in several processes, so the last
+					// look at the destination and the write happen under one lock per destination. The lock
+					// file lives in the temp folder, keyed by the destination's path, so nothing appears in
+					// the repository. A lock that cannot be had is waited out for a while, then skipped:
+					// writing without it is how this task behaved before it had one.
+					FileStream AcquireWriteLock(string destination)
+					{
+						var key = Path.GetFullPath(destination);
+						if (pathComparison == StringComparison.OrdinalIgnoreCase)
+							key = key.ToUpperInvariant();
+
+						var lockPath = Path.Combine(
+							Path.GetTempPath(),
+							"purview-buildsdk-" + ComputeHash(Encoding.UTF8.GetBytes(key)).ToString("x16", CultureInfo.InvariantCulture) + ".lock"
+						);
+						var stopwatch = Stopwatch.StartNew();
+						var timeout = Math.Max(10000, attemptLimit * retryDelay * 4);
+						while (true)
+						{
+							try
+							{
+								return new FileStream(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+							}
+							catch (IOException e)
+							{
+								if (stopwatch.ElapsedMilliseconds >= timeout)
+								{
+									Log.LogMessage(MessageImportance.Low, "Writing '{0}' without its lock '{1}': {2}", destination, lockPath, e.Message);
+									return null;
+								}
+								Thread.Sleep(25);
+							}
+							catch (UnauthorizedAccessException e)
+							{
+								Log.LogMessage(MessageImportance.Low, "Writing '{0}' without its lock '{1}': {2}", destination, lockPath, e.Message);
+								return null;
+							}
+						}
+					}
+
+					// The file KeepWhenNamedFileExists finds named in the destination, when it exists.
+					string NamedFileThatExists(string destination)
+					{
+						if (string.IsNullOrEmpty(KeepWhenNamedFileExists) || !File.Exists(destination))
+							return null;
+
+						string text;
+						try
+						{
+							using (var stream = new FileStream(destination, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+							using (var reader = new StreamReader(stream, Encoding.UTF8, true))
+							{
+								text = reader.ReadToEnd();
+							}
+						}
+						catch (Exception e) when (IsTransient(e))
+						{
+							return null;
+						}
+
+						var match = Regex.Match(text, KeepWhenNamedFileExists);
+						if (!match.Success)
+							return null;
+
+						var named = match.Groups["path"].Value;
+						var directory = Path.GetDirectoryName(Path.GetFullPath(destination)) ?? string.Empty;
+						return named.Length > 0 && File.Exists(Path.Combine(directory, named)) ? named : null;
+					}
+
 					var destinationFile = DestinationFile ?? string.Empty;
 					if (string.IsNullOrEmpty(destinationFile))
 					{
@@ -1829,7 +1331,8 @@
 						return Finish();
 					}
 
-					if (File.Exists(destinationFile))
+					var destinationExisted = File.Exists(destinationFile);
+					if (destinationExisted)
 					{
 						// A destination carrying the SDK's own version marker is a file the SDK wrote,
 						// so it is refreshed when the version moves on. A destination without the
@@ -1916,39 +1419,71 @@
 						return Finish();
 					}
 
-					for (var attempt = 1; attempt <= attemptLimit; attempt++)
+					var writeLock = AcquireWriteLock(destinationFile);
+					try
 					{
-						try
+						// Another project may have written the destination since this one looked: a file that
+						// appeared is the developer's or the winner's, and one naming a file that exists is kept.
+						if (!OverwriteExisting && !destinationExisted && File.Exists(destinationFile))
 						{
-							WriteAtomically(destinationFile, temporary => File.WriteAllBytes(temporary, content));
-							copied++;
+							skipped++;
 							upToDate = true;
-							break;
+							return Finish();
 						}
-						catch (Exception e) when (IsTransient(e))
+
+						var keptFor = NamedFileThatExists(destinationFile);
+						if (keptFor != null)
 						{
-							if (attempt < attemptLimit)
+							Log.LogMessage(
+								MessageImportance.Normal,
+								"'{0}' was kept: since this project read it, it was rewritten for '{1}'.",
+								destinationFile,
+								keptFor
+							);
+							skipped++;
+							upToDate = true;
+							return Finish();
+						}
+
+						for (var attempt = 1; attempt <= attemptLimit; attempt++)
+						{
+							try
 							{
-								Log.LogMessage(
-									MessageImportance.Low,
-									"Retrying bootstrap write of '{0}' (attempt {1} of {2}): {3}",
-									destinationFile,
-									attempt + 1,
-									attemptLimit,
-									e.Message
-								);
-								Thread.Sleep(retryDelay + ((attempt - 1) * 100));
+								WriteAtomically(destinationFile, temporary => File.WriteAllBytes(temporary, content));
+								copied++;
+								upToDate = true;
+								break;
 							}
-							else
+							catch (Exception e) when (IsTransient(e))
+							{
+								if (attempt < attemptLimit)
+								{
+									Log.LogMessage(
+										MessageImportance.Low,
+										"Retrying bootstrap write of '{0}' (attempt {1} of {2}): {3}",
+										destinationFile,
+										attempt + 1,
+										attemptLimit,
+										e.Message
+									);
+									Thread.Sleep(retryDelay + ((attempt - 1) * 100));
+								}
+								else
+								{
+									ReportFailure(sourceDescription, destinationFile, attempt, e.Message);
+								}
+							}
+							catch (Exception e) when (IsPermanent(e))
 							{
 								ReportFailure(sourceDescription, destinationFile, attempt, e.Message);
+								break;
 							}
 						}
-						catch (Exception e) when (IsPermanent(e))
-						{
-							ReportFailure(sourceDescription, destinationFile, attempt, e.Message);
-							break;
-						}
+					}
+					finally
+					{
+						if (writeLock != null)
+							writeLock.Dispose();
 					}
 
 					Log.LogMessage(
@@ -2446,9 +1981,9 @@
 	     package runner. Each runner spells "run this npm package" its own way,
 	     so the SDK maps a runner name to a launcher rather than assuming npx:
 
-	       npx    npx -y skills@1          (ships with Node; the default)
+	       bun    bun x skills@1           (the default)
+	       npx    npx -y skills@1          (ships with Node)
 	       bunx   bunx skills@1
-	       bun    bun x skills@1
 	       pnpm   pnpm dlx skills@1
 	       yarn   yarn dlx skills@1        (Yarn 2+; Yarn 1 has no 'dlx')
 	       deno   deno run -A npm:skills@1
@@ -2457,39 +1992,30 @@
 	     A runner this SDK does not know is still usable: it falls through to
 	     '<runner> <package>', which is the form most new runners adopt.
 
-	     Two launchers are produced on purpose. The executed one pins the CLI
-	     to a major so a breaking release cannot change what the install target
-	     does; the displayed one drops the pin, because a recommendation is a
-	     command for a person to run and 'npx skills add' is the form they know.
+	     The launcher pins the CLI to a major (PurviewSkillsPackage, default
+	     skills@1), so a breaking release cannot change what a target does.
 	     ===================================================================== -->
 	<ItemGroup>
 		<PurviewSkillsRunnerLauncher Include="skills">
 			<Exec>skills</Exec>
-			<Display>skills</Display>
 		</PurviewSkillsRunnerLauncher>
 		<PurviewSkillsRunnerLauncher Include="npx">
 			<Exec>npx -y $(PurviewSkillsPackage)</Exec>
-			<Display>npx skills</Display>
 		</PurviewSkillsRunnerLauncher>
 		<PurviewSkillsRunnerLauncher Include="bunx">
 			<Exec>bunx $(PurviewSkillsPackage)</Exec>
-			<Display>bunx skills</Display>
 		</PurviewSkillsRunnerLauncher>
 		<PurviewSkillsRunnerLauncher Include="bun">
 			<Exec>bun x $(PurviewSkillsPackage)</Exec>
-			<Display>bun x skills</Display>
 		</PurviewSkillsRunnerLauncher>
 		<PurviewSkillsRunnerLauncher Include="pnpm">
 			<Exec>pnpm dlx $(PurviewSkillsPackage)</Exec>
-			<Display>pnpm dlx skills</Display>
 		</PurviewSkillsRunnerLauncher>
 		<PurviewSkillsRunnerLauncher Include="yarn">
 			<Exec>yarn dlx $(PurviewSkillsPackage)</Exec>
-			<Display>yarn dlx skills</Display>
 		</PurviewSkillsRunnerLauncher>
 		<PurviewSkillsRunnerLauncher Include="deno">
 			<Exec>deno run -A npm:$(PurviewSkillsPackage)</Exec>
-			<Display>deno run -A npm:skills</Display>
 		</PurviewSkillsRunnerLauncher>
 	</ItemGroup>
 
@@ -2575,12 +2101,12 @@
 
 	<!-- =====================================================================
 	     EXPLICIT SKILL INSTALLATION
-	     Neither target has BeforeTargets/AfterTargets, so neither runs during
-	     restore, build, a design-time build or a test run. Installing agent
+	     No skill target has BeforeTargets/AfterTargets, so none runs during a
+	     restore, a build, a design-time build or a test run. Installing agent
 	     content is a thing a person asks for:
 
-	       dotnet msbuild <project> -t:ListPurviewSkills
 	       dotnet msbuild <project> -t:InstallPurviewSkills
+	       dotnet msbuild <project> -t:UpdatePurviewSkills
 
 	     Installation itself is delegated to the skills CLI rather than
 	     reimplemented. The CLI owns the agent-specific destinations and their
@@ -2608,23 +2134,18 @@
 	     Directory.Build.props, which a project inside the NuGet cache would
 	     never import.
 
-	     Resolution reads every solution project's restore graph, so a package
-	     only a test project references is still found from any entry point. A
-	     project is asked for its assets file, not built: the cost is one
-	     evaluation per project.
+	     A project is asked only whether it imports this SDK, not built: the
+	     cost is one evaluation per project.
 	     ===================================================================== -->
 	<!-- The reply has its own item type: asking the calling project itself runs this target in the
 	     caller's own instance, and reusing the caller's item would put it in the list twice, first. -->
 	<Target
 		Name="_GetPurviewSkillsProjectInfo"
 		Returns="@(_PurviewSkillsProjectInfoReply)"
-		Label="Reports this project's restore graph to the skill targets."
+		Label="Reports that this project imports the SDK, so it can lead the skill targets."
 	>
 		<ItemGroup>
-			<_PurviewSkillsProjectInfoReply Include="$(MSBuildProjectFullPath)">
-				<ProjectAssetsFile>$(ProjectAssetsFile)</ProjectAssetsFile>
-				<NuGetPackageFolders>$(NuGetPackageFolders)</NuGetPackageFolders>
-			</_PurviewSkillsProjectInfoReply>
+			<_PurviewSkillsProjectInfoReply Include="$(MSBuildProjectFullPath)" />
 		</ItemGroup>
 	</Target>
 
@@ -2662,114 +2183,11 @@
 		</PropertyGroup>
 	</Target>
 
-	<Target
-		Name="ResolvePurviewSkillsTarget"
-		DependsOnTargets="_ResolvePurviewSkillsProjects"
-		Label="Resolves the skills shipped by restored packages to their git source and commit."
-	>
-		<ItemGroup>
-			<_PurviewSkillsUnrestoredProject
-				Include="@(_PurviewSkillsProjectInfo)"
-				Condition="'%(_PurviewSkillsProjectInfo.ProjectAssetsFile)' == '' OR !Exists('%(_PurviewSkillsProjectInfo.ProjectAssetsFile)')"
-			/>
-			<_PurviewSkillsRestoredProject
-				Include="@(_PurviewSkillsProjectInfo)"
-				Exclude="@(_PurviewSkillsUnrestoredProject)"
-			/>
-		</ItemGroup>
-
-		<!-- An explicit PurviewSkillsSource does not come from the restore graph, so it must not
-		     require one: installing from a named repository works in a project that has never
-		     been restored. -->
-		<Error
-			Code="PRSKL0001"
-			Condition="'@(_PurviewSkillsUnrestoredProject)' != '' AND '$(PurviewSkillsSource)' == ''"
-			Text="Cannot resolve Purview skills for '%(_PurviewSkillsUnrestoredProject.Identity)' because '%(_PurviewSkillsUnrestoredProject.ProjectAssetsFile)' does not exist. Run 'dotnet restore' first - skill resolution reads the restore graph and deliberately does not trigger a restore of its own."
-		/>
-		<ResolvePurviewSkillSources
-			Condition="'@(_PurviewSkillsRestoredProject)' != ''"
-			ProjectAssetsFiles="@(_PurviewSkillsRestoredProject->'%(ProjectAssetsFile)')"
-			NuGetPackageFolders="@(_PurviewSkillsRestoredProject->'%(NuGetPackageFolders)')"
-		>
-			<Output TaskParameter="SkillSources" ItemName="PurviewSkillSource" />
-			<Output TaskParameter="Unresolvable" ItemName="PurviewUnresolvableSkillSource" />
-			<Output TaskParameter="VersionConflicts" ItemName="_PurviewSkillsVersionConflict" />
-		</ResolvePurviewSkillSources>
-
-		<!-- Only one version's skills can be installed into the repository, so the projects that
-		     disagree are named rather than one version winning silently. -->
-		<Warning
-			Code="PRSKL0017"
-			Condition="'@(_PurviewSkillsVersionConflict)' != ''"
-			Text="Purview Skills: the projects in this solution reference %(_PurviewSkillsVersionConflict.Identity) at more than one version (%(_PurviewSkillsVersionConflict.Versions)), and the repository can only hold one version's skills. Align the versions - Central Package Management does this for every project at once."
-		/>
-	</Target>
-
 	<!-- Every wrapper below hands the same target to the same leader with the same global
 	     properties, which is what lets MSBuild run it once. -->
 	<PropertyGroup>
 		<_PurviewSkillsLeaderRemoveProperties>TargetFramework;RuntimeIdentifier</_PurviewSkillsLeaderRemoveProperties>
 	</PropertyGroup>
-
-	<Target
-		Name="ListPurviewSkills"
-		DependsOnTargets="_ResolvePurviewSkillsProjects"
-		Label="Lists the skills shipped by every restored package, without installing anything."
-	>
-		<MSBuild
-			Projects="$(_PurviewSkillsLeaderProject)"
-			Targets="_ListPurviewSkillsCore"
-			RemoveProperties="$(_PurviewSkillsLeaderRemoveProperties)"
-		/>
-	</Target>
-
-	<Target
-		Name="_ListPurviewSkillsCore"
-		DependsOnTargets="ResolvePurviewSkillsRepositoryRoot;ResolvePurviewSkillsTarget"
-	>
-		<Message
-			Importance="High"
-			Condition="'@(PurviewSkillSource)' == '' AND '@(PurviewUnresolvableSkillSource)' == ''"
-			Text="No restored package ships agent skills."
-		/>
-		<Message
-			Importance="High"
-			Condition="'@(PurviewSkillSource)' != ''"
-			Text="%(PurviewSkillSource.PackageId) %(PurviewSkillSource.PackageVersion) -> %(PurviewSkillSource.SourceWithRef) [%(PurviewSkillSource.SkillCount) skill(s): %(PurviewSkillSource.Skills)]"
-		/>
-		<!-- A package whose skills cannot be pinned is reported, never silently installed from a
-		     default branch that may not match the restored package version. -->
-		<Warning
-			Code="PRSKL0002"
-			Condition="'@(PurviewUnresolvableSkillSource)' != ''"
-			Text="%(PurviewUnresolvableSkillSource.PackageId) %(PurviewUnresolvableSkillSource.PackageVersion) ships %(PurviewUnresolvableSkillSource.SkillCount) skill(s) that cannot be installed reproducibly because %(PurviewUnresolvableSkillSource.Reason). Install them explicitly with a pinned ref, or ask the package author to publish it with repository metadata."
-		/>
-
-		<!-- Report whether installing would work, so the answer is known before committing to it.
-		     This target installs nothing, so a missing CLI is reported here, never an error. -->
-		<DetectPurviewSkillsCli
-			CommandNames="skills;$(PurviewSkillsRunner);$(PurviewSkillsRunnerCandidates)"
-			Condition="'$(PurviewSkillsCommand)' == ''"
-		>
-			<Output TaskParameter="FoundCommand" PropertyName="_PurviewSkillsCliCommand" />
-			<Output TaskParameter="FoundPath" PropertyName="_PurviewSkillsCliPath" />
-		</DetectPurviewSkillsCli>
-		<Message
-			Importance="High"
-			Condition="'$(_PurviewSkillsCliPath)' != ''"
-			Text="Skills CLI: '$(_PurviewSkillsCliCommand)' found at $(_PurviewSkillsCliPath). Run -t:InstallPurviewSkills to install."
-		/>
-		<Message
-			Importance="High"
-			Condition="'$(PurviewSkillsCommand)' == '' AND '$(_PurviewSkillsCliPath)' == ''"
-			Text="Skills CLI: no runner found on PATH. Installing needs one of 'skills', '$(PurviewSkillsRunner)' or '$(PurviewSkillsRunnerCandidates)'."
-		/>
-		<Message
-			Importance="High"
-			Condition="'$(_PurviewSkillsRepositoryRoot)' != ''"
-			Text="Skills are installed from the repository root: $(_PurviewSkillsRepositoryRoot)"
-		/>
-	</Target>
 
 	<!-- PurviewSkillsAgents names the agents to install to. Empty - the default - passes no
 	     agent flag at all, so the skills CLI auto-detects the agents installed on this machine.
@@ -2837,7 +2255,7 @@
 		<Error
 			Code="PRSKL0004"
 			Condition="'$(_PurviewSkillsCommandRequired)' == 'true' AND '$(PurviewSkillsCommand)' == ''"
-			Text="Cannot run the skills CLI: none of 'skills', '$(PurviewSkillsRunner)' or '$(PurviewSkillsRunnerCandidates)' was found on PATH. Install Bun (which provides 'bun x') or Node.js (which provides npx), or any of pnpm, yarn or deno, or install the CLI globally with 'npm install -g skills', then re-run this target. To resolve and report skills without installing, use -t:ListPurviewSkills, which needs no Node tooling. To choose a runner, set -p:PurviewSkillsRunner=&lt;bun|npx|bunx|pnpm|yarn|deno&gt;; to override the launcher entirely, set -p:PurviewSkillsCommand=&lt;command&gt;."
+			Text="Cannot run the skills CLI: none of 'skills', '$(PurviewSkillsRunner)' or '$(PurviewSkillsRunnerCandidates)' was found on PATH. Install Bun (which provides 'bun x') or Node.js (which provides npx), or any of pnpm, yarn or deno, or install the CLI globally with 'npm install -g skills', then re-run this target. To choose a runner, set -p:PurviewSkillsRunner=&lt;bun|npx|bunx|pnpm|yarn|deno&gt;; to override the launcher entirely, set -p:PurviewSkillsCommand=&lt;command&gt;."
 		/>
 	</Target>
 
@@ -2854,28 +2272,50 @@
 		/>
 	</Target>
 
-	<Target Name="_PrepareInstallPurviewSkills" DependsOnTargets="ResolvePurviewSkillsTarget">
-		<!-- PurviewSkillsSource installs straight from a git source, bypassing package resolution:
-		       -t:InstallPurviewSkills -p:PurviewSkillsSource=purview-dev/engineering-playbook
-		     Useful for a repository that wants a Purview skill it has no PackageReference for. The
-		     caller owns the ref in that case; append '#<ref>' to pin it. -->
-		<ItemGroup Condition="'$(PurviewSkillsSource)' != ''">
-			<PurviewSkillSource Include="$(PurviewSkillsSource)">
-				<SourceWithRef>$(PurviewSkillsSource)</SourceWithRef>
-				<Skills>*</Skills>
-				<PackageId>(explicit source)</PackageId>
-			</PurviewSkillSource>
-		</ItemGroup>
+	<!-- =====================================================================
+	     INSTALL SKILLS — explicit only
+
+	       -t:InstallPurviewSkills -p:PurviewSkillsSource=owner/repo[#ref]
+	       -t:InstallPurviewSkills
+
+	     A thin wrapper over the standard skills CLI, which finds a
+	     repository's skills in its root skills/ folder:
+
+	     * with PurviewSkillsSource, 'skills add <source>' with the skill name '*' - every
+	       skill that source has. The caller owns the ref: append '#<ref>' to
+	       pin it;
+	     * without it, 'skills experimental_install' - restore exactly what
+	       skills-lock.json records, which is how a fresh clone gets the
+	       repository's skills back.
+
+	     There is deliberately no package-to-skill mapping. A NuGet package
+	     carries .NET artifacts, and skills are delivered by the CLI from git.
+	     ===================================================================== -->
+	<Target Name="_PrepareInstallPurviewSkills" DependsOnTargets="ResolvePurviewSkillsRepositoryRoot">
+		<!-- The lockfile and the agent directories belong to the repository, so the CLI always runs
+		     from the repository root. Installing from a project folder would scatter one of each
+		     through the tree, so an unresolved root is reported rather than guessed at. -->
+		<Error
+			Code="PRSKL0003"
+			Condition="'$(_PurviewSkillsRepositoryRoot)' == ''"
+			Text="Cannot install agent skills: the repository root could not be resolved. The skills CLI writes skills-lock.json and the agent directories, and both belong to the repository rather than to a project, so this target will not fall back to the project folder. Set -p:PurviewSkillsInstallRoot=&lt;path&gt; (or RepoRoot), or add an AGENTS.md at the repository root."
+		/>
 		<PropertyGroup>
-			<_PurviewSkillsCommandRequired Condition="'@(PurviewSkillSource)' != ''"
-				>true</_PurviewSkillsCommandRequired>
+			<PurviewSkillsLockFile Condition="'$(PurviewSkillsLockFile)' == ''"
+				>$([MSBuild]::NormalizePath('$(_PurviewSkillsRepositoryRoot)', 'skills-lock.json'))</PurviewSkillsLockFile>
+			<_PurviewSkillsCommandRequired>true</_PurviewSkillsCommandRequired>
 		</PropertyGroup>
+		<Error
+			Code="PRSKL0007"
+			Condition="'$(PurviewSkillsSource)' == '' AND !Exists('$(PurviewSkillsLockFile)')"
+			Text="Nothing to install: no -p:PurviewSkillsSource was given, and '$(PurviewSkillsLockFile)' does not exist to restore from. Install from a source first, for example -t:InstallPurviewSkills -p:PurviewSkillsSource=purview-dev/build-sdk."
+		/>
 	</Target>
 
 	<Target
 		Name="InstallPurviewSkills"
 		DependsOnTargets="_GuardExplicitPurviewSkillsTarget;_ResolvePurviewSkillsProjects"
-		Label="Installs the skills shipped by restored packages into the agent directories, via the skills CLI."
+		Label="Installs agent skills through the skills CLI: from PurviewSkillsSource, or by restoring skills-lock.json."
 	>
 		<MSBuild
 			Projects="$(_PurviewSkillsLeaderProject)"
@@ -2886,58 +2326,29 @@
 
 	<Target
 		Name="_InstallPurviewSkillsCore"
-		DependsOnTargets="_GuardExplicitPurviewSkillsTarget;ResolvePurviewSkillsRepositoryRoot;_PrepareInstallPurviewSkills;_ResolvePurviewSkillsCommand"
+		DependsOnTargets="_GuardExplicitPurviewSkillsTarget;_PrepareInstallPurviewSkills;_ResolvePurviewSkillsCommand"
 	>
+		<!-- '-y' keeps 'add' non-interactive. The skill flag is '*' - every skill the source has - and a
+		     re-run is safe: the CLI reinstalls each skill it is given, replacing the installed copy. -->
 		<PropertyGroup>
-			<!-- A failed install is a failed install: the caller asked for it explicitly, so it is
-			     reported rather than swallowed. Set true to continue past one package's failure. -->
-			<PurviewSkillsContinueOnError Condition="'$(PurviewSkillsContinueOnError)' == ''"
-				>false</PurviewSkillsContinueOnError>
+			<_PurviewSkillsInstallCommand Condition="'$(PurviewSkillsSource)' != ''"
+				>$(PurviewSkillsCommand) add &quot;$(PurviewSkillsSource)&quot; --skill &quot;*&quot;$(_PurviewSkillsAgentArguments) -y</_PurviewSkillsInstallCommand>
+			<_PurviewSkillsInstallCommand Condition="'$(PurviewSkillsSource)' == ''"
+				>$(PurviewSkillsCommand) experimental_install</_PurviewSkillsInstallCommand>
 		</PropertyGroup>
 
 		<Message
 			Importance="High"
-			Condition="'@(PurviewSkillSource)' == ''"
-			Text="No restored package ships installable agent skills. Run -t:ListPurviewSkills for detail."
-		/>
-
-		<!-- One invocation per package. '-y' keeps it non-interactive, and re-running is safe: the
-		     CLI reinstalls every skill it is given, replacing an installed copy with the same content.
-
-		     The skills are named explicitly rather than installed with '*', so a source repository
-		     that also holds skills this package does not ship contributes only what was resolved.
-		     The skill flag must be *repeated*: the CLI does not split a comma-separated value, it
-		     matches nothing and reports "No matching skills found". So the ';' separating the
-		     resolved names is rewritten into a further skill flag. -->
-		<!-- The lockfile and the agent directories belong to the repository, so the CLI always runs
-		     from the repository root. Installing from a project folder would scatter one of each
-		     through the tree, so an unresolved root is reported rather than guessed at. -->
-		<Error
-			Code="PRSKL0003"
-			Condition="'@(PurviewSkillSource)' != '' AND '$(_PurviewSkillsRepositoryRoot)' == ''"
-			Text="Cannot install agent skills: the repository root could not be resolved. The skills CLI writes skills-lock.json and the agent directories, and both belong to the repository rather than to a project, so this target will not fall back to the project folder. Set -p:PurviewSkillsInstallRoot=&lt;path&gt; (or RepoRoot), or add an AGENTS.md at the repository root."
-		/>
-
-		<Message
-			Importance="High"
-			Condition="'@(PurviewSkillSource)' != '' AND '$(PurviewSkillsDryRun)' == 'true'"
-			Text="Agent skills (dry run): $(PurviewSkillsCommand) add &quot;%(PurviewSkillSource.SourceWithRef)&quot; --skill &quot;$([System.String]::Copy('%(PurviewSkillSource.Skills)').Replace(';', '&quot; --skill &quot;'))&quot;$(_PurviewSkillsAgentArguments) -y"
+			Condition="'$(PurviewSkillsDryRun)' == 'true'"
+			Text="Agent skills (dry run): $(_PurviewSkillsInstallCommand)"
 		/>
 		<Exec
-			Condition="'@(PurviewSkillSource)' != '' AND '$(_PurviewSkillsRepositoryRoot)' != '' AND '$(PurviewSkillsDryRun)' != 'true'"
-			Command="$(PurviewSkillsCommand) add &quot;%(PurviewSkillSource.SourceWithRef)&quot; --skill &quot;$([System.String]::Copy('%(PurviewSkillSource.Skills)').Replace(';', '&quot; --skill &quot;'))&quot;$(_PurviewSkillsAgentArguments) -y"
+			Condition="'$(PurviewSkillsDryRun)' != 'true'"
+			Command="$(_PurviewSkillsInstallCommand)"
 			WorkingDirectory="$(_PurviewSkillsRepositoryRoot)"
-			ContinueOnError="$(PurviewSkillsContinueOnError)"
 			StandardOutputImportance="High"
 		/>
-
-		<Warning
-			Code="PRSKL0002"
-			Condition="'@(PurviewUnresolvableSkillSource)' != ''"
-			Text="%(PurviewUnresolvableSkillSource.PackageId) %(PurviewUnresolvableSkillSource.PackageVersion) ships %(PurviewUnresolvableSkillSource.SkillCount) skill(s) that cannot be installed reproducibly because %(PurviewUnresolvableSkillSource.Reason). Install them explicitly with a pinned ref, or ask the package author to publish it with repository metadata."
-		/>
 	</Target>
-
 	<!-- =====================================================================
 	     UPDATE INSTALLED SKILLS — explicit only
 
@@ -2951,19 +2362,14 @@
 	     re-fetch entries already in the lockfile, so it adds nothing a re-add
 	     has not already done, and is never run.
 
-	     A source a restored package ships is re-added at that package's
-	     commit, so an update after a package upgrade lands on the matching
-	     skills and never moves a package's skills past the version referenced.
+	     Every source is re-added at its latest, with every skill it has.
 	     PurviewSkillsDryRun=true prints every command and runs none of them.
 
 	     Every source is attempted even when one fails, and each failure is
 	     reported by name, so one unreachable repository does not hide the
 	     state of the rest.
 	     ===================================================================== -->
-	<Target
-		Name="_PrepareUpdatePurviewSkills"
-		DependsOnTargets="ResolvePurviewSkillsRepositoryRoot;ResolvePurviewSkillsTarget"
-	>
+	<Target Name="_PrepareUpdatePurviewSkills" DependsOnTargets="ResolvePurviewSkillsRepositoryRoot">
 		<Error
 			Code="PRSKL0003"
 			Condition="'$(_PurviewSkillsRepositoryRoot)' == ''"
@@ -2973,7 +2379,7 @@
 			<PurviewSkillsLockFile Condition="'$(PurviewSkillsLockFile)' == ''"
 				>$([MSBuild]::NormalizePath('$(_PurviewSkillsRepositoryRoot)', 'skills-lock.json'))</PurviewSkillsLockFile>
 		</PropertyGroup>
-		<ReadPurviewSkillsLockSources LockFilePath="$(PurviewSkillsLockFile)" SkillSources="@(PurviewSkillSource)">
+		<ReadPurviewSkillsLockSources LockFilePath="$(PurviewSkillsLockFile)">
 			<Output TaskParameter="LockFileFound" PropertyName="_PurviewSkillsUpdateLockFileFound" />
 			<Output TaskParameter="UpdateSources" ItemName="_PurviewSkillsUpdateSource" />
 		</ReadPurviewSkillsLockSources>
@@ -3025,7 +2431,7 @@
 	<Target
 		Name="UpdatePurviewSkills"
 		DependsOnTargets="_GuardExplicitPurviewSkillsTarget;_ResolvePurviewSkillsProjects"
-		Label="Re-adds every source in skills-lock.json, pinning package skills to their package's commit."
+		Label="Re-adds every source in skills-lock.json at its latest, with every skill it has."
 	>
 		<MSBuild
 			Projects="$(_PurviewSkillsLeaderProject)"
@@ -3182,226 +2588,36 @@
 		/>
 	</Target>
 
-	<!-- =====================================================================
-	     SKILL RECOMMENDATIONS — explicit only
-
-	     Nothing here runs during a build. These targets are reached only by
-	     name, so a repository pays for them when it asks for them:
-
-	       -t:RecommendPurviewSkills   report, never fail
-	       -t:VerifyPurviewSkills      report, and fail on anything unverifiable
-
-	     Both read the restore graph and the skills CLI's own lockfile, both
-	     local, so they stay offline; neither installs anything; and
-	     RecommendPurviewSkills alone never fails a build, because a missing
-	     skill is advice, not a defect. VerifyPurviewSkills is the escalation,
-	     and it is safe precisely because it cannot be reached by accident.
-
-	     Severity splits on what the developer can act on. A missing or
-	     version-drifted skill is something they can fix with one command, so
-	     it is a warning. An unverifiable or orphaned one usually is not -
-	     a package without SourceLink metadata cannot be pinned by anybody -
-	     so it is a message, and no amount of it can break a build that
-	     treats warnings as errors.
-
-	     There is deliberately no stamp any more. The stamp existed so a
-	     build hook could report one state once per repository instead of
-	     once per project; with no build hook and a target a person invokes,
-	     reporting every time is exactly what is wanted.
-	     ===================================================================== -->
-	<Target
-		Name="_ResolvePurviewSkillRecommendationPaths"
-		DependsOnTargets="ResolvePurviewSkillsRepositoryRoot;_ResolvePurviewSkillsAgents"
-		Label="Resolves the repository-level lockfile path skill recommendations read."
-	>
-		<PropertyGroup>
-			<!-- Everything read here is repository-scoped, so there is no project-directory fallback:
-			     an unresolved root means the pass simply says nothing. -->
-			<_PurviewSkillRecommendationRoot Condition="'$(_PurviewSkillRecommendationRoot)' == ''"
-				>$(_PurviewSkillsRepositoryRoot)</_PurviewSkillRecommendationRoot>
-			<!-- Where the CLI writes it for a project-scope install: beside the repository root. -->
-			<PurviewSkillsLockFile
-				Condition="'$(PurviewSkillsLockFile)' == '' AND '$(_PurviewSkillRecommendationRoot)' != ''"
-				>$([MSBuild]::NormalizePath('$(_PurviewSkillRecommendationRoot)', 'skills-lock.json'))</PurviewSkillsLockFile>
-			<!-- Recommendation text is written against the *configured* runner, not a detected one:
-			     advice costs no PATH probe, and the command a developer copies should be the one
-			     their repository standardised on. -->
-			<_PurviewSkillsCommandDisplay>@(PurviewSkillsRunnerLauncher->WithMetadataValue('Identity', '$(PurviewSkillsRunner)')->'%(Display)')</_PurviewSkillsCommandDisplay>
-			<_PurviewSkillsCommandDisplay Condition="'$(_PurviewSkillsCommandDisplay)' == ''"
-				>$(PurviewSkillsRunner) skills</_PurviewSkillsCommandDisplay>
-		</PropertyGroup>
-	</Target>
-
-	<Target
-		Name="RecommendPurviewSkills"
-		DependsOnTargets="_ResolvePurviewSkillsProjects"
-		Label="Reports which Purview skills are missing, drifted or unverifiable, and how to fix each."
-	>
-		<MSBuild
-			Projects="$(_PurviewSkillsLeaderProject)"
-			Targets="_RecommendPurviewSkillsCore"
-			RemoveProperties="$(_PurviewSkillsLeaderRemoveProperties)"
-		/>
-	</Target>
-
-	<Target
-		Name="_RecommendPurviewSkillsCore"
-		DependsOnTargets="_ResolvePurviewSkillRecommendationPaths;ResolvePurviewSkillsTarget"
-	>
-		<!-- The unresolved-root guard is on the task, not on the target: a target's Condition is
-		     evaluated before its DependsOnTargets run, so a property one of them computes is still
-		     empty there. An unresolved root simply reports nothing - a build never fails over advice. -->
-		<EvaluatePurviewSkillState
-			Condition="'$(_PurviewSkillRecommendationRoot)' != ''"
-			CommandPrefix="$(_PurviewSkillsCommandDisplay)"
-			SkillSources="@(PurviewSkillSource)"
-			UnresolvableSkillSources="@(PurviewUnresolvableSkillSource)"
-			LockFilePath="$(PurviewSkillsLockFile)"
-			Agents="$(_PurviewSkillsAgentList)"
-			RepositoryRoot="$(_PurviewSkillRecommendationRoot)"
-		>
-			<Output TaskParameter="Missing" ItemName="PurviewMissingSkill" />
-			<Output TaskParameter="Drifted" ItemName="PurviewDriftedSkill" />
-			<Output TaskParameter="Unknown" ItemName="PurviewUnverifiableSkill" />
-			<Output TaskParameter="Satisfied" ItemName="PurviewSatisfiedSkill" />
-			<Output TaskParameter="Orphaned" ItemName="PurviewOrphanedSkill" />
-			<Output TaskParameter="LockFileFound" PropertyName="_PurviewSkillsLockFileFound" />
-			<Output TaskParameter="AgentSkillDirectoriesFound" PropertyName="_PurviewAgentSkillDirectoriesFound" />
-		</EvaluatePurviewSkillState>
-
-		<!-- One warning per package, carrying the exact command that fixes it. -->
-		<Warning
-			Code="PRSKL0010"
-			Condition="'@(PurviewMissingSkill)' != ''"
-			Text="Purview Skills: %(PurviewMissingSkill.PackageId) %(PurviewMissingSkill.PackageVersion) ships %(PurviewMissingSkill.SkillCount) agent skill(s) that are not installed: %(PurviewMissingSkill.Skills). Install them with: %(PurviewMissingSkill.Command)"
-		/>
-
-		<!-- Drift is the compatible-update case, and the command is pinned on purpose.
-		     'npx skills update' installs the newest published skill, which is only correct when
-		     the newest skill happens to describe the referenced package version - something that
-		     cannot be known offline, and is false for any project that is not on the latest
-		     package. Recommending it here would be exactly the "blindly recommended update" the
-		     design forbids, so the referenced package's own commit is named instead. -->
-		<Warning
-			Code="PRSKL0011"
-			Condition="'@(PurviewDriftedSkill)' != ''"
-			Text="Purview Skills: %(PurviewDriftedSkill.PackageId) %(PurviewDriftedSkill.PackageVersion) was built from commit %(PurviewDriftedSkill.RepositoryCommit), but these skills are installed from a different ref: %(PurviewDriftedSkill.InstalledRefs). They may describe a different version of the library than the one referenced. Install the matching skills with: %(PurviewDriftedSkill.Command). Prefer this over '$(_PurviewSkillsCommandDisplay) update', which installs the newest published skill regardless of which package version this project references."
-		/>
-
-		<!-- Not actionable by the consumer in the common case, so it never becomes a warning. -->
-		<Message
-			Importance="High"
-			Condition="'@(PurviewUnverifiableSkill)' != ''"
-			Text="PRSKL0012: Purview Skills: compatibility of %(PurviewUnverifiableSkill.SkillCount) skill(s) from %(PurviewUnverifiableSkill.PackageId) %(PurviewUnverifiableSkill.PackageVersion) cannot be verified because %(PurviewUnverifiableSkill.Reason). Inspect what is installed with: $(_PurviewSkillsCommandDisplay) list"
-		/>
-
-		<!-- Owner-scoped, so a skill the developer installed themselves is never named. -->
-		<Message
-			Importance="High"
-			Condition="'@(PurviewOrphanedSkill)' != ''"
-			Text="PRSKL0013: Purview Skills: '%(PurviewOrphanedSkill.Skill)' is installed from '%(PurviewOrphanedSkill.Source)', which this project no longer references. Remove it if it is no longer wanted: %(PurviewOrphanedSkill.Command)"
-		/>
-
-		<!-- A committed lockfile with nothing restored beside it: the one case experimental_install
-		     is actually for. It is a suggestion, never run automatically, and it is flagged as
-		     experimental because the CLI flags it that way. -->
-		<Message
-			Importance="High"
-			Condition="'$(_PurviewSkillsLockFileFound)' == 'true' AND '$(_PurviewAgentSkillDirectoriesFound)' != 'true'"
-			Text="PRSKL0014: Purview Skills: '$(PurviewSkillsLockFile)' lists installed skills, but no agent skill directory exists in this repository. Restore them with: $(_PurviewSkillsCommandDisplay) experimental_install (experimental; '$(_PurviewSkillsCommandDisplay) add' is the supported fallback)."
-		/>
-	</Target>
-
-	<!-- =====================================================================
-	     VERIFY SKILLS — the gate, not the nag
-
-	     Reading the restore graph and the lockfile is real work, and this SDK
-	     used to do it on EVERY build of EVERY project, from an
-	     AfterTargets="Build" hook. Measured on a 39-project solution, that
-	     hook was the single largest avoidable cost in an otherwise up-to-date
-	     build, and it was paid to print advice. A repository that manages its
-	     skills deliberately - which is every repository that has a
-	     skills-lock.json at all - was paying twice for one answer.
-
-	     So there is no build hook any more. Nothing in this file reads the
-	     restore graph or the lockfile unless a person asks:
-
-	       -t:RecommendPurviewSkills   report the state, never fail
-	       -t:VerifyPurviewSkills      the same state, as a build failure
-	       -t:InstallPurviewSkills     install or update, pinned to each package's commit
-	       -t:UpdatePurviewSkills      re-add every lockfile source: refresh, and add new skills
-	       -t:CheckPurviewSkills       only the selected agents' skill directories exist
-	       -t:FixPurviewSkills         remove the CLI's links from any other agent directory
-	       -t:ListPurviewSkills        what the restored packages ship
-
-	     VerifyPurviewSkills is what a CI job calls. Because it is invoked by
-	     name rather than reached by accident, escalation to an error is safe:
-	     a build that did not ask is never broken by skill advice.
-
-	     What escalates is deliberately narrow - only the diagnostics the caller
-	     can actually act on:
-
-	       PRSKL0010  a referenced package ships a skill that is not installed
-	       PRSKL0011  an installed skill is pinned to a different ref
-
-	     Both are factual, both are fixed by one 'npx skills add' command, and
-	     neither can fire without a referenced package that really ships skills.
-	     PRSKL0012 stays a warning (a package published without repository
-	     metadata is not the consumer's to fix), and PRSKL0013/PRSKL0014 stay
-	     messages: 0013 is an owner-scoped heuristic, and 0014 fires on any
-	     clone of a repository that installs skills on demand - .agents/skills is
-	     gitignored by design in this SDK's own layout, so failing on it would
-	     make the gate unusable before anybody had a chance to install anything.
-	     ===================================================================== -->
-	<Target
-		Name="VerifyPurviewSkills"
-		DependsOnTargets="_ResolvePurviewSkillsProjects"
-		Label="Fails when a referenced package ships agent skills that are missing or installed from a different ref."
-	>
-		<MSBuild
-			Projects="$(_PurviewSkillsLeaderProject)"
-			Targets="_VerifyPurviewSkillsCore"
-			RemoveProperties="$(_PurviewSkillsLeaderRemoveProperties)"
-		/>
-	</Target>
-
-	<Target Name="_VerifyPurviewSkillsCore" DependsOnTargets="_RecommendPurviewSkillsCore">
-		<Error
-			Code="PRSKL0010"
-			Condition="'@(PurviewMissingSkill)' != ''"
-			Text="Purview Skills: %(PurviewMissingSkill.PackageId) %(PurviewMissingSkill.PackageVersion) ships %(PurviewMissingSkill.SkillCount) agent skill(s) that are not installed: %(PurviewMissingSkill.Skills). Install them with: %(PurviewMissingSkill.Command)"
-		/>
-		<Error
-			Code="PRSKL0011"
-			Condition="'@(PurviewDriftedSkill)' != ''"
-			Text="Purview Skills: %(PurviewDriftedSkill.PackageId) %(PurviewDriftedSkill.PackageVersion) was built from commit %(PurviewDriftedSkill.RepositoryCommit), but these skills are installed from a different ref: %(PurviewDriftedSkill.InstalledRefs). Install the matching skills with: %(PurviewDriftedSkill.Command)"
-		/>
-		<!--
-			A warning rather than an error, because PRSKL0012 is not always the consumer's to fix. It
-			covers "the package cannot be pinned at all" - a package shipped without SourceLink
-			repository metadata, which only its author can correct - as well as a skill installed
-			without a ref, which the consumer can. The two are indistinguishable here, so failing the
-			build would sometimes hand somebody an error with no possible fix. It is still reported, and
-			MSBuildWarningsAsErrors or TreatWarningsAsErrors in the calling pipeline can promote it.
-		-->
-		<Warning
-			Code="PRSKL0012"
-			Condition="'@(PurviewUnverifiableSkill)' != ''"
-			Text="Purview Skills: compatibility of %(PurviewUnverifiableSkill.SkillCount) skill(s) from %(PurviewUnverifiableSkill.PackageId) %(PurviewUnverifiableSkill.PackageVersion) cannot be verified because %(PurviewUnverifiableSkill.Reason). This is not always fixable from this repository - a package published without repository metadata can only be corrected by its author."
-		/>
-	</Target>
-
 	<Target
 		Name="IncludeLinkedSdkFiles"
 		Condition="'$(PurviewAutoSdkPack)' == 'true' AND ('$(DefaultTargetFramework)' == '' OR '$(TargetFramework)' == '$(DefaultTargetFramework)')"
 		Label="Packs external files linked beneath Sdk/ using the same paths as physical Sdk files."
 	>
+		<!-- The same table the static items in Sdk.props apply to physical Sdk/ files: the four MSBuild
+		     folders and .github/ move to the package root, so do top-level documents and images, and
+		     everything else - nested documents included - keeps its Sdk/ prefix. Stripping Sdk/ from
+		     every link put a linked Sdk/Props/X.props at Props/X.props, where nothing imports it.
+		     SdkFolderPackingTests packs both kinds side by side. -->
 		<ItemGroup>
 			<_PurviewLinkedSdkFile
 				Include="@(None)"
 				Condition="$([System.String]::Copy('%(None.Link)').StartsWith('Sdk\')) OR $([System.String]::Copy('%(None.Link)').StartsWith('Sdk/'))"
 			>
-				<PackagePath>$([System.String]::Copy('%(None.Link)').Substring(4).Replace('\', '/'))</PackagePath>
+				<_PurviewSdkRelativePath>$([System.String]::Copy('%(None.Link)').Substring(4).Replace('\', '/'))</_PurviewSdkRelativePath>
+			</_PurviewLinkedSdkFile>
+			<_PurviewLinkedSdkFile>
+				<_PurviewSdkRelativeExtension>$([System.IO.Path]::GetExtension('%(_PurviewSdkRelativePath)').ToLowerInvariant())</_PurviewSdkRelativeExtension>
+				<PackagePath>Sdk/%(_PurviewSdkRelativePath)</PackagePath>
+			</_PurviewLinkedSdkFile>
+			<_PurviewLinkedSdkFile
+				Condition="$([System.String]::Copy('%(_PurviewSdkRelativePath)').StartsWith('.github/'))
+				           OR $([System.String]::Copy('%(_PurviewSdkRelativePath)').StartsWith('build/'))
+				           OR $([System.String]::Copy('%(_PurviewSdkRelativePath)').StartsWith('buildTransitive/'))
+				           OR $([System.String]::Copy('%(_PurviewSdkRelativePath)').StartsWith('buildMultiTargeting/'))
+				           OR (!$([System.String]::Copy('%(_PurviewSdkRelativePath)').Contains('/'))
+				               AND ('%(_PurviewSdkRelativeExtension)' == '.md' OR '%(_PurviewSdkRelativeExtension)' == '.png' OR '%(_PurviewSdkRelativeExtension)' == '.jpg' OR '%(_PurviewSdkRelativeExtension)' == '.jpeg' OR '%(_PurviewSdkRelativeExtension)' == '.gif' OR '%(_PurviewSdkRelativeExtension)' == '.svg'))"
+			>
+				<PackagePath>%(_PurviewSdkRelativePath)</PackagePath>
 			</_PurviewLinkedSdkFile>
 			<TfmSpecificPackageFile Include="@(_PurviewLinkedSdkFile)" />
 		</ItemGroup>
@@ -3444,7 +2660,7 @@
 		<!--
 			Exists is tested on the task, not on the target: a target's Condition is evaluated before its
 			DependsOnTargets run, so it would inspect a property the dependency has not computed yet. The
-			same trap is why the unresolved-root guard sits on EvaluatePurviewSkillState.
+			same trap is why the unresolved-root check (PRSKL0003) is an Error inside a dependency target.
 		-->
 		<ValidatePurviewSkillFolders
 			SkillsRoot="$(_PurviewSkillsValidationRoot)"
@@ -3969,14 +3185,117 @@
 	     switches at startup - which is why this repository commits its own copy
 	     and a consumer picks it up from the next build.
 
+	     A Blazor WebAssembly client cannot build under -mt (PRBLZ0002, in
+	     Targets/Blazor.targets), and the file is per repository, so a client
+	     decides for the whole repository:
+
+	       * a client writes -mt:false, plus a line naming itself,
+	       * any other project leaves a managed file naming a client alone while
+	         that client's project file still exists, and restores -mt once it
+	         does not,
+	       * a PurviewMultiThreadedBuild the user set - in Directory.Build.props,
+	         the project file or on the command line - always wins over both.
+
+	     A client overwrites even a file that appeared after it looked, so a race
+	     with a library creating the -mt form on the same first build still ends
+	     on -mt:false. The reverse race is closed at the write: every project
+	     reads the file in _ReadRepositoryDirectoryBuildRspTarget, and in a
+	     parallel build a client can rewrite it before a library that read it
+	     earlier gets to write. So a project without its own setting looks again
+	     just before writing, under a lock every writer takes, and keeps a file
+	     that now names a client that exists. The read shares the file with
+	     writers, so a write in progress never fails another project's build.
+
 	     DesignTimeBuild is excluded for the same reason as the other bootstraps.
 	     ===================================================================== -->
+	<PropertyGroup>
+		<!-- Defaulted here rather than in Defaults.props: after the project body, so a value set in
+		     Directory.Build.props, the project file or on the command line is all recorded as the user's
+		     choice before the default fills it in. -->
+		<_PurviewMultiThreadedBuildIsExplicit Condition="'$(PurviewMultiThreadedBuild)' != ''"
+			>true</_PurviewMultiThreadedBuildIsExplicit>
+		<PurviewMultiThreadedBuild Condition="'$(PurviewMultiThreadedBuild)' == ''">true</PurviewMultiThreadedBuild>
+	</PropertyGroup>
+
+	<!--
+		Reads the response file every project in a parallel build may be replacing. File.ReadAllText in a
+		property function denies writers, so it fails with MSB4184 while another project's write holds the
+		file; this opens it sharing read, write and delete, retries what is left, and reports a file it
+		still cannot read instead of failing the build.
+	-->
+	<UsingTask
+		TaskName="ReadPurviewRepositoryFile"
+		TaskFactory="RoslynCodeTaskFactory"
+		AssemblyFile="$([System.IO.Path]::Combine('$(MSBuildToolsPath)', 'Microsoft.Build.Tasks.Core.dll'))"
+	>
+		<ParameterGroup>
+			<File ParameterType="System.String" Required="true" />
+			<Retries ParameterType="System.Int32" Required="false" />
+			<RetryDelayMilliseconds ParameterType="System.Int32" Required="false" />
+			<Exists ParameterType="System.Boolean" Output="true" />
+			<Readable ParameterType="System.Boolean" Output="true" />
+			<Text ParameterType="System.String" Output="true" />
+		</ParameterGroup>
+		<Task>
+			<Using Namespace="System" />
+			<Using Namespace="System.IO" />
+			<Using Namespace="System.Text" />
+			<Using Namespace="System.Threading" />
+			<Using Namespace="Microsoft.Build.Framework" />
+			<Code Type="Fragment" Language="cs">
+				<![CDATA[
+					var attemptLimit = Retries > 0 ? Retries : 3;
+					var retryDelay = RetryDelayMilliseconds > 0 ? RetryDelayMilliseconds : 500;
+
+					Exists = System.IO.File.Exists(File);
+					Readable = !Exists;
+					Text = string.Empty;
+
+					for (var attempt = 1; Exists && !Readable && attempt <= attemptLimit; attempt++)
+					{
+						try
+						{
+							using (var stream = new FileStream(File, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+							using (var reader = new StreamReader(stream, Encoding.UTF8, true))
+							{
+								Text = reader.ReadToEnd();
+							}
+							Readable = true;
+						}
+						catch (FileNotFoundException)
+						{
+							// Replaced between the existence check and the open.
+							Exists = System.IO.File.Exists(File);
+							Readable = !Exists;
+						}
+						catch (Exception e) when (e is IOException || e is UnauthorizedAccessException)
+						{
+							if (attempt < attemptLimit)
+							{
+								Thread.Sleep(retryDelay);
+							}
+							else
+							{
+								Log.LogMessage(
+									MessageImportance.Normal,
+									"'{0}' could not be read after {1} attempt(s) and was left alone: {2}",
+									File,
+									attempt,
+									e.Message
+								);
+							}
+						}
+					}
+				]]>
+			</Code>
+		</Task>
+	</UsingTask>
+
 	<Target
-		Name="EnsureRepositoryDirectoryBuildRspTarget"
-		BeforeTargets="PrepareForBuild"
+		Name="_ReadRepositoryDirectoryBuildRspTarget"
 		DependsOnTargets="ResolvePurviewRepoBootstrapModeTarget"
 		Condition="'$(IsCSharpProject)' == 'true' AND '$(DisableAutoCopySdkFiles)' != 'true' AND '$(BootstrapMultiThreadedBuildRspToRepoRoot)' == 'true' AND '$(PurviewRepoBootstrapMode)' != 'Never' AND '$(DesignTimeBuild)' != 'true' AND '$(NETCoreSdkVersion)' != '' AND $([MSBuild]::VersionGreaterThanOrEquals('$(NETCoreSdkVersion)', '11.0.0'))"
-		Label="Bootstraps a repo-level Directory.Build.rsp that enables MSBuild's multithreaded build."
+		Label="Finds and reads the repository's Directory.Build.rsp for EnsureRepositoryDirectoryBuildRspTarget."
 	>
 		<PropertyGroup>
 			<_DirectoryBuildPropsDirectory>$([System.IO.Path]::GetDirectoryName('$(DirectoryBuildPropsPath)'))</_DirectoryBuildPropsDirectory>
@@ -4009,17 +3328,74 @@
 			<_EffectiveRepositoryDirectoryBuildRspFilePath
 				Condition="'$(_EffectiveRepositoryDirectoryBuildRspFilePath)' == '' AND '$(_DirectoryBuildPropsDirectory)' != ''"
 				>$([System.IO.Path]::Combine('$(_DirectoryBuildPropsDirectory)', 'Directory.Build.rsp'))</_EffectiveRepositoryDirectoryBuildRspFilePath>
-			<_PurviewRspEnabled Condition="'$(PurviewMultiThreadedBuild)' != 'false'">true</_PurviewRspEnabled>
-			<_PurviewRspEnabled Condition="'$(_PurviewRspEnabled)' == ''">false</_PurviewRspEnabled>
-		</PropertyGroup>
-		<PropertyGroup>
 			<RepositoryDirectoryBuildRspFilePath
 				Condition="'$(RepositoryDirectoryBuildRspFilePath)' == '' AND '$(_EffectiveRepositoryDirectoryBuildRspFilePath)' != ''"
 				>$(_EffectiveRepositoryDirectoryBuildRspFilePath)</RepositoryDirectoryBuildRspFilePath>
+			<_PurviewRspDestinationExists>false</_PurviewRspDestinationExists>
+			<_PurviewRspDestinationReadable>true</_PurviewRspDestinationReadable>
+			<_PurviewRspDestinationText></_PurviewRspDestinationText>
+		</PropertyGroup>
+		<!-- A separate target so EnsureRepositoryDirectoryBuildRspTarget decides from this read, and a test
+		     can stand in for another project writing the file between the read and the write. -->
+		<ReadPurviewRepositoryFile
+			File="$(_EffectiveRepositoryDirectoryBuildRspFilePath)"
+			Retries="$(PurviewRepoBootstrapCopyRetries)"
+			RetryDelayMilliseconds="$(PurviewRepoBootstrapCopyRetryDelayMilliseconds)"
+			Condition="'$(_EffectiveRepositoryDirectoryBuildRspFilePath)' != '' AND Exists('$(_EffectiveRepositoryDirectoryBuildRspFilePath)')"
+		>
+			<Output TaskParameter="Exists" PropertyName="_PurviewRspDestinationExists" />
+			<Output TaskParameter="Readable" PropertyName="_PurviewRspDestinationReadable" />
+			<Output TaskParameter="Text" PropertyName="_PurviewRspDestinationText" />
+		</ReadPurviewRepositoryFile>
+	</Target>
+
+	<Target
+		Name="EnsureRepositoryDirectoryBuildRspTarget"
+		BeforeTargets="PrepareForBuild"
+		DependsOnTargets="_ReadRepositoryDirectoryBuildRspTarget"
+		Condition="'$(IsCSharpProject)' == 'true' AND '$(DisableAutoCopySdkFiles)' != 'true' AND '$(BootstrapMultiThreadedBuildRspToRepoRoot)' == 'true' AND '$(PurviewRepoBootstrapMode)' != 'Never' AND '$(DesignTimeBuild)' != 'true' AND '$(NETCoreSdkVersion)' != '' AND $([MSBuild]::VersionGreaterThanOrEquals('$(NETCoreSdkVersion)', '11.0.0'))"
+		Label="Bootstraps a repo-level Directory.Build.rsp that enables MSBuild's multithreaded build."
+	>
+		<PropertyGroup>
+			<_PurviewRspDestinationFirstLine Condition="'$(_PurviewRspDestinationExists)' == 'true'"
+				>$([System.Text.RegularExpressions.Regex]::Match($(_PurviewRspDestinationText), `^[^\r\n]*`).Value)</_PurviewRspDestinationFirstLine>
+			<_PurviewRspIsManaged
+				Condition="'$(_PurviewRspDestinationExists)' == 'true' AND $(_PurviewRspDestinationFirstLine.StartsWith('$(PurviewRepositoryRspVersionMarker)'))"
+				>true</_PurviewRspIsManaged>
+			<!-- The WebAssembly client a managed file names, relative to the file, with '/' separators so a
+			     committed copy resolves on every OS. -->
+			<_PurviewRspDirectory Condition="'$(_EffectiveRepositoryDirectoryBuildRspFilePath)' != ''"
+				>$([System.IO.Path]::GetDirectoryName('$(_EffectiveRepositoryDirectoryBuildRspFilePath)'))</_PurviewRspDirectory>
+			<_PurviewRspNamedClient Condition="'$(_PurviewRspIsManaged)' == 'true'"
+				>$([System.Text.RegularExpressions.Regex]::Match($(_PurviewRspDestinationText), `(?m)^# -mt:false: the Blazor WebAssembly client \x27(?&lt;path&gt;[^\x27\r\n]+)\x27`).Groups['path'].Value)</_PurviewRspNamedClient>
+			<_PurviewRspNamedClientPath Condition="'$(_PurviewRspNamedClient)' != ''"
+				>$([System.IO.Path]::Combine('$(_PurviewRspDirectory)', '$(_PurviewRspNamedClient)'))</_PurviewRspNamedClientPath>
+			<_PurviewRspNamedClientExists
+				Condition="'$(_PurviewRspNamedClientPath)' != '' AND Exists('$(_PurviewRspNamedClientPath)')"
+				>true</_PurviewRspNamedClientExists>
+			<_PurviewRspEnabled
+				Condition="'$(_PurviewMultiThreadedBuildIsExplicit)' == 'true' AND '$(PurviewMultiThreadedBuild)' != 'false'"
+				>true</_PurviewRspEnabled>
+			<_PurviewRspEnabled
+				Condition="'$(_PurviewMultiThreadedBuildIsExplicit)' != 'true' AND '$(IsBlazorWebAssemblyProject)' != 'true' AND '$(_PurviewRspNamedClientExists)' != 'true'"
+				>true</_PurviewRspEnabled>
+			<_PurviewRspEnabled Condition="'$(_PurviewRspEnabled)' == ''">false</_PurviewRspEnabled>
+			<!-- The client the written file names: this project when it is one, otherwise the one a kept file
+			     already names, so a rewrite (PurviewRepoBootstrapMode=Always) does not drop it. -->
+			<_PurviewRspClient
+				Condition="'$(_PurviewRspEnabled)' != 'true' AND '$(IsBlazorWebAssemblyProject)' == 'true'"
+				>$([MSBuild]::MakeRelative('$(_PurviewRspDirectory)$([System.IO.Path]::DirectorySeparatorChar)', '$(MSBuildProjectFullPath)').Replace('\', '/'))</_PurviewRspClient>
+			<_PurviewRspClient
+				Condition="'$(_PurviewRspClient)' == '' AND '$(_PurviewRspEnabled)' != 'true' AND '$(_PurviewRspNamedClientExists)' == 'true'"
+				>$(_PurviewRspNamedClient)</_PurviewRspClient>
 		</PropertyGroup>
 		<ItemGroup Condition="'$(_EffectiveRepositoryDirectoryBuildRspFilePath)' != ''">
 			<_RepositoryDirectoryBuildRspLines Include="$(PurviewRepositoryRspVersionMarker)" />
 			<_RepositoryDirectoryBuildRspLines Include="# Managed by Purview.BuildSdk. Delete the marker line to take ownership of this file." />
+			<_RepositoryDirectoryBuildRspLines
+				Condition="'$(_PurviewRspClient)' != ''"
+				Include="$([MSBuild]::Escape(`# -mt:false: the Blazor WebAssembly client '$(_PurviewRspClient)' cannot build multithreaded (PRBLZ0002).`))"
+			/>
 			<_RepositoryDirectoryBuildRspLines Condition="'$(_PurviewRspEnabled)' == 'true'" Include="-mt" />
 			<!--
 				Node reuse is disabled alongside -mt on purpose. A non-mt build can leave a reusable node
@@ -4033,15 +3409,6 @@
 			<_RepositoryDirectoryBuildRspLines Condition="'$(_PurviewRspEnabled)' != 'true'" Include="-mt:false" />
 		</ItemGroup>
 		<PropertyGroup>
-			<_PurviewRspDestinationExists Condition="'$(_EffectiveRepositoryDirectoryBuildRspFilePath)' != ''"
-				>$([System.IO.File]::Exists('$(_EffectiveRepositoryDirectoryBuildRspFilePath)'))</_PurviewRspDestinationExists>
-			<_PurviewRspDestinationText Condition="'$(_PurviewRspDestinationExists)' == 'true'"
-				>$([System.IO.File]::ReadAllText('$(_EffectiveRepositoryDirectoryBuildRspFilePath)'))</_PurviewRspDestinationText>
-			<_PurviewRspDestinationFirstLine Condition="'$(_PurviewRspDestinationExists)' == 'true'"
-				>$([System.Text.RegularExpressions.Regex]::Match($(_PurviewRspDestinationText), `^[^\r\n]*`).Value)</_PurviewRspDestinationFirstLine>
-			<_PurviewRspIsManaged
-				Condition="'$(_PurviewRspDestinationExists)' == 'true' AND $(_PurviewRspDestinationFirstLine.StartsWith('$(PurviewRepositoryRspVersionMarker)'))"
-				>true</_PurviewRspIsManaged>
 			<_PurviewRspHasEnabledSwitch
 				Condition="'$(_PurviewRspDestinationExists)' == 'true' AND $([System.Text.RegularExpressions.Regex]::IsMatch($(_PurviewRspDestinationText), `(?m)^\s*-mt\s*$`))"
 				>true</_PurviewRspHasEnabledSwitch>
@@ -4054,12 +3421,15 @@
 			<_PurviewRspContentMatches
 				Condition="'$(_PurviewRspEnabled)' == 'true' AND '$(_PurviewRspHasEnabledSwitch)' == 'true' AND '$(_PurviewRspHasNoNodeReuse)' == 'true'"
 				>true</_PurviewRspContentMatches>
+			<!-- A client accepts a file naming any client that still exists, so two clients in one
+			     repository do not take turns rewriting it. -->
 			<_PurviewRspContentMatches
-				Condition="'$(_PurviewRspEnabled)' != 'true' AND '$(_PurviewRspHasDisabledSwitch)' == 'true'"
+				Condition="'$(_PurviewRspEnabled)' != 'true' AND '$(_PurviewRspHasDisabledSwitch)' == 'true' AND ('$(IsBlazorWebAssemblyProject)' != 'true' OR '$(_PurviewRspNamedClientExists)' == 'true')"
 				>true</_PurviewRspContentMatches>
-			<!-- Missing and enabled: the bootstrap's purpose. Missing and disabled has nothing to do. -->
+			<!-- Missing and enabled: the bootstrap's purpose. Missing and disabled has nothing to do, unless
+			     a client is disabling it for the whole repository. -->
 			<_PurviewRspNeedsSync
-				Condition="'$(_PurviewRspDestinationExists)' != 'true' AND '$(_PurviewRspEnabled)' == 'true'"
+				Condition="'$(_PurviewRspDestinationExists)' != 'true' AND ('$(_PurviewRspEnabled)' == 'true' OR '$(_PurviewRspClient)' != '')"
 				>true</_PurviewRspNeedsSync>
 			<_PurviewRspNeedsSync
 				Condition="'$(_PurviewRspDestinationExists)' == 'true' AND '$(_PurviewRspIsManaged)' == 'true' AND '$(_PurviewRspContentMatches)' != 'true'"
@@ -4068,9 +3438,15 @@
 				Condition="'$(PurviewRepoBootstrapMode)' == 'Always' OR '$(PurviewRepoBootstrapMode)' == 'WarnOnDrift'"
 				>true</_PurviewRspNeedsSync>
 			<_PurviewRspOverwrite
-				Condition="'$(_PurviewRepoBootstrapOverwriteExisting)' == 'true' OR '$(_PurviewRspIsManaged)' == 'true'"
+				Condition="'$(_PurviewRepoBootstrapOverwriteExisting)' == 'true' OR '$(_PurviewRspIsManaged)' == 'true' OR ('$(_PurviewRspDestinationExists)' != 'true' AND '$(_PurviewRspClient)' != '' AND '$(IsBlazorWebAssemblyProject)' == 'true')"
 				>true</_PurviewRspOverwrite>
 			<_PurviewRspOverwrite Condition="'$(_PurviewRspOverwrite)' == ''">false</_PurviewRspOverwrite>
+			<!-- What this project read may be stale by the time it writes: in a parallel build a client can
+			     write its form in between. A project without its own setting looks again just before the write,
+			     under a lock every writer takes, and keeps a file that now names a client that exists. -->
+			<_PurviewRspKeepWhenNamedFileExists
+				Condition="'$(_PurviewMultiThreadedBuildIsExplicit)' != 'true' AND '$(IsBlazorWebAssemblyProject)' != 'true'"
+				>(?m)^# -mt:false: the Blazor WebAssembly client \x27(?&lt;path&gt;[^\x27\r\n]+)\x27</_PurviewRspKeepWhenNamedFileExists>
 		</PropertyGroup>
 		<SyncPurviewRepositoryFiles
 			DestinationFile="$(_EffectiveRepositoryDirectoryBuildRspFilePath)"
@@ -4078,10 +3454,11 @@
 			OverwriteExisting="$(_PurviewRspOverwrite)"
 			VerifyExistingContent="$(_PurviewRepoBootstrapVerifyExistingContent)"
 			VersionMarkerPrefix="$(PurviewRepositoryRspVersionMarker)"
+			KeepWhenNamedFileExists="$(_PurviewRspKeepWhenNamedFileExists)"
 			Retries="$(PurviewRepoBootstrapCopyRetries)"
 			RetryDelayMilliseconds="$(PurviewRepoBootstrapCopyRetryDelayMilliseconds)"
 			TreatFailureAsError="$(PurviewRepoBootstrapCopyFailureAsError)"
-			Condition="'$(_EffectiveRepositoryDirectoryBuildRspFilePath)' != '' AND '$(_PurviewRspNeedsSync)' == 'true'"
+			Condition="'$(_EffectiveRepositoryDirectoryBuildRspFilePath)' != '' AND '$(_PurviewRspDestinationReadable)' == 'true' AND '$(_PurviewRspNeedsSync)' == 'true'"
 		/>
 	</Target>
 
@@ -4191,6 +3568,9 @@
 
 	     Declaring these properties unconditionally is therefore a requirement, not a style preference, and
 	     it is reported here rather than left to be discovered downstream.
+
+	     TargetFramework and TargetFrameworks are not checked: a conditioned declaration of either is
+	     honoured by Targets/TargetFrameworkOwnership.targets, which runs after the project body.
 	     Opt out with DisableUnconditionalProjectDeclarationCheck=true.
 	     ===================================================================== -->
 	<Target
@@ -4200,7 +3580,7 @@
 		Condition="'$(IsCSharpProject)' == 'true' AND '$(DisableUnconditionalProjectDeclarationCheck)' != 'true'"
 	>
 		<PropertyGroup>
-			<_PurviewConditionedDeclaration>$([System.Text.RegularExpressions.Regex]::Match($([System.Text.RegularExpressions.Regex]::Replace($([System.IO.File]::ReadAllText(`$(MSBuildProjectFullPath)`)), `(?s)&lt;!--.*?--&gt;`, ``)), `(?is)&lt;(?&lt;decl&gt;TargetFrameworks?|IsRoslynComponent|IsRoslynComponentOnly|IsPackable|PurviewTargetFrameworkSet|RootNamespace)\s+[A-Za-z][\w:.-]*\s*=`).Groups['decl'].Value)</_PurviewConditionedDeclaration>
+			<_PurviewConditionedDeclaration>$([System.Text.RegularExpressions.Regex]::Match($([System.Text.RegularExpressions.Regex]::Replace($([System.IO.File]::ReadAllText(`$(MSBuildProjectFullPath)`)), `(?s)&lt;!--.*?--&gt;`, ``)), `(?is)&lt;(?&lt;decl&gt;IsRoslynComponent|IsRoslynComponentOnly|IsPackable|PurviewTargetFrameworkSet|RootNamespace)\s+[A-Za-z][\w:.-]*\s*=`).Groups['decl'].Value)</_PurviewConditionedDeclaration>
 			<!--
 				A conditioned declaration is only a problem when it is the *only* declaration. Declaring a
 				property unconditionally and then augmenting it under a condition is a correct, common

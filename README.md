@@ -16,11 +16,11 @@ A reusable MSBuild SDK NuGet package that delivers standardised .NET project def
 | **.NET 11 opt-ins** | A `net11.0` target can opt into the C# 15 updated memory-safety rules (`MemorySafetyRules=2`) and Runtime Async (`PurviewRuntimeAsync=true`): both are **off by default**, and `AllowUnsafeBlocks` stays at its compiler default (`false`); builds use MSBuild's multithreaded mode through a bootstrapped `Directory.Build.rsp` (see [.NET 11 features](#net-11-features)) |
 | **ServerShared** | A `ServerShared*` project is referenced automatically by every non-client-side project, and never by a WebAssembly client, browser-safe library, Razor class library or `*.Client`-style project; `PRSHR0001`/`PRSHR0002` report a reference that would still put it in a browser download (see [ServerShared](#servershared)) |
 | **Blazor and BFF** | Blazor WebAssembly clients, Blazor Web App hosts and BFF hosts are detected; `PurviewBrowserSafe` makes a library the client downloads fail the build on trim, AOT and browser-unsupported APIs, and the client checks every reference sets it (see [Blazor WebAssembly and BFF](#blazor-webassembly-and-bff)) |
-| **C# defaults** | `net10.0;net11.0` TFMs (overridable), `LangVersion=latest` (C# 15), `Nullable=enable`, `ImplicitUsings=enable`, deterministic builds |
+| **C# defaults** | `net10.0;net11.0` TFMs (overridable), `LangVersion=latest` (C# 15), `Nullable=enable`, `ImplicitUsings=enable`, `TreatWarningsAsErrors=true` (every project; set `false` to opt out), deterministic builds |
 | **Code style** | `.editorconfig` baked into the package, applied via `EditorConfigFilePath`, and auto-bootstrapped to repo root if missing; `EnforceCodeStyleInBuild=true`, `EnableNETAnalyzers=true`, `AnalysisLevel=latest`, `AnalysisMode=All`. Style policy: `dotnet_style_require_accessibility_modifiers=omit_if_default`, private instance fields named `_camelCase`, and `IDE0040`/`CA1515`/`CA1852`/`CA1034` at warning or above, enforced by `ValidatePurviewStylePolicy` (opt out with `DisablePurviewStylePolicyValidation=true`) |
 | **NuGet packaging** | `AssemblyName`/`PackageId` default to the fully evaluated `RootNamespace`; packable projects get `GenerateDocumentationFile=true`, `PublishRepositoryUrl=true`, `IncludeSymbols=true`, `SymbolPackageFormat=snupkg`, `EmbedUntrackedSources=true`, and portable PDBs delivered via `.snupkg` (not the `.nupkg`) |
-| **Repo bootstrap** | Missing repo-root `.editorconfig`, `global.json` and `Directory.Build.rsp` are auto-created by default (disable via `DisableAutoCopySdkFiles=true`) |
-| **CI detection** | `ContinuousIntegrationBuild` set automatically when `CI`, `GITHUB_ACTIONS`, or `TF_BUILD` env vars are present |
+| **Repo bootstrap** | Missing repo-root `.editorconfig`, `global.json` and (on a .NET 11 or later SDK) `Directory.Build.rsp` are auto-created by default (disable via `DisableAutoCopySdkFiles=true`) |
+| **CI detection** | `ContinuousIntegrationBuild` set automatically when the `CI`, `GITHUB_ACTIONS` or `TF_BUILD` environment variable is `true` |
 | **SourceLink** | `Microsoft.SourceLink.GitHub` added to every non-test project (`PrivateAssets="all"`), configurable for Azure DevOps, GitLab, Bitbucket and more via `SourceLinkPackageName` (see [SourceLink](#sourcelink)) |
 | **Purview Telemetry** | `Purview.Telemetry.SourceGenerator` + `Microsoft.Extensions.Telemetry.Abstractions` added by default (opt-out) |
 | **Assembly info** | Auto-generated `static partial class AssemblyInfo` with `RootNamespace`, `Version`, `Company`, etc., plus an embedded `Microsoft.CodeAnalysis.EmbeddedAttribute` (can be excluded via `PURVIEW_SDK_EXCLUDE_EMBEDDED`). |
@@ -44,7 +44,7 @@ A reusable MSBuild SDK NuGet package that delivers standardised .NET project def
     "runner": "Microsoft.Testing.Platform"
   },
   "msbuild-sdks": {
-    "Purview.BuildSdk": "2.0.1"
+    "Purview.BuildSdk": "2.1.0"
   }
 }
 ```
@@ -84,11 +84,11 @@ Four things have to be right before the SDK behaves as documented:
 | -- | -- | -- |
 | `NamespacePrefix` | `Directory.Build.props`, **above** the import | Required. The build fails without it (`ValidateRootNamespacePrefixTarget`) unless `DisableNamespacePrefixCheck=true`. |
 | The SDK version | `global.json` → `msbuild-sdks.Purview.BuildSdk` | Pinned to a released version, e.g. `2.0.1`. The SDK bootstraps the file when it is missing and records the version it was packed as (`PurviewBuildSdkVersionForGlobalJson`). |
-| The product version | repo-root `package.json` → `version` | Applied to both `Version` and `PackageVersion` by default. `UsePackageJsonVersion=Strict` fails the build instead of silently falling back to `0.0.1`. |
+| The product version | repo-root `package.json` → `version` | Applied to both `Version` and `PackageVersion` by default. A git repository with no root `package.json` fails the build: add one, or set `UsePackageJsonVersion=false`. `UsePackageJsonVersion=Strict` also fails when no repository root is found at all, instead of silently falling back to `0.0.1`. |
 | Package versions | `Directory.Packages.props` | Central Package Management is on (`ManagePackageVersionsCentrally=true`). Every `PackageVersion` is a minimum, not an exact pin. |
 
 `NamespacePrefix`, `UsePackageJsonVersion` and `RootPackageJson` must be set **before** the `<Import>`.
-See [Version Detection](docs/wiki/Version-Detection.md) and the
+See [Version Detection](docs/wiki/configuration/Version-Detection.md) and the
 [Configuration Reference](docs/wiki/Configuration-Reference.md).
 
 ### 6. Setting the target framework(s)
@@ -96,10 +96,11 @@ See [Version Detection](docs/wiki/Version-Detection.md) and the
 A project that declares neither `TargetFramework` nor `TargetFrameworks` gets the SDK's default set,
 `net10.0;net11.0` (`Current`). Pick a different one in one of three ways, narrowest first:
 
-1. **Declare it in the project** — `TargetFramework` for a single target, `TargetFrameworks` (plural)
-   for many. It must be declared **unconditionally**: the SDK reads it from the project XML before the
-   project body is evaluated, so a `Condition` on it is not seen (and is reported as
-   `PurviewConditionedProjectDeclaration`).
+1. **Declare it explicitly** — `TargetFramework` for a single target, `TargetFrameworks` (plural)
+   for many. An explicit value **always wins** over every set, wherever it is set: in the project
+   (with or without a `Condition`), in a file the project imports, or in `Directory.Build.props`
+   before or after the import. Only `Directory.Build.targets` is too late — the .NET SDK has already
+   decided whether the project multi-targets by then.
 2. **Select a curated set** — `<PurviewTargetFrameworkSet>Supported</PurviewTargetFrameworkSet>` in
    `Directory.Build.props` or the `.csproj`. Named sets are `Current` (the default), `Latest`,
    `Supported`, `Broad` and `All`, so a lifecycle change is one SDK bump rather than an edit in every
@@ -122,11 +123,11 @@ references, and default package wiring without bespoke overrides.
 
 Start with:
 
-- [Engineering Principles](docs/wiki/Engineering-Principles.md)
-- [Project Naming Conventions](docs/wiki/Project-Naming-Conventions.md)
-- [Project Type Detection](docs/wiki/Project-Type-Detection.md)
-- [Assembly Name Generation](docs/wiki/Assembly-Name-Generation.md)
-- [Testing Wiring](docs/wiki/Testing-Wiring.md)
+- [Engineering Principles](docs/wiki/concepts/Engineering-Principles.md)
+- [Project Naming Conventions](docs/wiki/concepts/Project-Naming-Conventions.md)
+- [Project Type Detection](docs/wiki/concepts/Project-Type-Detection.md)
+- [Assembly Name Generation](docs/wiki/concepts/Assembly-Name-Generation.md)
+- [Testing Wiring](docs/wiki/testing/Testing-Wiring.md)
 
 ## Project naming guide
 
@@ -189,21 +190,18 @@ about.
 
 ```sh
 # Create a source project
-mkdir src/Api && cd src/Api
-dotnet new classlib -n Api
+dotnet new classlib -n Api -o src/src/Api
 
 # Create its unit tests
-mkdir ../../tests/Api.UnitTests && cd ../../tests/Api.UnitTests
-dotnet new classlib -n Api.UnitTests   # SDK wires TUnit automatically
+dotnet new classlib -n Api.UnitTests -o src/tests/Api.UnitTests   # SDK wires TUnit automatically
 
 # Or flat:
-mkdir Api.UnitTests && cd Api.UnitTests
-dotnet new classlib -n Api.UnitTests
+dotnet new classlib -n Api.UnitTests -o Api.UnitTests
 ```
 
 For the full layout, naming, identity, and test-readability conventions, see
-[Engineering Principles](docs/wiki/Engineering-Principles.md) and
-[Project Naming Conventions](docs/wiki/Project-Naming-Conventions.md).
+[Engineering Principles](docs/wiki/concepts/Engineering-Principles.md) and
+[Project Naming Conventions](docs/wiki/concepts/Project-Naming-Conventions.md).
 
 ---
 
@@ -215,18 +213,17 @@ The `templates/` folder contains ready-to-copy starter files for new repos:
 | -- | -- |
 | `Directory.Build.props` | Bootstrapper — copy to repo root and set `NamespacePrefix` |
 | `Directory.Build.targets` | Bootstrapper — copy to repo root |
-| `Directory.Packages.props` | All default package versions with `*` floating to latest |
+| `Directory.Packages.props` | A pinned `PackageVersion` for every package the SDK adds, grouped by version property (`TUnitVersion`, `AspireVersion`, …) |
 | `global.json` | `msbuild-sdks` entry + `Microsoft.Testing.Platform` test runner |
 | `.gitignore` | ASP.NET Core + VS + Rider + Node combined gitignore |
 | `.gitattributes` | Line-ending normalisation for .cs, .json, .yml, etc. |
 | `.config/dotnet-tools.json` | CSharpier tool manifest |
 
-A package built with `PurviewAutoSdkPack` carries its repository's authored skills at
-`.agents/skills/**`, but as *metadata*: nothing copies it out. It is what the SDK reads to map a
-restored package to the skills it offers and the commit it was built from. Installing is the skills
-CLI's job and nothing else's — see [Agent Skills](docs/wiki/Agent-Skills.md).
+The SDK packs no skills: they live in a repository's root `skills/` folder and are delivered by the
+skills CLI from git. Installing is the skills CLI's job and nothing else's — see
+[Agent Skills](docs/wiki/tooling/Agent-Skills.md).
 
-Repository metadata can also be defined before the SDK import: the package recognizes `PurviewHomepage`, `PurviewProjectUrl`, and `PurviewDocsUrl` for repo/site metadata, which is useful when a package or generated metadata needs to point at a public docs site or project page without hard-coding repo-specific values in each project file.
+Repository metadata such as `PackageProjectUrl` is left to the repository. This repository keeps it in one place with its own `PurviewHomepage`, `PurviewProjectUrl` and `PurviewDocsUrl` properties in `src/Directory.Build.props`; they are a convention, not SDK properties — the SDK neither defines nor reads them.
 
 `.editorconfig` and `global.json` are bootstrapped into the repository root. Every project in a
 solution writes those same destinations, so a write is staged into a temporary file and renamed into
@@ -239,7 +236,7 @@ to a low-importance message) and only a copy that still fails after every retry 
 The bootstrapped `.editorconfig` opens with a version marker:
 
 ```editorconfig
-# Purview.BuildSdk 2.0.1 - managed file, do not edit
+# Purview.BuildSdk 2.1.0 - managed file, do not edit
 ```
 
 That line is how the SDK recognises a file **it** wrote. When the SDK version changes, a file carrying
@@ -314,70 +311,62 @@ which is worth roughly 0.7s per build.
 
 ### Agent skills
 
-Purview skills are published in the standard [Agent Skills](https://skills.sh/) format and installed
-with the standard `skills` CLI. The SDK is the discovery and compatibility half only: it reads the
-skills each referenced NuGet package ships, compares them against the CLI's own `skills-lock.json`,
-and recommends the command that fixes the difference. It never installs, updates or removes a skill
-as a side effect of a restore or a build.
+Skills are published in the standard [Agent Skills](https://skills.sh/) format, in a repository's
+root `skills/` folder, and installed with the standard `skills` CLI (`bun x skills add owner/repo`).
+The SDK adds nothing bespoke: its targets are a thin wrapper that runs that CLI from the repository
+root, once per solution, and keeps the agent directories tidy. Nothing about skills runs during a
+restore or a build.
 
 ```bash
-bun x skills add purview-dev/build-sdk              # install, the ordinary way
-dotnet msbuild <project> -t:RecommendPurviewSkills  # what is missing, drifted or unverifiable
-dotnet msbuild <project> -t:InstallPurviewSkills    # explicit; delegates to the CLI
-dotnet msbuild <project> -t:UpdatePurviewSkills     # re-add every skills-lock.json source: refresh, and add new skills
-dotnet msbuild <project> -t:CheckPurviewSkills      # only the PurviewSkillsAgents directories exist
-dotnet msbuild <project> -t:FixPurviewSkills        # remove the CLI's links from any other agent directory
+bun x skills add purview-dev/build-sdk                                              # install, the ordinary way
+dotnet msbuild <solution> -t:InstallPurviewSkills -p:PurviewSkillsSource=owner/repo  # the same, through the SDK
+dotnet msbuild <solution> -t:InstallPurviewSkills                                    # restore skills-lock.json
+dotnet msbuild <solution> -t:UpdatePurviewSkills    # re-add every skills-lock.json source at its latest
+dotnet msbuild <solution> -t:CheckPurviewSkills     # only the PurviewSkillsAgents directories exist
+dotnet msbuild <solution> -t:FixPurviewSkills       # remove the CLI's links from any other agent directory
 ```
 
 These run only when named: install, update and fix fail with `PRSKL0009` if anything pulls them into
-a build, a restore or a design-time build. `UpdatePurviewSkills` re-adds each source a restored package ships at the commit that package version
-was built from, so after upgrading a package reference it lands on the matching skills. Every other
-source is re-added at its latest. `PurviewSkillsAgents` is empty by default, so the CLI auto-detects
-agents; set it (for example `universal`) to choose, and `CheckPurviewSkills`/`FixPurviewSkills` then
-enforce that only those agents' skill directories exist.
-
-Compatibility is pinned by commit: a package's nuspec names the commit it was built from, the CLI
-accepts `owner/repo#<commit>` and records it, so a project on an older package version is never
-advised to install skills describing a newer API.
-
-**Nothing about skills runs during a build.** `-t:RecommendPurviewSkills` reports the state and
-`-t:VerifyPurviewSkills` reports it and fails when a referenced package's skills are missing or pinned
-to a different ref — the second is what a CI job calls. Reading the restore graph and the lockfile on
-every build of every project was measured as the largest avoidable cost in an up-to-date build, so it
-no longer happens unless somebody asks for it.
+a build, a restore or a design-time build. Append `#<ref>` to a source to pin it. `PurviewSkillsAgents`
+is empty by default, so the CLI auto-detects agents; set it (for example `universal`) to choose, and
+`CheckPurviewSkills`/`FixPurviewSkills` then enforce that only those agents' skill directories exist.
 
 The CLI is launched through a package runner. `PurviewSkillsRunner` defaults to `bun` (`bun x
 skills`) and also accepts `npx`, `bunx`, `pnpm`, `yarn`, `deno` or `skills`; anything else
 falls through to `<runner> skills@1`. Because `skills-lock.json` and the agent directories belong to
 the repository rather than to a project, every skill target runs **from the repository root,
 always**, and reports `PRSKL0003` rather than falling back to a project folder when that root cannot
-be resolved. See [Agent Skills](docs/wiki/Agent-Skills.md).
-
+be resolved. See [Agent Skills](docs/wiki/tooling/Agent-Skills.md).
 ---
 
 ## Configuration reference
 
-Set any of these properties **before** the `<Import>` in your `Directory.Build.props`:
+Setting a property in `Directory.Build.props` **before** the `<Import>` always works. A property whose
+description says *set it before the `Sdk.props` import* only works there; the rest can also be set in a
+project file. Every property here is described in the SDK's
+[property schema](#msbuild-property-schema-and-intellisense), so the same text appears in csproj
+IntelliSense.
 
 ### Version detection
 
 | Property | Default | Description |
 | -- | -- | -- |
 | `UsePackageJsonVersion` | `true` | `true` enables version detection, `false` disables it, and `Strict` requires version detection to succeed (build fails if no version source can be resolved). |
-| `RootPackageJson` | *(auto-discovered)* | Explicit path to a `package.json`. Relative paths are resolved from the project directory. |
+| `RootPackageJson` | *(auto-discovered)* | Explicit path to a `package.json`. A relative path resolves from the project directory, so in `Directory.Build.props` prefer `$(MSBuildThisFileDirectory)package.json`. |
 | `EnableVersionDetectionCache` | `true` | Enables local caching of auto-discovered package.json version results. |
-| `VersionDetectionLogEnabled` | `false` | Emits a high-importance message showing the detected package version. Set to `true` to enable logging.
+| `VersionDetectionLogEnabled` | `false` | Emits a high-importance message showing the detected package version. Set to `true` to enable logging. |
+| `VersionDetectionCacheFile` | *(one file per project directory under the temporary directory)* | File the package.json version detection cache is written to. Set it before the `Sdk.props` import. |
 
 When `UsePackageJsonVersion=true` (the default) or `UsePackageJsonVersion=Strict`, the SDK:
 
 1. **Explicit path** — if `RootPackageJson` is set, reads that file directly.
-2. **Auto-discovery** — otherwise, locates the repo root from CI workspace variables (`GITHUB_WORKSPACE`, `BUILD_SOURCESDIRECTORY`, `BUILD_REPOSITORY_LOCALPATH`, `CI_PROJECT_DIR`), then by walking up from the project directory looking for a `.git` marker or a `package.json`, and reads `package.json` from there.
+2. **Auto-discovery** — otherwise, finds the repository root (`RepoRoot`) and reads `package.json` from there: a `RepoRoot` set before the import, else the root cached for this project, else the CI workspace variables (`GITHUB_WORKSPACE`, `BUILD_SOURCESDIRECTORY`, `BUILD_REPOSITORY_LOCALPATH`, `CI_PROJECT_DIR`), else the nearest `.git` and then the nearest `package.json` above the project.
 
-The extracted `version` field is applied to both `Version` and `PackageVersion`. A build error is raised when a `package.json` was resolved but can't be read, or when it contains no `version` field. With `UsePackageJsonVersion=Strict`, the build also fails when no package.json source can be discovered at all (for example, no explicit `RootPackageJson` and no discoverable `.git` marker or CI workspace variable); in non-strict mode that case silently falls back to the `0.0.1` default.
+The first `"version"` value in the file is applied to both `Version` and `PackageVersion`. The build fails when an explicit `RootPackageJson` does not exist, when a repository root is found with no `package.json` in it, or when the file has no `version`. With `UsePackageJsonVersion=Strict`, it also fails when no repository root can be discovered at all; in non-strict mode that case silently keeps the `0.0.1` default. See [Version Detection](docs/wiki/configuration/Version-Detection.md).
 
 Version detection logging is disabled by default. Set `VersionDetectionLogEnabled` to `true` to emit a high-importance message showing the detected package version.
 
-> **Important — set before the import:** Both `UsePackageJsonVersion` and `RootPackageJson` must be set **before** the `<Import Sdk="Purview.BuildSdk" Project="Sdk.props" />` line in your `Directory.Build.props`. The version logic runs during that import and cannot see properties set afterwards (e.g. in individual `.csproj` files).
+> **Important — set before the import:** `UsePackageJsonVersion`, `RootPackageJson`, `RepoRoot`, `EnableVersionDetectionCache` and `VersionDetectionCacheFile` must be set **before** the `<Import Sdk="Purview.BuildSdk" Project="Sdk.props" />` line in your `Directory.Build.props`. The version logic runs during that import and cannot see properties set afterwards (e.g. in individual `.csproj` files).
 >
 > ```xml
 > <Project>
@@ -400,25 +389,29 @@ Version detection logging is disabled by default. Set `VersionDetectionLogEnable
 | `DisablePurviewStylePolicyValidation` | `false` | Set to `true` to stop the build failing (`PRSGD0006`-`PRSGD0009`) when the repository `.editorconfig` overrides the modifier policy, hides `IDE0040`/`IDE1006`, disables the Style category in bulk, weakens the `_camelCase` field-naming rule, or adds the accessibility rules to `NoWarn`. |
 | `PurviewTestContextNoWarn` | `CA1002;CA1012;CA1034;CA1047;CA1050;CA1051;CA1062;CA1064;CA1515;CA1707` | Semicolon-fenced rule set exempted in test and shared-testing projects, so test classes stay public, `Method_Scenario_Expectation` names keep their underscores, and helpers need no null guards. Override before the SDK import to narrow or extend it. |
 | `DisablePurviewTestContextRuleSet` | `false` | Set to `true` to make test and shared-testing projects enforce the production API-surface rules as well (the strict style contract applies either way). |
-| `PurviewSharedTestingOutputType` | `Library` | Output type forced on `IsSharedTestingProject` projects. `Library` (default) keeps them helper libraries - with `IsTestProject`/`IsTestingPlatformApplication` cleared - which also keeps their fixtures out of `CA1515`'s Exe-only scope. Set to `Exe` before the SDK import to keep the test packages' executable/test-host shape instead. |
+| `PurviewSharedTestingOutputType` | `Library` | Output type forced on `IsSharedTestingProject` projects. `Library` (default) keeps them helper libraries - with `IsTestProject`/`IsTestingPlatformApplication` cleared - which also keeps their fixtures out of `CA1515`'s Exe-only scope. Set to `Exe` (in the project or `Directory.Build.props`) to keep the test packages' executable/test-host shape instead. |
 | `TargetFramework` | `net10.0;net11.0` | Override the default TFMs per-project or globally. Defaults to `netstandard2.0` for projects declaring `IsRoslynComponent=true`. |
 | `IsRoslynComponent` | `false` | When explicitly `true`, applies source-generator defaults: a single `netstandard2.0` target, `LangVersion=latest`, `Nullable=enable`, `TreatWarningsAsErrors=true`, `Deterministic=true`, extended analyzer rules, SourceLink with `EmbedUntrackedSources=true`, compiler-generated output under the intermediate directory, no dependency file, telemetry exclusion, and package build output. Pack-time validation (`ValidateRoslynComponentCompilerSettings`) fails the pack if the compiler defaults are missing unless `DisableRoslynCompilerDefaultsValidation=true`. Roslyn development dependencies (`Microsoft.CodeAnalysis.*`, `Microsoft.CodeAnalysis.Analyzers`) default to `PrivateAssets="all"`. |
-| `IsRoslynComponentOnly` | `true` for Roslyn components | Produces an analyzer-only package: `IncludeBuildOutput=false`, `IncludeSymbols=false`, and the analyzer assembly and portable PDB are packed under `analyzers/dotnet/cs/`. Set to `false` for a dual-role Roslyn component that uses normal library symbol packaging. |
+| `IsRoslynComponentOnly` | `false` (`true` for Roslyn components) | Produces an analyzer-only package: `IncludeBuildOutput=false`, `IncludeSymbols=false`, and the analyzer assembly and portable PDB are packed under `analyzers/dotnet/cs/`. Set to `false` for a dual-role Roslyn component that uses normal library symbol packaging. |
 | `PackProjectReferencedSourceGenerators` | `true` | Automatically packs analyzer `ProjectReference` outputs and their runtime dependencies under `analyzers/dotnet/cs/`. Set to `false` to opt out; set `Pack="false"` on an individual reference to exclude only that generator. |
-| `SourceLinkPackageName` | `Microsoft.SourceLink.GitHub` | SourceLink provider package, added to every non-test project. Match the repository host: `Microsoft.SourceLink.AzureRepos.Git` for Azure DevOps Services, `Microsoft.SourceLink.AzureDevOpsServer.Git` for on-premises Azure DevOps Server / TFS, `Microsoft.SourceLink.GitLab`, `Microsoft.SourceLink.Bitbucket.Git`. Set it **before the SDK import**. See [SourceLink](#sourcelink). |
-| `DisableSourceLink` | `false` | Set to `true` **before the SDK import** to stop the SDK from adding the SourceLink package at all. |
+| `SourceLinkPackageName` | `Microsoft.SourceLink.GitHub` | SourceLink provider package, added to every non-test project. Match the repository host: `Microsoft.SourceLink.AzureRepos.Git` for Azure DevOps Services, `Microsoft.SourceLink.AzureDevOpsServer.Git` for on-premises Azure DevOps Server / TFS, `Microsoft.SourceLink.GitLab`, `Microsoft.SourceLink.Bitbucket.Git`. Set it in `Directory.Build.props` so every project agrees. See [SourceLink](#sourcelink). |
+| `DisableSourceLink` | `false` | Set to `true` to stop the SDK from adding the SourceLink package at all. |
 | `EnableAssemblyNameGeneration` | `true` | When `true` (default), `AssemblyName` and `PackageId` derive from the fully evaluated `RootNamespace`. When explicitly `false`, standard .NET behaviour applies (`$(MSBuildProjectName)`). Explicit `<AssemblyName>`/`<PackageId>` in a `.csproj` always take precedence. |
 | `DisableProjectFileNamingConventionCheck` | `false` | Set to `true` to disable the validation that requires `MyProject\MyProject.csproj` naming alignment. |
-| `DisableGenerateAssemblyInfoClass` | `false` | Set to `true` to disable the generated `AssemblyInfo` helper source. |
+| `DisableGenerateAssemblyInfoClass` | `false` (`true` for test and shared-testing projects) | Set to `true` to disable the generated `AssemblyInfo` helper source. |
 | `DisableGenerateAssemblyIdentifierClass` | `false` (`true` for test and shared-testing projects) | Set to `true` to disable the generated assembly identifier marker class. |
 | `AssemblyIdentifierClassName` | `<project name minus NamespacePrefix, dots removed>Assembly` | Overrides the name of the generated assembly identifier marker class. |
 | `AutoIncludeUsings` | `true` | Controls SDK-added global usings for `NamespacePrefix` and `RootNamespace`. |
 | `MemorySafetyRules` | `0` | C# 15 memory-safety tier for `net11.0`+ targets: `0` off (default), `1` preview pointer syntax, `2` updated rules (`updated-memory-safety-rules`). The updated rules are an experimental compiler feature, so they are opt-in. `AllowUnsafeBlocks` is never changed. |
-| `PurviewRuntimeAsync` | `false` | Set to `true` to compile `net11.0`+ targets with `<Features>runtime-async=on</Features>`. `UseRuntimeAsync=true` also opts in; an explicit `false` under either name keeps it off. |
-| `IsClientSideProject` | *(detected)* | `true` for a project whose assemblies are downloaded to a browser — a WebAssembly client, `PurviewBrowserSafe` library, Razor class library, or `*.Client`/`*.Browser`/`*.Wasm`/`*.WebAssembly`/`*.Components` name. Set explicitly to override; a `ServerShared` project is never added to a client-side project. |
+| `PurviewRuntimeAsync` | *(unset, which is treated as false)* | Set to `true` to compile `net11.0`+ targets with `<Features>runtime-async=on</Features>`. `UseRuntimeAsync=true` also opts in; an explicit `false` under either name keeps it off. |
+| `IsClientSideProject` | *(detected)* | `true` for a project whose assemblies are downloaded to a browser — a WebAssembly client, `PurviewBrowserSafe` library, Razor class library, or `*.Client`/`*.ClientShared`/`*.Browser`/`*.Wasm`/`*.WebAssembly`/`*.Components` (or `ClientShared`/`Components`) name. Set explicitly to override; a `ServerShared` project is never added to a client-side project. |
 | `PurviewAutoServerSharedReference` | `true` | Adds `../ServerShared*/ServerShared*.csproj` to a non-client-side project. `false` removes the automatic reference. |
-| `DisablePurviewServerSharedReferenceCheck` | `false` | Suppresses `PRSHR0001`/`PRSHR0002`. |
+| `DisablePurviewServerSharedReferenceCheck` | *(unset, which is treated as false)* | Suppresses `PRSHR0001`/`PRSHR0002`. |
 | `PurviewServerSharedReferenceCheckAsError` | `false` | Makes `PRSHR0001`/`PRSHR0002` errors instead of warnings. |
+| `DisableUnconditionalProjectDeclarationCheck` | `false` | Suppresses `PurviewConditionedProjectDeclaration`, raised when `IsRoslynComponent`, `IsRoslynComponentOnly`, `IsPackable`, `PurviewTargetFrameworkSet` or `RootNamespace` is declared only under a `Condition` the SDK cannot evaluate. |
+| `AutoGeneratedAssemblyInfoFile` | `GeneratedAssemblyInfo.cs` | File name of the generated AssemblyInfo helper source, written under the intermediate `Properties/` folder. |
+| `AutoGeneratedAssemblyIdentifierFile` | `GeneratedAssemblyIdentifier.cs` | File name of the generated assembly identifier source, written under the intermediate `Properties/` folder. |
+| `CurrentYear` | *(the current year at build time)* | Year used in generated assembly metadata. |
 
 ### Packable project defaults
 
@@ -432,11 +425,11 @@ For projects where `IsPackable=true`, the SDK provides these defaults **only whe
 | `PublishRepositoryUrl` | `true` | Publishes the repository URL. |
 | `EmbedUntrackedSources` | `true` | Embeds untracked sources for SourceLink. |
 | `DebugType` | `portable` | Ensures portable PDBs for symbol-package delivery. |
-| `IncludeSource` | `true` | Includes source files in the package. |
+| `IncludeSource` | `false` | Packs source files into the symbol package. Off for every project, packable or not; SourceLink is how sources reach the debugger. |
 
 Portable PDBs are delivered through the `.snupkg`; the normal `.nupkg` does **not** receive PDB files unless the project explicitly opts in (for example by adding `.pdb` to `AllowedOutputExtensionsInPackageBuildOutputFolder`).
 
-**Repository README auto-inclusion:** when the repo root is discoverable (`.git` marker or CI workspace variable), the repository-root `README.md` is packed automatically for packable projects and registered via `PackageReadmeFile` — but only when the file exists and `PackageReadmeFile` has not been configured explicitly. The SDK skips the auto-inclusion if a README-named file is already being packed, so no duplicate readme items are produced. No README is required; if the file is absent the pack succeeds without readme metadata.
+**Package README:** for a packable project with no explicit `PackageReadmeFile`, the SDK registers `PackageReadmeFile=README.md` and packs a README to the package root. The project's own `README.md`, beside its `.csproj`, wins; otherwise the repository-root `README.md` (at `RepoRoot`) is used. The SDK skips this when a README-named file is already being packed — an `Sdk/README.md`, for example — so no duplicate readme items are produced. No README is required; if neither file exists the pack succeeds without readme metadata.
 
 The SDK never forces organization/package-specific metadata — `Authors`, `Company`, `PackageLicenseExpression`, `PackageLicenseFile`, `Description`, `PackageTags`, `PackageProjectUrl`, and repository URLs are left to the repository or individual package. `IsPackable` is not set blindly: it defaults to `false` and only becomes `true` when a project explicitly opts in.
 
@@ -453,13 +446,20 @@ Non-packable projects (including web applications) default `WarnOnPackingNonPack
 | `RepositoryGlobalJsonFilePath` | *(auto-detected)* | Override the destination path for the bootstrapped `global.json`. |
 | `BootstrapMultiThreadedBuildRspToRepoRoot` | `true` | Creates a managed `Directory.Build.rsp` at the repository root that enables MSBuild's multithreaded build (`-mt`) on .NET 11. |
 | `RepositoryDirectoryBuildRspFilePath` | *(auto-detected)* | Override the destination path for the bootstrapped `Directory.Build.rsp`. |
-| `PurviewMultiThreadedBuild` | `true` | When `false`, a managed `Directory.Build.rsp` is rewritten to `-mt:false` so the mode is actually off. |
+| `PurviewMultiThreadedBuild` | `true` | When `false`, a managed `Directory.Build.rsp` is rewritten to `-mt:false` so the mode is actually off. Left unset, a Blazor WebAssembly client writes `-mt:false` for the whole repository, because it cannot build under `-mt` (`PRBLZ0002`); a value you set always wins. |
 | `PurviewBuildSdkVersionForGlobalJson` | *(restored package version, else the version it was packed as)* | Version written to the `msbuild-sdks.Purview.BuildSdk` entry in a bootstrapped `global.json`. |
 | `PurviewRepoBootstrapMode` | `IfMissing` | `IfMissing` never touches an existing file, `Always` overwrites it, `WarnOnDrift` reports a file that differs from the SDK-provided one, and `Never` skips bootstrapping. |
 | `PurviewRepoBootstrapCopyRetries` | `3` | Write attempts before a bootstrap write failure is reported. |
 | `PurviewRepoBootstrapCopyRetryDelayMilliseconds` | `500` | Base delay between bootstrap write attempts. |
 | `PurviewRepoBootstrapCopyFailureAsError` | `true` | When `false`, a failed bootstrap write is a warning instead of an error. |
 | `PurviewSuppressCopyRetryWarnings` | `true` | Demotes built-in copy retry notices (`MSB3026`) to messages. Set to `false` to see every retry attempt. |
+| `PurviewEditorConfigAutoUpdate` | `true` | Refreshes a managed `.editorconfig` (one opening with the SDK's version marker) when the SDK version changes. `false` keeps it exactly as it is. |
+| `PurviewEditorConfigAdoptionWarning` | `true` | Warns, once per repository per SDK version, when the repository `.editorconfig` is not one the SDK manages and so will never be updated. |
+| `PurviewEditorConfigAdoptionWarningInCI` | `false` | Reports the adoption warning on CI builds too. Off so that advice cannot fail a `TreatWarningsAsErrors` build. |
+| `PurviewEditorConfigAdoptionStampPath` | *(.purview/editorconfig-adoption.cache beside the repository .editorconfig)* | Where the once-per-SDK-version record of the adoption warning is kept. |
+| `PurviewRepositoryRootStrategy` | `Markers` | How the bootstrap finds the repository root: `Markers` walks up to the nearest root marker without starting a process; `Git` asks git for the worktree root. See [Finding the repository root](#finding-the-repository-root). |
+| `EditorConfigFilePath` | *(the .editorconfig inside the installed SDK package)* | The SDK-provided `.editorconfig` injected into `@(EditorConfigFiles)` for build-time style enforcement. Set it before the `Sdk.props` import. |
+| `RepoRoot` | *(discovered from CI workspace variables, then a .git marker or package.json above the project)* | Repository root used for version detection and bootstrapping. Set it before the `Sdk.props` import. |
 
 ### Sdk folder packaging
 
@@ -469,9 +469,8 @@ Non-packable projects (including web applications) default `WarnOnPackingNonPack
 
 > **The SDK writes nothing into an agent directory.** It used to mirror a package's `.agents/**`
 > into the consuming repository; that is gone, because the skills CLI covers it and two writers on
-> one set of paths meant the mirror could silently overwrite a pinned install. A package still
-> carries `.agents/skills/` as metadata describing which skills it offers and at which commit,
-> which is what the SDK reads to recommend an install.
+> one set of paths meant the mirror could silently overwrite a pinned install. The SDK packs no
+> `.agents/**` content, and reads none from packages: skills come from git.
 
 ### Agent skills
 
@@ -479,29 +478,27 @@ Non-packable projects (including web applications) default `WarnOnPackingNonPack
 | -- | -- | -- |
 | `PurviewSkillsLockFile` | `<repo root>/skills-lock.json` | Overrides where the skills CLI's lockfile is read from. |
 | `PurviewSkillsSourceFolder` | `<repo root>/skills` | Repository folder holding authored skills. |
-| `PurviewSkillsAgents` | *(empty — the CLI auto-detects)* | Comma-separated agents the skill targets install to, and that recommended commands name. When set, `CheckPurviewSkills`/`FixPurviewSkills` allow only those agents' skill directories. |
-| `PurviewSkillsDryRun` | `false` | When `true`, `InstallPurviewSkills` and `UpdatePurviewSkills` print the CLI commands without running them. |
+| `PurviewSkillsAgents` | *(empty, so the skills CLI auto-detects agents)* | Comma-separated agents the skill targets install to, and that recommended commands name. When set, `CheckPurviewSkills`/`FixPurviewSkills` allow only those agents' skill directories. |
+| `PurviewSkillsDryRun` | *(unset, which is treated as false)* | When `true`, `InstallPurviewSkills` and `UpdatePurviewSkills` print the CLI commands without running them. |
 | `PurviewSkillsRunner` | `bun` | Package runner used to launch the skills CLI (`bun`, `npx`, `bunx`, `pnpm`, `yarn`, `deno`, `skills`, or any other). |
 | `PurviewSkillsRunnerCandidates` | `bun;npx;bunx;pnpm;yarn;deno` | Runners probed on `PATH` after `PurviewSkillsRunner`. |
 | `PurviewSkillsPackage` | `skills@1` | Package spec the executed launcher pins to. |
 | `PurviewSkillsInstallRoot` | *(resolved)* | Overrides the repository root every skill target runs from. |
 | `PurviewRepositoryRootMarkers` | `.git/;.github/;.gitattributes;LICENSE.md;AGENTS.md;.agents/;CLAUDE.md;.claude/;package.json` | Ordered markers identifying a repository root. The first is definitive and searched to the top; the rest resolve nearest-first. |
 | `PurviewSkillsCommand` | *(detected)* | Overrides the launcher entirely and skips runner detection. |
-| `PurviewSkillsSource` | *(none)* | Installs from an explicit git source (`owner/repo`, optionally `#ref`) instead of from referenced packages. |
+| `PurviewSkillsSource` | *(none)* | The source `InstallPurviewSkills` adds (`owner/repo`, optionally `#ref`); without it, install restores `skills-lock.json`. |
+| `PurviewSkillsRepoRoot` | *(RepoRoot, else the nearest folder with an AGENTS.md)* | Evaluation-time guess at the repository root for the skill targets; a value you set outranks the marker walk. Set it before the `Sdk.props` import. |
 
 When a project is packable, the SDK treats any content under `Sdk/` as a pack target with these rules:
 
 | Source path | Package path |
 | -- | -- |
-| `Sdk/.agents/**` | `.agents/**` |
 | `Sdk/.github/**` | `.github/**` |
 | `Sdk/build/**` | `build/**` |
 | `Sdk/buildTransitive/**` | `buildTransitive/**` |
 | `Sdk/buildMultiTargeting/**` | `buildMultiTargeting/**` |
 | `Sdk/*.md`, `Sdk/*.png`, `Sdk/*.jpg`, etc. | package root |
 | everything else under `Sdk/` | `Sdk/` |
-
-The SDK automatically adds a `.gitignore` file into each second-level folder under `Sdk/.agents` with the content `# Ignore all files\n*\n\n# Don't ignore directories, so Git can traverse them\n!*/\n\n# Keep this file\n!.gitignore`. This ensures the copied folder structure remains discoverable in consuming repositories while the content itself is ignored by Git.
 
 ### Telemetry
 
@@ -518,6 +515,84 @@ The SDK automatically adds a `.gitignore` file into each second-level folder und
 | `SubstituteFramework` | `TUnitMocks` | Mocking provider. Supported values: `TUnitMocks`, `NSubstitute`, `None`. |
 | `TestDataFramework` | `Bogus` | Test data provider. Supported values: `Bogus`, `None`. |
 | `DisableAutoInternalsVisibleTo` | `false` | Set to `true` to disable automatic `InternalsVisibleTo` generation for test types and shared testing projects. |
+
+### Target framework sets
+
+An explicit `TargetFramework` or `TargetFrameworks` always wins over every set. See
+[Setting the target framework(s)](#6-setting-the-target-frameworks).
+
+| Property | Default | Description |
+| -- | -- | -- |
+| `PurviewTargetFrameworkSet` | `Current` | Curated set used when no `TargetFramework`/`TargetFrameworks` is set: `Latest`, `Current`, `Supported`, `Broad` or `All`. Set it before the `Sdk.props` import, or unconditionally in the project file. An unknown name fails with `PurviewInvalidTargetFrameworkSet`; a Roslyn component ignores the sets. |
+| `PurviewTargetFrameworksLatest` | `net11.0` | The `Latest` set: the latest shipped release only. Set it before the `Sdk.props` import to redefine the set. |
+| `PurviewTargetFrameworksCurrent` | `net10.0;net11.0` | The `Current` set, the default: the current LTS plus the latest release. Set it before the `Sdk.props` import to redefine the set. |
+| `PurviewTargetFrameworksSupported` | `net10.0;net11.0` | The `Supported` set: every release still in support. Set it before the `Sdk.props` import to redefine the set. |
+| `PurviewTargetFrameworksBroad` | `net8.0;net9.0;net10.0` | The `Broad` set: every shipped release, without committing to the newest major. Set it before the `Sdk.props` import to redefine the set. |
+| `PurviewTargetFrameworksAll` | `net8.0;net9.0;net10.0;net11.0` | The `All` set: `Broad` plus the newest major. Set it before the `Sdk.props` import to redefine the set. |
+
+### Project detection
+
+The SDK classifies every project before its body is evaluated. Each result is also
+[compiler-visible](#compiler-visible-sdk-properties). Override one by setting it before the `Sdk.props`
+import (or, where noted, in the project).
+
+| Property | Default | Description |
+| -- | -- | -- |
+| `IsCSharpProject` | *(detected from the project file extension)* | `true` for a `.csproj`; every C# default in the SDK is gated on it. |
+| `IsSdkProject` | *(detected from the project)* | `true` when an `Sdk` value is found on the project or its import declaration. |
+| `SdkProjectName` | *(detected from the project)* | The SDK named by the project or its import, for example `Microsoft.NET.Sdk.Web`. |
+| `IsWebProject` | *(detected from the project)* | Marks a project with web behaviour (a web SDK project or an API host). |
+| `IsWebSdkProject` | *(detected from the project)* | `true` when the project SDK is `Microsoft.NET.Sdk.Web`. |
+| `IsWorkerSdkProject` | *(detected from the project)* | `true` when the project SDK is `Microsoft.NET.Sdk.Worker`. |
+| `IsAspireHostProject` | *(detected from the project)* | `true` when the project SDK starts with `Aspire.Sdk.Host` or `Aspire.AppHost.Sdk`. |
+| `IsBlazorWebAssemblyProject` | *(detected from the project)* | `true` when the project SDK is `Microsoft.NET.Sdk.BlazorWebAssembly`. |
+| `IsRazorClassLibraryProject` | *(detected from the project)* | `true` when the project SDK is `Microsoft.NET.Sdk.Razor`. |
+| `IsBlazorHostProject` | *(detected from the project)* | `true` for a web SDK project that references a Blazor WebAssembly client. Says nothing about whether the host is a BFF. |
+| `IsBffProject` | *(detected from the project)* | `true` for a web SDK project whose name ends with `Bff`; set `true` or `false` (in the project too) to override. Gates `PDS0008`/`PDS0009`. |
+| `IsCLIProject` | *(detected from the project)* | `true` when the project name ends with `CLI`, `Console`, `CommandLine`, `QuickStart` or `QuickStarts`. |
+| `IsContainerProject` | *(detected from the project)* | `true` when a `Dockerfile` beside the project selects the container defaults. |
+| `IsSharedProject` | *(detected from the project name)* | `true` for a `Shared` helper project (`Shared`, `SharedFramework`, ...), which other projects reference automatically. |
+| `IsServerSharedProject` | *(detected from the project name)* | `true` for a `ServerShared` helper project, which only projects that cannot run in a browser reference automatically. |
+| `IsSharedTestingProject` | *(detected from the project name)* | `true` for a shared testing helper project (`SharedTestingFramework`, ...). |
+| `TestingType` | *(detected from the project name)* | Test category taken from a test project's name suffix (`Unit`, `Integration`, `E2E`, ...). |
+| `TargetProjectName` | *(detected from the project name)* | For a test project, the project under test, inferred from the test project's name. |
+
+### Blazor WebAssembly and browser-safe libraries
+
+See [Blazor WebAssembly and BFF](#blazor-webassembly-and-bff).
+
+| Property | Default | Description |
+| -- | -- | -- |
+| `DisablePurviewBlazorWebAssemblyDefaults` | `false` | Keeps the generic defaults on a Blazor WebAssembly client (packable when asked, container detection, the automatic `Shared` reference). A `ServerShared` project is never added either way. Set it before the `Sdk.props` import. |
+| `PurviewAutoBlazorClientReference` | `true` | Lets a host named `Name` reference its `Name.Client` WebAssembly client automatically. |
+| `PurviewBrowserSafe` | *(unset, which is treated as false)* | Applies the browser-safe defaults to a class library: `IsAotCompatible`, `SupportedPlatform` browser, and trim, AOT and `CA1416` diagnostics as errors. |
+| `PurviewBrowserSafeWarningsAsErrors` | *(true on a PurviewBrowserSafe library, otherwise unset)* | When `false`, a browser-safe library keeps its trim, AOT and `CA1416` diagnostics as warnings. |
+| `PurviewBrowserSafeWarningCodes` | *(on a PurviewBrowserSafe library, CA1416, IL2001-IL2128, IL3000-IL3005 and IL3050-IL3059)* | Diagnostics a browser-safe library escalates to errors. |
+| `DisablePurviewBrowserSafeReferenceCheck` | *(unset, which is treated as false)* | Turns off `PRBLZ0001`, the check that a WebAssembly client's (or browser-safe library's) project references set `PurviewBrowserSafe`. |
+| `PurviewBrowserSafeReferenceCheckAsError` | *(unset, which is treated as false)* | Reports `PRBLZ0001` as an error instead of a warning. |
+| `PurviewBffExposesApi` | *(true when the BFF references Microsoft.AspNetCore.OpenApi, otherwise unset)* | Keeps the OpenAPI interceptor namespace on a BFF host. |
+
+### Roslyn components and analyzers
+
+| Property | Default | Description |
+| -- | -- | -- |
+| `DisableRoslynCompilerDefaultsValidation` | `false` | Stops `ValidateRoslynComponentCompilerSettings` failing the pack of a Roslyn component whose compiler defaults were changed. |
+| `PurviewPackAnalyzerPdb` | *(true for an analyzer-only Roslyn component, otherwise unset)* | Packs a Roslyn component's PDB beside its analyzer under `analyzers/dotnet/cs/`, because a `.snupkg` cannot carry analyzer symbols. |
+| `PurviewSourceGeneratorFrameworkAnalyzerValidation` | *(unset, which is treated as true)* | Set to `false` to turn off `PRSGD0005`, which checks that every file in a Roslyn component's analyzer closure is self-contained. |
+| `PurviewAnalyzerClosurePermittedReferences` | `Microsoft.CodeAnalysis;System.Composition;System.Collections.Immutable;System.Memory;System.Threading.Tasks.Extensions;netstandard;mscorlib;System.` | Simple-name prefixes of host-provided assemblies an analyzer-closure file may reference without `PRSGD0005`. |
+| `PurviewIncludeComponentReferenceAnalyzerClosure` | `true` | Includes a referenced Roslyn component's analyzer artifact in the referencing component's analyzer closure. |
+| `PurviewImportProjectReferenceBuildTransitive` | `true` | Registers the `CompilerVisibleProperty` items a referenced project ships in `Sdk/buildTransitive`, so a package's own properties reach analyzers while developing it through `ProjectReference`. |
+
+### Property schema validation
+
+For a package that ships its own `.props`/`.targets` and an MSBuild Editor sidecar. See
+[MSBuild property schema and IntelliSense](#msbuild-property-schema-and-intellisense).
+
+| Property | Default | Description |
+| -- | -- | -- |
+| `EnablePurviewPropertySchemaValidation` | `false` | Runs ValidatePurviewPropertySchema before Pack, failing it when a .buildschema.json sidecar and the package's .props/.targets disagree (PRPSC0001-PRPSC0004). For a package that ships MSBuild properties. Off, so no ordinary build or pack changes. |
+| `PurviewPropertySchemaDirectory` | *(the project's Sdk/ folder, which PurviewAutoSdkPack ships)* | Folder whose .props/.targets files and .buildschema.json sidecars ValidatePurviewPropertySchema checks. |
+| `PurviewPropertySchemaIgnoredProperties` | *(empty)* | Compiler-visible properties ValidatePurviewPropertySchema does not require a sidecar entry for, because the package does not own them (Version, RootNamespace, ...). |
 
 ### Compiler-visible SDK properties
 
@@ -536,17 +611,36 @@ Read the exported property rather than re-deriving SDK behaviour — it is the S
 | `RepoRoot` | Repo root directory found via `.git` auto-discovery. |
 | `Version` | Package/assembly version, sourced from `package.json` when detection is enabled. |
 | `PackageVersion` | NuGet package version, sourced from `package.json` when detection is enabled. |
+| `ProjectDir` | Absolute project directory path (with trailing separator) used by analyzers for project-relative file calculations. |
+| `RootNamespace` | Effective project root namespace used by analyzers that validate or customize namespace conventions. |
 | `NamespacePrefix` | Required namespace prefix used to derive `RootNamespace`. |
 | `DisableNamespacePrefixCheck` | Disables the build error for missing `NamespacePrefix`. |
 | `TestingFramework` | Selected testing framework (`TUnit`, `Xunit`, or `None`). |
 | `SubstituteFramework` | Selected mocking provider (`TUnitMocks`, `NSubstitute`, or `None`). |
 | `TestDataFramework` | Selected test data provider (`Bogus` or `None`). |
 | `SourceLinkPackageName` | SourceLink package ID added by the SDK. |
+| `DisableSourceLink` | Disables automatic SourceLink integration. |
 | `ExcludePurviewTelemetry` | Opt-out for `Purview.Telemetry.SourceGenerator`. |
 | `ExcludeMSTelemetryExtension` | Opt-out for `Microsoft.Extensions.Telemetry.Abstractions`. |
+| `PurviewSkillsSourceFolder` | Repository folder holding authored agent skills (default `<repo root>/skills`). |
+| `PurviewSkillsAgents` | Comma-separated agents the skill targets install to (default empty: the CLI auto-detects). |
+| `PurviewSkillsDryRun` | When `true`, `InstallPurviewSkills` and `UpdatePurviewSkills` print commands without running them. |
+| `PurviewSkillsCommand` | Overrides the launcher entirely and skips runner detection. |
+| `PurviewSkillsSource` | The source `InstallPurviewSkills` adds (`owner/repo`, optionally `#ref`); without it, install restores `skills-lock.json`. |
+| `PurviewSkillsLockFile` | Where the skills CLI's `skills-lock.json` is read from (default `<repo root>/skills-lock.json`). |
+| `PurviewSkillsInstallRoot` | Overrides the repository root every skill target runs from. |
+| `PurviewRepositoryRootMarkers` | Ordered markers identifying a repository root (default `.git/;.github/;.gitattributes;LICENSE.md;AGENTS.md;.agents/;CLAUDE.md;.claude/;package.json`). |
+| `PurviewSkillsRunner` | Package runner used to launch the skills CLI (default `bun`; also `npx`, `bunx`, `pnpm`, `yarn`, `deno`, `skills`). |
+| `PurviewSkillsRunnerCandidates` | Runners probed on `PATH` after `PurviewSkillsRunner` (default `bun;npx;bunx;pnpm;yarn;deno`). |
+| `PurviewSkillsPackage` | Package spec the executed launcher pins to (default `skills@1`). |
+| `PurviewRepoBootstrapMode` | Controls repo file bootstrapping: `IfMissing` (default), `Always`, `WarnOnDrift` or `Never`. |
+| `PurviewRepoBootstrapCopyRetries` | Number of write attempts before a bootstrap failure is reported (default `3`). |
+| `PurviewRepoBootstrapCopyRetryDelayMilliseconds` | Base delay between bootstrap write attempts (default `500`). |
+| `PurviewRepoBootstrapCopyFailureAsError` | When `true` (default), a bootstrap write that still fails after every retry is an error. |
+| `PurviewSuppressCopyRetryWarnings` | When `true` (default), built-in copy retry notices (`MSB3026`) are demoted to messages. |
+| `PurviewAutoSdkPack` | When `true`, automatically packs the `Sdk/` folder contents into the NuGet package with the correct root-level paths. |
 | `DisableGenerateAssemblyInfoClass` | Disables generated `AssemblyInfo` helper source. |
 | `DisableGenerateAssemblyIdentifierClass` | Disables the generated assembly identifier marker class. |
-| `AssemblyIdentifierClassName` | Name of the generated assembly identifier marker class. |
 | `EnableAssemblyNameGeneration` | When `true` (default), `AssemblyName` derives from `RootNamespace`. |
 | `DisableAutoInternalsVisibleTo` | Disables automatic `InternalsVisibleTo` generation. |
 | `AutoIncludeUsings` | Controls SDK-added global usings. |
@@ -561,45 +655,49 @@ Read the exported property rather than re-deriving SDK behaviour — it is the S
 | `IsWebProject` | Marker used in SDK web-project behaviour. |
 | `IsWebSdkProject` | True when `SdkProjectName` is `Microsoft.NET.Sdk.Web`. |
 | `IsWorkerSdkProject` | True when `SdkProjectName` is `Microsoft.NET.Sdk.Worker`. |
-| `IsAspireHostProject` | True when SDK starts with `Aspire.Sdk.Host`. |
+| `IsAspireHostProject` | True when SDK starts with `Aspire.Sdk.Host` or `Aspire.AppHost.Sdk`. |
 | `IsBlazorWebAssemblyProject` | True when `SdkProjectName` is `Microsoft.NET.Sdk.BlazorWebAssembly`. |
 | `IsRazorClassLibraryProject` | True when `SdkProjectName` is `Microsoft.NET.Sdk.Razor`. |
 | `IsBlazorHostProject` | True for a web SDK project that references a Blazor WebAssembly client. |
 | `IsBffProject` | True for a web SDK project named `*Bff`, or that sets `IsBffProject=true`. |
 | `PurviewBrowserSafe` | When `true` on a class library, applies the browser-safe defaults. |
-| `PurviewBrowserSafeWarningsAsErrors` | When `false`, browser-safe trim and AOT diagnostics stay warnings. |
+| `PurviewBrowserSafeWarningsAsErrors` | When `false`, browser-safe trim and AOT diagnostics fall back to the project's own warning policy (`TreatWarningsAsErrors`, `true` by default). |
 | `DisablePurviewBrowserSafeReferenceCheck` | Turns off `PRBLZ0001`. |
 | `PurviewBrowserSafeReferenceCheckAsError` | Reports `PRBLZ0001` as an error. |
 | `DisablePurviewBlazorWebAssemblyDefaults` | Keeps the generic defaults on a WebAssembly client. |
 | `PurviewAutoBlazorClientReference` | When `false`, a host does not reference its `<Name>.Client` automatically. |
 | `PurviewBffExposesApi` | Whether a BFF keeps the OpenAPI interceptor namespace. |
+| `PurviewAutoServerSharedReference` | When false, a server-side project does not automatically reference a sibling ServerShared project. Client-side projects never get one. Defaults to true. |
+| `DisablePurviewServerSharedReferenceCheck` | When true, a client-side or Shared project does not report a ServerShared project reference (PRSHR0001/PRSHR0002). |
+| `PurviewServerSharedReferenceCheckAsError` | When true, PRSHR0001/PRSHR0002 are errors instead of warnings. Defaults to false. |
+| `MemorySafetyRules` | The C# 15 memory-safety tier: 0 off (default), 1 preview syntax, 2 updated rules. The updated rules are an experimental compiler feature, so they are opt-in. AllowUnsafeBlocks is left unset. |
+| `PurviewRuntimeAsync` | When true, a net11.0+ project compiles with the runtime-async compiler feature. Defaults to false; UseRuntimeAsync=true also opts in. |
+| `PurviewMultiThreadedBuild` | When true (default), boots a Directory.Build.rsp that enables MSBuild's multithreaded build (-mt). Left unset, a Blazor WebAssembly client writes -mt:false instead. |
 | `EditorConfigFilePath` | Path to the SDK-provided `.editorconfig` that is injected into `@(EditorConfigFiles)`. |
 | `RepositoryEditorConfigFilePath` | Destination path for bootstrapping a physical repo-level `.editorconfig` (defaults to git repo root; falls back to `Directory.Build.props` directory). |
 | `BootstrapEditorConfigToRepoRoot` | When `true` (default), copies the SDK `.editorconfig` to `RepositoryEditorConfigFilePath` if missing. |
 | `RepositoryGlobalJsonFilePath` | Destination path for bootstrapping a physical repo-level `global.json` (defaults to git repo root; falls back to `Directory.Build.props` directory). |
 | `BootstrapGlobalJsonToRepoRoot` | When `true` (default), creates `global.json` at `RepositoryGlobalJsonFilePath` if missing. |
+| `RepositoryDirectoryBuildRspFilePath` | Destination path for bootstrapping a repository-level Directory.Build.rsp when missing. |
+| `BootstrapMultiThreadedBuildRspToRepoRoot` | When true, bootstraps a managed Directory.Build.rsp that enables MSBuild's multithreaded build (-mt). |
+| `DisableAutoCopySdkFiles` | When `true`, disables SDK auto-copy/bootstrap for repo files (`.editorconfig`, `global.json`, `Directory.Build.rsp`). |
 | `PurviewBuildSdkVersionForGlobalJson` | Version used for `msbuild-sdks.Purview.BuildSdk` when bootstrapping `global.json` (auto-detected from SDK package path, falling back to the version stamped in at pack time). |
-| `DisableAutoCopySdkFiles` | When `true`, disables SDK auto-copy/bootstrap for repo files (`.editorconfig`, `global.json`). |
-| `PurviewRepoBootstrapMode` | Controls repo file bootstrapping: `IfMissing` (default), `Always`, `WarnOnDrift` or `Never`. |
-| `PurviewRepoBootstrapCopyRetries` | Number of write attempts before a bootstrap failure is reported (default `3`). |
-| `PurviewRepoBootstrapCopyRetryDelayMilliseconds` | Base delay between bootstrap write attempts (default `500`). |
-| `PurviewRepoBootstrapCopyFailureAsError` | When `true` (default), a bootstrap write that still fails after every retry is an error. |
-| `PurviewSuppressCopyRetryWarnings` | When `true` (default), built-in copy retry notices (`MSB3026`) are demoted to messages. |
-| `PurviewAutoSdkPack` | When `true`, automatically packs the `Sdk/` folder contents into the NuGet package with the correct root-level paths. |
-| `PurviewSkillsLockFile` | Where the skills CLI's `skills-lock.json` is read from (default `<repo root>/skills-lock.json`). |
-| `PurviewSkillsSourceFolder` | Repository folder holding authored agent skills (default `<repo root>/skills`). |
-| `PurviewSkillsAgents` | Comma-separated agents the skill targets install to (default empty: the CLI auto-detects). |
-| `PurviewSkillsDryRun` | When `true`, `InstallPurviewSkills` and `UpdatePurviewSkills` print commands without running them. |
-| `PurviewSkillsRunner` | Package runner used to launch the skills CLI (default `bun`; also `npx`, `bunx`, `pnpm`, `yarn`, `deno`, `skills`). |
-| `PurviewSkillsRunnerCandidates` | Runners probed on `PATH` after `PurviewSkillsRunner` (default `bun;npx;bunx;pnpm;yarn;deno`). |
-| `PurviewSkillsPackage` | Package spec the executed launcher pins to (default `skills@1`). |
-| `PurviewSkillsInstallRoot` | Overrides the repository root every skill target runs from. |
-| `PurviewRepositoryRootMarkers` | Ordered markers identifying a repository root (default `.git/;.github/;.gitattributes;LICENSE.md;AGENTS.md;.agents/;CLAUDE.md;.claude/;package.json`). |
-| `PurviewSkillsCommand` | Overrides the launcher entirely and skips runner detection. |
-| `PurviewSkillsSource` | Installs from an explicit git source (`owner/repo`, optionally `#ref`) instead of from referenced packages. |
 | `CurrentYear` | Current year used in generated assembly metadata. |
 | `AutoGeneratedAssemblyInfoFile` | File name of the generated AssemblyInfo source file (written under the intermediate `Properties/` folder). |
 | `AutoGeneratedAssemblyIdentifierFile` | File name of the generated assembly identifier source file (written under the intermediate `Properties/` folder). |
+| `AssemblyIdentifierClassName` | Name of the generated assembly identifier marker class. |
+| `IsCLIProject` | True when the project name ends with `CLI`, `Console`, `CommandLine`, `QuickStart` or `QuickStarts`. |
+| `IsSharedProject` | True when the project is a shared project. |
+| `IsServerSharedProject` | True for ServerShared helper projects (ServerSharedFramework, etc.), which are referenced automatically only by projects that cannot run in a browser. |
+| `IsClientSideProject` | True when the project's assemblies are downloaded to a browser: a WebAssembly client, a PurviewBrowserSafe library, a Razor class library, or a project named with a client-side suffix (*.Client, *.ClientShared, *.Browser, *.Wasm, *.WebAssembly, *.Components, or exactly ClientShared or Components). Set explicitly to override. |
+| `LangVersion` | C# language version used to build the Roslyn component. Defaults to latest. |
+| `Nullable` | Nullable reference-types context used to build the Roslyn component. Defaults to enable. |
+| `TreatWarningsAsErrors` | Treats all compiler, analyzer and NuGet warnings as errors. Defaults to true for every project; set false to opt out. |
+| `EnforceExtendedAnalyzerRules` | Enforces Roslyn analyzer best-practice rules. Defaults to true for Roslyn components. |
+| `Deterministic` | Produce deterministic builds. Defaults to true. |
+| `ContinuousIntegrationBuild` | True when building in a recognized CI environment, producing deterministic SourceLink output. |
+| `EmbedUntrackedSources` | Embeds untracked source files for SourceLink. Defaults to true for Roslyn components. |
+| `PurviewSourceGeneratorFrameworkAnalyzerValidation` | False to opt out of PRSGD0005 self-contained analyzer-closure validation. |
 
 #### Example: switch a repo to Xunit + NSubstitute and disable Bogus
 
@@ -618,6 +716,28 @@ Read the exported property rather than re-deriving SDK behaviour — it is the S
 
 ---
 
+## MSBuild property schema and IntelliSense
+
+Every property in the [Configuration reference](#configuration-reference) is described in
+`Sdk.props.buildschema.json`, an [MSBuild Editor](https://marketplace.visualstudio.com/items?itemName=mhutch.msbuildeditor)
+sidecar packed beside `Sdk.props`. Install the extension in Visual Studio and a project file that
+imports the SDK gets completion, descriptions, defaults and — for `TestingFramework`,
+`PurviewTargetFrameworkSet` and the other enumerations — the allowed values. Without the extension the
+file is inert.
+
+The schema is the canonical description, and `just properties-check` holds the code, the
+compiler-visible list and these tables to it: a property with no entry, a default that differs from the
+evaluated one, a missing table row or a schema that fails the MSBuild Editor meta-schema each fail a
+named test that says what to add and where.
+
+A package that ships its own `.props`/`.targets` can check its own sidecar with the opt-in
+`ValidatePurviewPropertySchema` target (`EnablePurviewPropertySchemaValidation=true`; `PRPSC0001`–`PRPSC0004`).
+A sidecar must be named after the **full** file it describes — `build/Acme.Kit.props.buildschema.json`
+beside `build/Acme.Kit.props`. See [Property Schema](docs/wiki/configuration/Property-Schema.md) and the
+[`purview-buildsdk-msbuild-properties`](skills/purview-buildsdk-msbuild-properties/SKILL.md) skill.
+
+---
+
 ## .NET 11 features
 
 .NET 11 is the baseline this SDK targets. The switches below are applied only to a `net11.0` (or
@@ -628,7 +748,7 @@ later) target, so the `net10.0` leg of the default `net10.0;net11.0` set is unaf
 | Runtime Async V2 (opt-in) | `<Features>runtime-async=on</Features>` when enabled | Enables Runtime Async for a target where the team has decided it is wanted: cleaner live stack traces, lower await overhead, and continuations that skip `ExecutionContext` when nothing is ambient. It is **off by default** because it changes how every `await` compiles; opt in with `PurviewRuntimeAsync=true` or `UseRuntimeAsync=true`. An explicit `false` under either name keeps it off. |
 | C# 15 updated memory-safety rules (opt-in) | `<Features>updated-memory-safety-rules</Features>` when enabled | `unsafe` marks requires-unsafe APIs and the compiler records the choice in `MemorySafetyRulesAttribute`. **Off by default** because the updated model is an experimental compiler feature; opt in with `MemorySafetyRules=2`. Independent of `LangVersion`, so the default `latest` is enough. |
 | Unsafe code | **not** enabled | `AllowUnsafeBlocks` stays at the compiler default (`false`). The updated model is strictest with unsafe code disallowed; a project that needs pointers opts in itself. |
-| Multithreaded MSBuild | `Directory.Build.rsp` with `-mt` | Runs a build's projects concurrently in one process, which is 20–26% faster on large solutions per the MSBuild measurements. `-mt` is a host switch, so it cannot be set from a project; the response file is the only mechanism. `-nr:false` accompanies it because a node left by a non-`-mt` build can cache an `RoslynCodeTaskFactory` task with no assembly path and fail the next `-mt` build (`dotnet/msbuild#15213`); the short-lived server still gives Server GC. |
+| Multithreaded MSBuild | `Directory.Build.rsp` with `-mt` | Runs a build's projects concurrently in one process, which is 20–26% faster on large solutions per the MSBuild measurements. `-mt` is a host switch, so it cannot be set from a project; the response file is the only mechanism. `-nr:false` accompanies it because a node left by a non-`-mt` build can cache an `RoslynCodeTaskFactory` task with no assembly path and fail the next `-mt` build (`dotnet/msbuild#15213`); the short-lived server still gives Server GC. A repository with a Blazor WebAssembly client gets `-mt:false` instead: a `net11.0` client cannot build under `-mt` (see [WebAssembly client defaults](#webassembly-client-defaults)). |
 
 `MemorySafetyRules` tiers: `0` (off, the default), `1` (preview pointer syntax, sets `LangVersion=preview`
 unless the project named its own version), `2` (updated rules, opt-in). Anything else fails with
@@ -665,8 +785,8 @@ exact commit. Test and shared-testing projects are excluded, because their symbo
 
 | Property | Default | Description |
 | -- | -- | -- |
-| `SourceLinkPackageName` | `Microsoft.SourceLink.GitHub` | The provider package. Set it **before the SDK import** to match the repository host. |
-| `DisableSourceLink` | `false` | Set to `true` **before the import** to stop the SDK adding the package at all. |
+| `SourceLinkPackageName` | `Microsoft.SourceLink.GitHub` | The provider package. Set it in `Directory.Build.props` to match the repository host. |
+| `DisableSourceLink` | `false` | Set to `true` to stop the SDK adding the package at all. |
 
 Pick the provider for your host:
 
@@ -689,7 +809,7 @@ Central Package Management is on, so the chosen provider also needs a `PackageVe
 `Directory.Packages.props` — the shipped template declares GitHub, Azure Repos and GitLab.
 `ContinuousIntegrationBuild` is set from the CI environment (`CI`, `GITHUB_ACTIONS`, `TF_BUILD`), never
 from a local build. Full detail, including on-premises host configuration and self-hosted providers, is
-in [SourceLink](docs/wiki/SourceLink.md).
+in [SourceLink](docs/wiki/packaging/SourceLink.md).
 
 
 ## ServerShared
@@ -709,7 +829,7 @@ automatic `ServerShared` reference is skipped for anything that might be downloa
 | `Microsoft.NET.Sdk.BlazorWebAssembly` | the client itself is downloaded |
 | `PurviewBrowserSafe=true` | by definition downloaded |
 | `Microsoft.NET.Sdk.Razor` | a WebAssembly client can reference a Razor class library, and the build cannot know in advance whether it will |
-| `*.Client`, `*.Browser`, `*.Wasm`, `*.WebAssembly`, `*.Components`, `Components` | the shape a Blazor Web App puts on the client |
+| `*.Client`, `*.ClientShared`, `*.Browser`, `*.Wasm`, `*.WebAssembly`, `*.Components`, `ClientShared`, `Components` | the shape a Blazor Web App puts on the client |
 | `Shared` and `SharedTesting` | a `Shared` project is itself referenced widely, so inheriting the reference would defeat the guarantee |
 
 `IsClientSideProject=true`/`false` overrides the detection either way, including restoring the
@@ -757,6 +877,22 @@ opts out). A host referencing a client under another name is resolved during the
 | no container defaults, even with a `Dockerfile` | `PublishAot` on a client is a publish that fails |
 | no automatic `../Shared*` or `../ServerShared*` reference | a server-side library joining the browser download because of a folder name |
 | `PRBLZ0001` for each `ProjectReference` that does not set `PurviewBrowserSafe`, and `PRSHR0001` for a `ServerShared` reference | a library joining the download without anyone deciding it was safe there |
+| the managed `Directory.Build.rsp` written as `-mt:false`, naming the client | the WebAssembly SDK's `ReadWasmProps` failing under `-mt` with `MSB4060`, which names nothing that leads back to the response file |
+| `PRBLZ0002` when a `net11.0`+ client is built under `-mt` anyway, before `PrepareForBuild` | the same failure, when `-mt` came from the command line, a response file you own, or `PurviewMultiThreadedBuild=true` |
+
+**The multithreaded build.** A `net11.0` WebAssembly client cannot build under MSBuild's `-mt`: the
+WebAssembly SDK's `ReadWasmProps` task comes from a custom task factory that cannot run in the
+out-of-process task host `-mt` moves it to. The `Directory.Build.rsp` is per repository, so a client
+decides for it: when `PurviewMultiThreadedBuild` is unset, a client writes `-mt:false` and a line naming
+itself, and every other project leaves that file alone while the named client's project file exists
+(and restores `-mt` once it is gone). A `PurviewMultiThreadedBuild` you set always wins, and a file
+without the marker line is yours and is never rewritten. A build that is multithreaded anyway stops with
+`PRBLZ0002`, which says whether `-mt` came from the command line or a response file and how to turn it
+off (`<PurviewMultiThreadedBuild>false</PurviewMultiThreadedBuild>`, or `-mt:false`). A repository
+upgrading from 2.0.x has a managed `-mt` file the first build cannot escape: that build rewrites it,
+stops with `PRBLZ0002` saying so, and the next one builds. MSBuild 18 has no property that says `-mt` is
+on, so the check looks at where an inline task runs: `-mt` always puts it in the out-of-process task
+host. A `net10.0` client builds under `-mt`, so the check does not apply to it.
 
 Globalisation, trimming mode and the Blazor runtime settings are left to the Blazor SDK.
 `DisablePurviewBlazorWebAssemblyDefaults=true` (before the SDK import) restores the generic
@@ -776,7 +912,7 @@ on a class library turns those into build failures, applying only what the proje
   `System.Diagnostics.Process`;
 - `WarningsAsErrors` for each trim, single-file, AOT and `CA1416` id (`PurviewBrowserSafeWarningCodes`),
   rather than `TreatWarningsAsErrors`, so the rest of the project's warning policy is untouched.
-  `PurviewBrowserSafeWarningsAsErrors=false` opts out; `CA1416` then falls back to the repository's
+  `PurviewBrowserSafeWarningsAsErrors=false` opts out, handing the ids back to `TreatWarningsAsErrors` (`true` by default); `CA1416` then falls back to the repository's
   severity (`suggestion` in the shipped `.editorconfig`).
 
 File and network I/O are not reported - `File` works against the browser's in-memory file system and
@@ -816,7 +952,7 @@ MyProject.IntegrationTests→ IsTestProject=true, TestingType=Integration
 MyProject.E2ETests        → IsTestProject=true, TestingType=E2E
 ```
 
-Any suffix from the full list is recognised: `Unit`, `Integration`, `E2E`, `EndToEnd`, `Acceptance`, `Functional`, `Performance`, `Load`, `Smoke`, `Stress`, `Regression`, `Security`, `Chaos`, `Scenario`, `System`, `Threat`, `BlackBox`, `WhiteBox`, `Accessibility`, `Interactive`, `Environment`, `Architecture`, `Contract`.
+Detection is by shape, not by list: any project name ending in `.<Word>Tests` or `.<Word>Test` is a test project with `TestingType=<Word>` — `Billing.ReplayTests` is `TestingType=Replay`. A bare `.Tests` suffix is not (it has no `<Word>`). The `TestType` items in `Sdk.props` are the types `InternalsVisibleTo` generates friend names for (see [InternalsVisibleTo](#internalsvisibleto)): `Acceptance`, `Accessibility`, `Approval`, `Architecture`, `Benchmark`, `BlackBox`, `Capacity`, `Chaos`, `Compatibility`, `Compliance`, `Component`, `Concurrency`, `Configuration`, `Contract`, `Deployment`, `E2E`, `EndToEnd`, `Endurance`, `Environment`, `Failover`, `Functional`, `Fuzz`, `Globalization`, `GrayBox`, `GreyBox`, `Integration`, `Interactive`, `Interoperability`, `Load`, `Localization`, `Migration`, `Mutation`, `Penetration`, `Performance`, `Property`, `Recovery`, `Regression`, `Resilience`, `Sanity`, `Scenario`, `Security`, `Smoke`, `Snapshot`, `Soak`, `Spike`, `Stress`, `System`, `Threat`, `Unit`, `Upgrade`, `Usability`, `Visual`, `WhiteBox`.
 
 ### Shared testing projects
 
@@ -834,7 +970,7 @@ The SDK automatically generates `[assembly: InternalsVisibleTo("…")]` attribut
 
 Two categories of friend assemblies are generated:
 
-1. **TestType variants** — for each defined `TestType` (`Unit`, `Integration`, `Architecture`, `Contract`, `Functional`, …) the SDK emits the `$(AssemblyName).{TestType}Tests` alias plus the `$(TargetProjectName).{TestType}Tests` and `$(MSBuildProjectName).{TestType}Tests` equivalents, so the attribute resolves regardless of whether naming comes from an explicit `AssemblyName`, the SDK default, or the raw project name.
+1. **TestType variants** — for each defined `TestType` (`Unit`, `Integration`, `Architecture`, `Contract`, `Functional`, …) the SDK emits the `$(AssemblyName).{TestType}Tests` alias plus the `$(TargetProjectName).{TestType}Tests` and `$(MSBuildProjectName).{TestType}Tests` equivalents — each only when it is non-empty and differs from the ones before, so no grant is duplicated — and the attribute resolves regardless of whether naming comes from an explicit `AssemblyName`, the SDK default, or the raw project name.
 2. **SharedTesting projects** — one per known shared testing project name (`SharedTestingFramework`, `SharedTestingInfrastructure`, etc.). By default (`EnableAssemblyNameGeneration=true`) with a `NamespacePrefix` set, these are prefixed (e.g. `Acme.SharedTestingFramework`); with `EnableAssemblyNameGeneration=false` the raw name is used.
 
 ### Disabling automatic InternalsVisibleTo
@@ -893,7 +1029,7 @@ public static partial class BillingAssembly
 var assembly = typeof(BillingAssembly).Assembly;
 ```
 
-The class name comes from `$(MSBuildProjectName)` with the `NamespacePrefix` and every remaining dot removed, suffixed with `Assembly` — `Acme.Billing.Core.Abstractions` and `Core.Abstractions` both produce `CoreAbstractionsAssembly`. Set `AssemblyIdentifierClassName` to choose a different name.
+The class name comes from `$(MSBuildProjectName)` with a leading `NamespacePrefix` and every remaining non-identifier character removed, suffixed with `Assembly` — with `NamespacePrefix` set to `Acme.Billing`, `Acme.Billing.Core.Abstractions` and `Core.Abstractions` both produce `CoreAbstractionsAssembly`. Set `AssemblyIdentifierClassName` to choose a different name.
 
 It is emitted in the global namespace deliberately: a test project that references several assemblies should not need a `using` per marker. Being `partial`, a project can add members to it.
 
@@ -906,7 +1042,7 @@ Test and shared-testing projects do not get one — the test assembly is the one
 Certain suffixes are automatically stripped from `RootNamespace` to avoid awkward namespace names like `Acme.MyProject.Core.Something`.
 
 The current built-in stripping set is intentionally broader than the common examples and includes:
-`ServiceDefaults`, `Infrastructure`, `Abstractions`, `ClientShared`, `DataAccess`, `Extensions`, `Contracts`, `Framework`, `Utilities`, `Helpers`, `Library`, `Common`, `Shared`, `Infra`, `Utils`, `Core`, `Host`, `Util`, `Lib`, `EF`, plus the known shared and shared-testing project names (`Shared*`, `SharedTesting*`).
+`ServiceDefaults`, `Infrastructure`, `Abstractions`, `ClientShared`, `DataAccess`, `Extensions`, `Contracts`, `Framework`, `Utilities`, `Helpers`, `Library`, `Common`, `Shared`, `Infra`, `Utils`, `Core`, `Host`, `Util`, `Lib`, `EF`, plus the known shared, server-shared and shared-testing project names (`Shared*`, `ServerShared*`, `SharedTesting*`).
 
 Three groups are deliberately **not** stripped:
 
@@ -924,18 +1060,18 @@ the items are declared there and only exist to be removed once the import has ev
 <Import Sdk="Purview.BuildSdk" Project="Sdk.props" />
 
 <ItemGroup>
-  <!-- Keep the full SourceGenerators, CodeFixers and CodeFixes namespaces. -->
-  <NamespaceRemoveSuffix Remove="SourceGenerators" />
-  <NamespaceRemoveSuffix Remove="CodeFixers" />
-  <NamespaceRemoveSuffix Remove="CodeFixes" />
+  <!-- Keep the Abstractions and Contracts namespaces. -->
+  <NamespaceRemoveSuffix Remove="Abstractions" />
+  <NamespaceRemoveSuffix Remove="Contracts" />
 </ItemGroup>
 ```
 
-This is useful for analyser/source-generator repos that deliberately name projects after the role — for
-example `Purview.ZodSharp.SourceGenerators`, `Purview.ZodSharp.CodeFixers`, and `Purview.ZodSharp.CodeFixes` —
-and want those roles to survive in the namespace rather than collapse into the parent `Purview.ZodSharp`
-namespace. Only suffixes
-present in the built-in list need removing; a suffix the SDK does not ship is already kept as-is.
+Only suffixes present in the built-in list need removing; a suffix the SDK does not ship — the Roslyn
+component names above among them — is already kept as-is. The items drive the build-time pass only:
+`Core`, `EF`, `Shared`, `ClientShared`, `ServiceDefaults` and the shared, server-shared and
+shared-testing project names are also stripped while `Sdk.props` evaluates, from a fixed list, so
+removing one of those items does not keep it in the evaluated `RootNamespace` (or in the `AssemblyName`
+derived from it). See [Assembly Name Generation](docs/wiki/concepts/Assembly-Name-Generation.md#namespace-stripping).
 
 ### Extensions namespace rule (`PDS0002`)
 
@@ -955,8 +1091,9 @@ Examples:
 | `Extensions/TopLevel.cs` | *(global namespace)* |
 
 To avoid conflicting guidance, `IDE0130` is suppressed for files in this root `Extensions/` scope.
-The shipped `.editorconfig` also suppresses the namespace-conflict diagnostics this convention can
-trigger (`CA1724`, `CS0436`, `CS1591`, `IDE0005`), so extension files never need `#pragma` suppressions.
+The shipped `.editorconfig` also turns off the namespace-conflict diagnostics this convention can
+trigger (`CA1724`, `CS0436`, `CS1591`, `IDE0005`) for files under any `Extensions/` folder
+(`[**/Extensions/**]`), so extension files never need `#pragma` suppressions.
 Outside this scope, normal `IDE0130` behaviour remains unchanged.
 
 A code refactoring (`Split extensions class into one class per receiver type`) is offered when a
@@ -1054,8 +1191,7 @@ analyzer rules only.
 A union is a value type, so `CA1815` ("override `Equals` and the equality operators on value types") fires
 on every one. The members it asks for cannot sensibly be written: C# does not synthesise value equality for
 a union declaration, and a union is read by matching its active case rather than by comparing two unions.
-Analyser support for unions is planned for .NET 12, so until then every union declaration would otherwise
-need a `#pragma warning disable CA1815` or a `[SuppressMessage]` beside it.
+Without the suppression every union declaration would need a `#pragma warning disable CA1815` or a `[SuppressMessage]` beside it.
 
 Both spellings are recognised, because both produce a union and both are reported by `CA1815`:
 
@@ -1112,10 +1248,10 @@ public static class StringExtensions
 
 Add `PDS0007` to `NoWarn` to turn the suppression off, which restores `CA1034` for every extension block.
 
-`PDS0004` follows .NET naming guidance for well-known framework spellings (`Sql`, `Guid`, `Uuid`, `Url`,
-`Dns`, `Http`, `Xml`, `DbContext`, ...) while still enforcing uppercase for acronyms such as `Api` → `API`,
-`Ai` → `AI`, `Cpu` → `CPU`, `Gpu` → `GPU`, `Cli` → `CLI`, `Gui` → `GUI`, `Ram` → `RAM`, and
-`Ssh` → `SSH`. By default the acronym-like segments `Http`, `Xml`, `Json`, `Id`, `Sdk`, `Sql`, `Uuid`,
+`PDS0004` follows .NET naming guidance for well-known framework spellings (`Sql`, `Uuid`, `Url`, `Dns`,
+`Http`, `Xml`, `DbContext`, ...) while still enforcing uppercase for the acronyms `Api` → `API`,
+`Ai` → `AI`, `Ui` → `UI`, `Io` → `IO`, `Os` → `OS`, `Cpu` → `CPU`, `Gpu` → `GPU`, `Cli` → `CLI`,
+`Gui` → `GUI`, `Ram` → `RAM`, `Ssh` → `SSH` and `Dsl` → `DSL`. By default the acronym-like segments `Http`, `Xml`, `Json`, `Id`, `Sdk`, `Sql`, `Uuid`,
 `Url`, `Dns`, `Tcp`, `Udp`, `Csv`, `Pdf`, `Html`, `Css`, `Ftp`, `Smtp`, `Imap`, and `Db` are exempt —
 `Db` is deliberately exempt so the prevalent EF Core/ADO.NET spellings (`DbContext`, `DbConnection`,
 `DbSet`, `CreateDbContext`) are never flagged; a repo that prefers `DB` can re-enable it via
@@ -1159,7 +1295,7 @@ With the default enabled:
 | `ServiceDefaults` | `Acme` | `Acme` | `Acme.ServiceDefaults` (full logical name, so it stays distinct) |
 | `Acme` | `Acme` | `Acme` | `Acme` |
 
-Explicitly setting `<RootNamespace>` before the SDK import always wins: `AssemblyName`/`PackageId` follow that override instead of re-appending a stripped suffix.
+A `<RootNamespace>` set before the SDK import replaces the logical project name, and `AssemblyName`/`PackageId` follow it instead of re-appending a stripped suffix — but it is still stripped by both passes. Only a `<RootNamespace>` declared in the project file itself is left exactly as written. The table shows the evaluated `RootNamespace`; the build strips the wider list as well, so `Core.Infrastructure` compiles as `Acme` (see [Assembly Name Generation](docs/wiki/concepts/Assembly-Name-Generation.md)).
 
 Test projects keep their detected suffix: `Api.UnitTests` → `AssemblyName`/`PackageId` = `Acme.Api.UnitTests`, while `RootNamespace` remains `Acme.Api`.
 
@@ -1171,7 +1307,7 @@ Explicit `<AssemblyName>` or `<PackageId>` in a `.csproj` (or `Directory.Build.p
 
 ## Central Package Management
 
-The SDK sets `ManagePackageVersionsCentrally=true`. The `templates/Directory.Packages.props` file contains `PackageVersion` entries for all packages the SDK auto-adds — all set to `Version="*"` (floating to latest).
+The SDK sets `ManagePackageVersionsCentrally=true`. The `templates/Directory.Packages.props` file contains a pinned `PackageVersion` for every package the SDK auto-adds, grouped under version properties (`TUnitVersion`, `AspireVersion`, …). A `PackageVersion` is a minimum, not an exact pin.
 
 To pin a package:
 
@@ -1192,7 +1328,7 @@ To add project-specific packages, just append `PackageVersion` entries to your `
 
 ```sh
 dotnet build src/BuildSdk.slnx -c Release
-dotnet test src/BuildSdk.slnx -c Release
+dotnet test --solution src/BuildSdk.slnx -c Release
 dotnet pack src/src/BuildSdk/BuildSdk.csproj -o ./artifacts
 ```
 

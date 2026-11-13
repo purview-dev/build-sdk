@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Purview.BuildSdk.Harness;
 using Purview.BuildSdk.Infra;
 
@@ -101,6 +102,50 @@ sealed partial class VersionDetectionTests
 		);
 
 		await Assert.That(await h.GetPropertyAsync("PackageVersion", cancellationToken)).IsEqualTo("4.5.6");
+	}
+
+	[Test]
+	public async Task Version_SetFromRelativeRootPackageJson_WhenBuiltFromAnotherDirectory(
+		CancellationToken cancellationToken
+	)
+	{
+		// A relative RootPackageJson is relative to the project, whatever directory dotnet runs from.
+		// Resolving it against the working directory instead made one build read a different
+		// package.json - or none - depending on where it was started.
+		using var h = await ProjectHarness.CreateAsync(
+			"MyLibrary",
+			preImportProps: "<RootPackageJson>../versions/package.json</RootPackageJson>",
+			cancellationToken: cancellationToken
+		);
+		var versionsDirectory = Path.GetFullPath(Path.Combine(h.ProjectDirectory, "..", "versions"));
+		Directory.CreateDirectory(versionsDirectory);
+		await File.WriteAllTextAsync(
+			Path.Combine(versionsDirectory, "package.json"),
+			/*lang=json,strict*/
+			"""{"name": "my-lib", "version": "7.8.9"}""",
+			cancellationToken
+		);
+
+		var elsewhere = Directory.CreateTempSubdirectory("purview-cwd-").FullName;
+		try
+		{
+			var (exitCode, stdOut, stdErr) = await h.RunProcessAsync(
+				"dotnet",
+				$"msbuild \"{h.ProjectFilePath}\" -nologo -getProperty:Version -getProperty:RootPackageJson",
+				elsewhere,
+				cancellationToken
+			);
+
+			await Assert.That(exitCode).IsZero().Because(TestHelpers.GenerateError(stdOut, stdErr));
+			await Assert.That(stdOut).Contains("\"Version\": \"7.8.9\"");
+			await Assert
+				.That(stdOut)
+				.Contains(JsonEncodedText.Encode(Path.Combine(versionsDirectory, "package.json")).ToString());
+		}
+		finally
+		{
+			Directory.Delete(elsewhere, recursive: true);
+		}
 	}
 
 	// ---------- auto-discovery via .git marker ----------

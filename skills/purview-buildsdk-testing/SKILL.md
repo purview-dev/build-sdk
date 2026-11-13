@@ -29,7 +29,7 @@ With the defaults (`TestingFramework=TUnit`, `SubstituteFramework=TUnitMocks`,
 
 A test project inherits the SDK's default target framework set (`net10.0;net11.0`). When it must match
 its subject — a project still on one TFM, or a subject that multi-targets — set
-`TargetFramework`/`TargetFrameworks` on the **test** project, declared unconditionally, or select a
+`TargetFramework`/`TargetFrameworks` on the **test** project (an explicit value always wins), or select a
 `PurviewTargetFrameworkSet`. See `purview-buildsdk-configuration`.
 
 Add nothing else unless the project's purpose demands it. Two that stay explicit:
@@ -37,7 +37,8 @@ Add nothing else unless the project's purpose demands it. Two that stay explicit
 - `TUnit.Aspire` — Aspire lifecycle and AppHost-backed integration tests
 - `Purview.Containers` — container-backed integration tests. One API over Microsoft WSL Containers
   (no Docker install needed on Windows) or Docker, with typed modules for SQL Server, PostgreSQL,
-  Redis, MySQL, RabbitMQ, Azurite and NATS. Experimental and prerelease, so pin the version.
+  Redis, MySQL, RabbitMQ, NATS, Azurite and the Azure Key Vault and Service Bus emulators.
+  Experimental and prerelease, so pin the version.
   Reference `Testcontainers` directly only where no typed module exists yet.
 
 ## Authoring rules
@@ -88,7 +89,7 @@ they are what `--treenode-filter` property predicates select on.
 ```bash
 dotnet test                                            # the whole suite
 dotnet test --treenode-filter "/*/*/LoginTests/*"      # one class
-dotnet test <project> --treenode-filter "/*/*/*/*[Category=Unit]"
+dotnet test --project <project> --treenode-filter "/*/*/*/*[Category=Unit]"
 ```
 
 Prefer the repository's own task (`just test`, or equivalent) for a full run.
@@ -113,7 +114,8 @@ In order:
 
 ## Cross-platform requirement
 
-CI runs the full suite on Linux, so a test that only passes on Windows is a failing change.
+A test that only passes on Windows fails on a Linux CI runner, so write every test to pass on Windows,
+Linux and macOS.
 
 - Never hardcode a platform-specific path — no `C:\...`, no backslash-only separators, no
   case-insensitive path assumptions.

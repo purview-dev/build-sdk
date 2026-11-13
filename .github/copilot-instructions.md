@@ -15,5 +15,5 @@ Keep product, architecture, and general engineering standards centralized in `AG
 
 - Apply the `AGENTS.md` testing bar strictly (TUnit/TUnit.Mocks, AAA comments, naming, cancellation token rule).
 - Treat work as incomplete until relevant tests pass.
-- Consult the repository `.agents/` folder for additional skills/workflows that may improve execution quality.
+- Consult the skills `AGENTS.md` lists under `skills/`, and the repository-local skill under `.agents/skills/`, when they match the task.
 - Keep edits minimal, focused, and aligned with existing SDK and repository conventions.

@@ -21,7 +21,7 @@ configuration on every compile and fails the build (`PRSGD0006`-`PRSGD0009`) whe
 overridden, hidden, or silenced through `NoWarn`. A stale copy that predates the current policy (for
 example one that still hides `IDE1006`) is therefore reported rather than obeyed — refresh it with
 `PurviewRepoBootstrapMode=Always`. Opt out with `DisablePurviewStylePolicyValidation=true`; see
-[Style policy](Analyzers.md#style-policy).
+[Style policy](analyzers/Analyzers.md#style-policy).
 
 The write is atomic (a temporary file is renamed into place) and retried quietly, so parallel projects
 sharing the repository root cannot corrupt it or fail the build by racing. An existing file is never
@@ -89,13 +89,52 @@ The file is SDK-managed: a destination carrying the marker line is refreshed, on
 to the developer and is never touched. `PurviewMultiThreadedBuild=false` rewrites it to `-mt:false`
 rather than deleting it, so opting out cannot leave a stale copy enabling the mode.
 
+### Repositories with a Blazor WebAssembly client
+
+A `net11.0` WebAssembly client cannot build under `-mt`. The WebAssembly SDK's `ReadWasmProps` task
+comes from a custom task factory that cannot run in the out-of-process task host `-mt` moves it to, and
+it fails with an `MSB4060` error that names the WebAssembly SDK rather than this file. The file is per
+repository, not per project, so the rule is:
+
+- **A WebAssembly client writes `-mt:false`**, with a line naming itself, when
+  `PurviewMultiThreadedBuild` is unset:
+
+  ```text
+  # Purview.BuildSdk - managed file
+  # Managed by Purview.BuildSdk. Delete the marker line to take ownership of this file.
+  # -mt:false: the Blazor WebAssembly client 'src/Shop.Client/Shop.Client.csproj' cannot build multithreaded (PRBLZ0002).
+  -mt:false
+  ```
+
+- **Every other project keeps that file** while the named client's project file exists, and writes
+  `-mt` again once it does not. The client overwrites even a file another project created on the same
+  first build, so the race ends on `-mt:false`. The other way round, a project that read the file before
+  the client rewrote it looks again just before its own write, under a lock every project takes, and
+  keeps the client's file. Reading the file never fails a build that another project is writing it in.
+- **A `PurviewMultiThreadedBuild` you set always wins**, in `Directory.Build.props`, a project file or
+  on the command line. **A file without the marker line is never rewritten.**
+
+A client built under `-mt` anyway stops with **`PRBLZ0002`** before `PrepareForBuild`, long before the
+WebAssembly SDK's targets run. The message says where `-mt` came from (the command line, or the
+`Directory.Build.rsp` it names) and how to fix it: `<PurviewMultiThreadedBuild>false</PurviewMultiThreadedBuild>`
+in `Directory.Build.props`, or `-mt:false`. A repository upgrading from 2.0.x has a managed `-mt` file
+that the first build has already read, so that build rewrites the file and stops with `PRBLZ0002`
+saying so. The next build then succeeds.
+
+MSBuild 18 has no property that says `-mt` is on. The check looks at where an inline task runs: under
+`-mt`, a `RoslynCodeTaskFactory` task always runs in the out-of-process task host, and otherwise in the
+node (verified on .NET SDK 11.0.100). If a later MSBuild runs inline tasks in the node under `-mt`, the
+check goes quiet rather than reporting falsely, and the WebAssembly SDK's own error returns. A
+`net10.0` client builds under `-mt`, so the check does not apply to it. The response-file rule does,
+because it costs a repository only the speed-up.
+
 Like the other bootstraps it writes atomically, retries quietly, and honours `PurviewRepoBootstrapMode`:
 
 | Property | Default | Description |
 | -- | -- | -- |
 | `BootstrapMultiThreadedBuildRspToRepoRoot` | `true` | Creates the `Directory.Build.rsp` when missing. |
 | `RepositoryDirectoryBuildRspFilePath` | *(auto-detected)* | Override the destination path. |
-| `PurviewMultiThreadedBuild` | `true` | `false` writes `-mt:false` instead of `-mt`. |
+| `PurviewMultiThreadedBuild` | `true` | `false` writes `-mt:false` instead of `-mt`. Unset, a WebAssembly client writes `-mt:false`. |
 | `DisableAutoCopySdkFiles` | `false` | Master switch that disables repo-level SDK file bootstrapping. |
 
 ## Retry and failure behaviour
@@ -114,11 +153,16 @@ error by default, including the destination path and the underlying OS error.
 
 ## Repository root discovery
 
-All bootstrap targets locate the repository root by:
+All bootstrap targets locate the repository root the same way, chosen by `PurviewRepositoryRootStrategy`:
 
-1. Running `git rev-parse --show-toplevel` from the `Directory.Build.props` directory.
-2. Falling back to probing upward for a `.git` marker.
-3. Finally falling back to the `Directory.Build.props` directory itself.
+1. With `PurviewRepositoryRootStrategy=Git` only, `git rev-parse --show-toplevel` from the
+   `Directory.Build.props` directory. The default, `Markers`, starts no process.
+2. The `Directory.Build.props` directory, then up to four of its parents, in that order: the first that
+   holds a `.git` folder or file is the root.
+3. Otherwise, the `Directory.Build.props` directory itself.
+
+`Git` reports the worktree root, so for a submodule or a linked worktree it can answer differently from
+the nearest `.git`.
 
 Set the `RepositoryEditorConfigFilePath`, `RepositoryGlobalJsonFilePath` or
 `RepositoryDirectoryBuildRspFilePath` property explicitly to override discovery.
