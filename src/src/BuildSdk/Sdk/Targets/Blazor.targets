@@ -54,9 +54,9 @@
 	       - SupportedPlatform browser, so CA1416 flags an API the browser does
 	         not support (System.Diagnostics.Process, threads, sockets);
 	       - the trim, single-file, AOT and CA1416 diagnostics added to
-	         WarningsAsErrors individually. TreatWarningsAsErrors is deliberately
-	         not used: the aim is to make *these* failures fatal, not to change
-	         the project's whole warning policy.
+	         WarningsAsErrors individually. TreatWarningsAsErrors (true for every
+	         project by default) is deliberately not relied on: these failures stay
+	         fatal in a project that turns it off.
 
 	     WarningsAsErrors is also what makes CA1416 count at all. The shipped
 	     .editorconfig sets it to suggestion, which no WarningsAsErrors entry can
@@ -65,8 +65,8 @@
 	     browser-unsupported call fails the build without the repository-wide
 	     severity changing. BrowserSafeLibraryTests pins that. The consequence of
 	     PurviewBrowserSafeWarningsAsErrors=false is therefore that the trim and
-	     AOT diagnostics stay warnings, while CA1416 falls back to whatever
-	     severity the repository configures.
+	     AOT diagnostics follow TreatWarningsAsErrors, while CA1416 falls back to
+	     whatever severity the repository configures.
 
 	     It applies to class libraries only. An executable is not downloaded as
 	     a dependency, and a WebAssembly client gets its own settings from the
@@ -237,6 +237,101 @@
 			File="$(MSBuildProjectFullPath)"
 			Text="'$(MSBuildProjectName)' is $(_PurviewBrowserSafeReferenceRole), so its reference '%(_PurviewBrowserUnsafeReference.Filename)' is downloaded to the browser and runs there, but '%(_PurviewBrowserUnsafeReference.Filename)' does not set PurviewBrowserSafe=true. $(_PurviewBrowserSafeReferenceText)"
 			Condition="'@(_PurviewBrowserUnsafeReference)' != '' AND '$(PurviewBrowserSafeReferenceCheckAsError)' == 'true'"
+		/>
+	</Target>
+
+	<!-- =====================================================================
+	     MULTITHREADED BUILD CHECK (PRBLZ0002)
+	     A net11.0 WebAssembly client cannot build under MSBuild's multithreaded
+	     mode (-mt). Its ReadWasmProps task comes from a custom task factory
+	     (JsonToItemsTaskFactory) that cannot run in the out-of-process task host
+	     -mt moves such tasks to, and fails with MSB4060 - an error naming the
+	     WebAssembly SDK, with nothing to trace it to the Directory.Build.rsp this
+	     SDK writes. This stops the build first, before PrepareForBuild, and
+	     says where -mt came from. ReadWasmProps runs after CoreCompile.
+
+	     The managed response file already avoids it (Sdk.targets,
+	     EnsureRepositoryDirectoryBuildRspTarget, which runs first), so this
+	     fires when -mt came from somewhere else: the command line, a response
+	     file the user owns, PurviewMultiThreadedBuild=true, or a managed -mt
+	     file left by 2.0.x, which a build already running under it cannot
+	     escape and which is rewritten before this reports.
+
+	     Scoped to net11.0 and later, because a net10.0 client builds under -mt.
+
+	     MSBuild 18 exposes no property saying -mt is active, so
+	     DetectPurviewMultiThreadedBuild asks where an inline task runs: under
+	     -mt a RoslynCodeTaskFactory task always runs in the out-of-process
+	     task host, and otherwise always in the node. Verified on MSBuild 18 /
+	     .NET SDK 11.0.100, marked thread-safe or not, and MSBUILDFORCEALLTASKS-
+	     OUTOFPROC does not move it. Should a later MSBuild run inline tasks in
+	     the node under -mt, this check goes quiet rather than wrong, and the
+	     WebAssembly SDK's own error returns.
+	     ===================================================================== -->
+	<UsingTask
+		TaskName="DetectPurviewMultiThreadedBuild"
+		TaskFactory="RoslynCodeTaskFactory"
+		AssemblyFile="$([System.IO.Path]::Combine('$(MSBuildToolsPath)', 'Microsoft.Build.Tasks.Core.dll'))"
+	>
+		<ParameterGroup>
+			<IsMultiThreaded ParameterType="System.Boolean" Output="true" />
+		</ParameterGroup>
+		<Task>
+			<Code Type="Fragment" Language="cs">
+				<![CDATA[
+					IsMultiThreaded = string.Equals(
+						BuildEngine.GetType().FullName,
+						"Microsoft.Build.CommandLine.OutOfProcTaskHostNode",
+						StringComparison.Ordinal
+					);
+				]]>
+			</Code>
+		</Task>
+	</UsingTask>
+
+	<Target
+		Name="PurviewValidateWebAssemblyBuildMode"
+		BeforeTargets="PrepareForBuild"
+		DependsOnTargets="EnsureRepositoryDirectoryBuildRspTarget"
+		Condition="'$(IsBlazorWebAssemblyProject)' == 'true' AND '$(DesignTimeBuild)' != 'true' AND '$(TargetFrameworkIdentifier)' == '.NETCoreApp' AND $([MSBuild]::VersionGreaterThanOrEquals('$(TargetFrameworkVersion.TrimStart('vV'))', '11.0'))"
+		Label="Stops a WebAssembly client built under -mt before the WebAssembly SDK fails with MSB4060."
+	>
+		<DetectPurviewMultiThreadedBuild>
+			<Output TaskParameter="IsMultiThreaded" PropertyName="_PurviewBuildIsMultiThreaded" />
+		</DetectPurviewMultiThreadedBuild>
+		<PropertyGroup Condition="'$(_PurviewBuildIsMultiThreaded)' == 'true'">
+			<!-- MSBuild reads the Directory.Build.rsp nearest the project. Read again here, because the
+			     bootstrap this depends on may just have rewritten it. -->
+			<_PurviewWebAssemblyRspDirectory>$([MSBuild]::GetDirectoryNameOfFileAbove('$(MSBuildProjectDirectory)', 'Directory.Build.rsp'))</_PurviewWebAssemblyRspDirectory>
+			<_PurviewWebAssemblyRspPath Condition="'$(_PurviewWebAssemblyRspDirectory)' != ''"
+				>$([System.IO.Path]::Combine('$(_PurviewWebAssemblyRspDirectory)', 'Directory.Build.rsp'))</_PurviewWebAssemblyRspPath>
+			<_PurviewWebAssemblyRspText Condition="'$(_PurviewWebAssemblyRspPath)' != ''"
+				>$([System.IO.File]::ReadAllText('$(_PurviewWebAssemblyRspPath)'))</_PurviewWebAssemblyRspText>
+			<_PurviewWebAssemblyRspEnablesMt
+				Condition="'$(_PurviewWebAssemblyRspText)' != '' AND $([System.Text.RegularExpressions.Regex]::IsMatch($(_PurviewWebAssemblyRspText), `(?im)(^|\s)[-/](mt|multithreaded)(:true)?(?=\s|$)`))"
+				>true</_PurviewWebAssemblyRspEnablesMt>
+			<!-- The bootstrap found the managed file enabling -mt and has rewritten it. -->
+			<_PurviewWebAssemblyRspWasRewritten
+				Condition="'$(_PurviewWebAssemblyRspEnablesMt)' != 'true' AND '$(_PurviewRspIsManaged)' == 'true' AND '$(_PurviewRspHasEnabledSwitch)' == 'true'"
+				>true</_PurviewWebAssemblyRspWasRewritten>
+			<_PurviewWebAssemblyMtSource Condition="'$(_PurviewWebAssemblyRspWasRewritten)' == 'true'"
+				>-mt came from '$(_PurviewWebAssemblyRspPath)', the Directory.Build.rsp Purview.BuildSdk manages, which has now been rewritten to -mt:false because this repository has a WebAssembly client. Run the build again.</_PurviewWebAssemblyMtSource>
+			<_PurviewWebAssemblyMtSource
+				Condition="'$(_PurviewWebAssemblyMtSource)' == '' AND '$(_PurviewWebAssemblyRspEnablesMt)' == 'true'"
+				>-mt came from '$(_PurviewWebAssemblyRspPath)'. Remove -mt from that Directory.Build.rsp, or replace it with -mt:false.</_PurviewWebAssemblyMtSource>
+			<_PurviewWebAssemblyMtSource Condition="'$(_PurviewWebAssemblyMtSource)' == ''"
+				>-mt came from the command line, not from a Directory.Build.rsp. Build without it, or pass -mt:false.</_PurviewWebAssemblyMtSource>
+			<_PurviewWebAssemblyMtSource
+				Condition="'$(_PurviewWebAssemblyRspWasRewritten)' != 'true' AND '$(_PurviewMultiThreadedBuildIsExplicit)' == 'true' AND '$(PurviewMultiThreadedBuild)' != 'false'"
+				>$(_PurviewWebAssemblyMtSource) PurviewMultiThreadedBuild is set to '$(PurviewMultiThreadedBuild)', which keeps -mt in the managed Directory.Build.rsp.</_PurviewWebAssemblyMtSource>
+			<_PurviewWebAssemblyMtFix Condition="'$(_PurviewWebAssemblyRspWasRewritten)' != 'true'"
+				> To keep the repository off multithreaded builds, set &lt;PurviewMultiThreadedBuild&gt;false&lt;/PurviewMultiThreadedBuild&gt; in Directory.Build.props, which writes -mt:false to the managed Directory.Build.rsp.</_PurviewWebAssemblyMtFix>
+		</PropertyGroup>
+		<Error
+			Code="PRBLZ0002"
+			File="$(MSBuildProjectFullPath)"
+			Text="'$(MSBuildProjectName)' is a Blazor WebAssembly client, and MSBuild is running in multithreaded mode (-mt), which the WebAssembly SDK cannot build under: its ReadWasmProps task would fail with MSB4060. $(_PurviewWebAssemblyMtSource)$(_PurviewWebAssemblyMtFix)"
+			Condition="'$(_PurviewBuildIsMultiThreaded)' == 'true'"
 		/>
 	</Target>
 

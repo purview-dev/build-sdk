@@ -177,6 +177,10 @@
 		<MaxCpuCount Condition="'$(MaxCpuCount)' == ''"></MaxCpuCount>
 		<NoWarn Condition="'$(NoWarn)' == ''"></NoWarn>
 		<Nullable Condition="'$(Nullable)' == ''">enable</Nullable>
+		<!-- Every project, not only Roslyn components: a warning nobody is made to fix is one that ships.
+		     Compiler, analyzer and NuGet warnings fail the build; MSBuild <Warning> tasks do not. Set
+		     TreatWarningsAsErrors=false in a project or Directory.Build.props to opt out. -->
+		<TreatWarningsAsErrors Condition="'$(TreatWarningsAsErrors)' == ''">true</TreatWarningsAsErrors>
 		<OutputType Condition="'$(OutputType)' == ''"></OutputType>
 		<Packable Condition="'$(Packable)' == ''">false</Packable>
 		<PackageTags Condition="'$(PackageTags)' == ''"></PackageTags>
@@ -200,9 +204,8 @@
 		<!-- Runtime Async is resolved per-TFM in Targets/Modern.targets, after the project body, so
 		     PurviewRuntimeAsync=true or UseRuntimeAsync=true works from the project file as well as
 		     from Directory.Build.props. It defaults to off: it changes how every await compiles. -->
-		<!-- MSBuild's single-process multithreaded build (-mt). Applied through the bootstrapped
-		     Directory.Build.rsp, because -mt is a build-host switch and cannot be set from a project. -->
-		<PurviewMultiThreadedBuild Condition="'$(PurviewMultiThreadedBuild)' == ''">true</PurviewMultiThreadedBuild>
+		<!-- PurviewMultiThreadedBuild (MSBuild's -mt) is defaulted in Sdk.targets, after the project body,
+		     because whether the user set it decides what a Blazor WebAssembly client writes. -->
 		<PurviewNamespacePrefix Condition="'$(PurviewNamespacePrefix)' == ''"></PurviewNamespacePrefix>
 		<PurviewProjectShortName Condition="'$(PurviewProjectShortName)' == ''"></PurviewProjectShortName>
 		<PurviewTestType Condition="'$(PurviewTestType)' == ''"></PurviewTestType>

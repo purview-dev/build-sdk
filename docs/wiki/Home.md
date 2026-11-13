@@ -100,7 +100,7 @@ sidebar to all of that.
   and the default boundaries between source, test, and shared test-support projects.
 - **C# defaults** — `net10.0;net11.0` TFMs (overridable, `netstandard2.0` for Roslyn components),
   `LangVersion=latest` (C# 15, including unions), `Nullable=enable`, `ImplicitUsings=enable`,
-  deterministic builds, `ManagePackageVersionsCentrally=true`.
+  `TreatWarningsAsErrors=true`, deterministic builds, `ManagePackageVersionsCentrally=true`.
 - **Code style** — an `.editorconfig` baked into the package, applied via `EditorConfigFilePath`, and
   auto-bootstrapped to the repo root if missing; `EnforceCodeStyleInBuild=true`,
   `EnableNETAnalyzers=true`, `AnalysisLevel=latest`, `AnalysisMode=All`.

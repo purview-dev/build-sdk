@@ -124,6 +124,9 @@ The SDK ships the following full `TestType` set:
   automatic `../Shared*` reference. `DisablePurviewBlazorWebAssemblyDefaults=true` (before the SDK
   import) restores the generic defaults.
 - `PRBLZ0001` for each `ProjectReference` that does not set `PurviewBrowserSafe`.
+- The managed `Directory.Build.rsp` written as `-mt:false`, and `PRBLZ0002` when a `net11.0`+ client is
+  built under `-mt` anyway: the WebAssembly SDK cannot build multithreaded. See
+  [Repositories with a Blazor WebAssembly client](../Repository-Bootstrap.md#repositories-with-a-blazor-webassembly-client).
 - Globalisation, trimming and the Blazor runtime settings are left to the Blazor SDK.
 
 ### Blazor hosts (`IsBlazorHostProject=true`)
@@ -141,7 +144,7 @@ The SDK ships the following full `TestType` set:
 
 - `IsAotCompatible=true`, `<SupportedPlatform Include="browser" />`, and the trim, single-file, AOT and
   `CA1416` ids in `WarningsAsErrors` - each only where the project set nothing.
-  `PurviewBrowserSafeWarningsAsErrors=false` keeps them as warnings.
+  `PurviewBrowserSafeWarningsAsErrors=false` hands them back to `TreatWarningsAsErrors` (`true` by default).
 - The same `PRBLZ0001` reference check a client runs.
 
 The README's [Blazor WebAssembly and BFF](../../../README.md#blazor-webassembly-and-bff) section has the

@@ -142,6 +142,10 @@ sealed class TestContextRuleSetTests
 			"<TestingFramework>None</TestingFramework><SubstituteFramework>None</SubstituteFramework>"
 			+ "<TestDataFramework>None</TestDataFramework><OutputType>Exe</OutputType>"
 			+ "<ExcludePurviewTelemetry>true</ExcludePurviewTelemetry>"
+			// The public field the CA1051 exemption needs is also an IDE1006 warning under the shipped
+			// naming policy, which bans visible instance fields outright. This probe is about the
+			// exemptions, so that warning must not fail it.
+			+ "<TreatWarningsAsErrors>false</TreatWarningsAsErrors>"
 			+ (
 				disableTestContextRuleSet
 					? "<DisablePurviewTestContextRuleSet>true</DisablePurviewTestContextRuleSet>"

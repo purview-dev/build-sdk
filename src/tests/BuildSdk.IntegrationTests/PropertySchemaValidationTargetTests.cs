@@ -35,11 +35,16 @@ sealed class PropertySchemaValidationTargetTests
 		string? preImportProperties = null
 	)
 	{
+		// The fixture's build/ files are not named for the package id, which NuGet reports as NU5129. That is
+		// not what these tests are about, so the warning must not fail the pack.
 		var builder = ProjectHarness
 			.For("Kit")
 			.WithProjectFileContent(
 				"""
 				<Project Sdk="Microsoft.NET.Sdk">
+					<PropertyGroup>
+						<TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+					</PropertyGroup>
 				</Project>
 				"""
 			);

@@ -561,6 +561,9 @@ sealed class SdkPackageConsumptionTests
 			<Project>
 				<PropertyGroup>
 					<NamespacePrefix>Proof</NamespacePrefix>
+					<!-- The proof is the template's Class1 plus a deliberate PDS0003 trigger, and the tests read
+					     those warnings from the output. CoreDefaultsTests pins the TreatWarningsAsErrors default. -->
+					<TreatWarningsAsErrors>false</TreatWarningsAsErrors>
 				</PropertyGroup>
 				<Import Sdk="Purview.BuildSdk" Project="Sdk.props" Version="{packageVersion}" />
 			</Project>

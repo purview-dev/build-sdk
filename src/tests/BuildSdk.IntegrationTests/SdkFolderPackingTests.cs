@@ -79,6 +79,8 @@ sealed class SdkFolderPackingTests
 						<IsPackable>true</IsPackable>
 						<!-- Not what is under test, and the harness's Directory.Packages.props has no version for them. -->
 						<ExcludePurviewTelemetry>true</ExcludePurviewTelemetry>
+						<!-- The layout's build/ files are not named for the package id (NuGet's NU5129). -->
+						<TreatWarningsAsErrors>false</TreatWarningsAsErrors>
 					</PropertyGroup>
 					<ItemGroup>
 						{links}

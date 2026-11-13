@@ -17,11 +17,15 @@ sealed class FieldNamingPolicyTests
 		<PackageReference Remove="Microsoft.Extensions.Telemetry.Abstractions" />
 		""";
 
+	// The assertions read IDE1006 from the build output, so it has to stay a warning the build survives.
+	const string WarningsAllowed = "<TreatWarningsAsErrors>false</TreatWarningsAsErrors>";
+
 	[Test]
 	public async Task PrivateInstanceField_WithoutUnderscorePrefix_IsReported(CancellationToken cancellationToken)
 	{
 		using var h = await ProjectHarness.CreateAsync(
 			"MyApp",
+			extraProps: WarningsAllowed,
 			extraItems: RemoveTelemetryItems,
 			cancellationToken: cancellationToken
 		);
@@ -40,6 +44,7 @@ sealed class FieldNamingPolicyTests
 	{
 		using var h = await ProjectHarness.CreateAsync(
 			"MyApp",
+			extraProps: WarningsAllowed,
 			extraItems: RemoveTelemetryItems,
 			cancellationToken: cancellationToken
 		);
@@ -61,6 +66,7 @@ sealed class FieldNamingPolicyTests
 	{
 		using var h = await ProjectHarness.CreateAsync(
 			"MyApp",
+			extraProps: WarningsAllowed,
 			extraItems: RemoveTelemetryItems,
 			cancellationToken: cancellationToken
 		);
@@ -83,6 +89,7 @@ sealed class FieldNamingPolicyTests
 	{
 		using var h = await ProjectHarness.CreateAsync(
 			"MyApp",
+			extraProps: WarningsAllowed,
 			extraItems: RemoveTelemetryItems,
 			cancellationToken: cancellationToken
 		);
@@ -104,6 +111,7 @@ sealed class FieldNamingPolicyTests
 	{
 		using var h = await ProjectHarness.CreateAsync(
 			"MyApp",
+			extraProps: WarningsAllowed,
 			extraItems: RemoveTelemetryItems,
 			cancellationToken: cancellationToken
 		);

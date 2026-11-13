@@ -94,7 +94,7 @@ one is reported as `PurviewTargetFrameworkSetIgnored`. The full table is in
 | `PurviewRuntimeAsync` | *(unset, treated as false)* | Opts a `net11.0`+ target into `runtime-async=on`; `UseRuntimeAsync=true` also opts in |
 | `IsClientSideProject` | *(computed)* | Whether the project's assemblies can reach a browser; overrides the `ServerShared` classification |
 | `PurviewAutoServerSharedReference` | `true` | Adds a sibling `ServerShared` reference to a non-client-side project |
-| `PurviewMultiThreadedBuild` | `true` | Bootstraps a `Directory.Build.rsp` enabling MSBuild `-mt` |
+| `PurviewMultiThreadedBuild` | `true` | Bootstraps a `Directory.Build.rsp` enabling MSBuild `-mt`; unset, a Blazor WebAssembly client writes `-mt:false` (`PRBLZ0002`) |
 
 The full set, grouped by area and with the behaviour each one changes, is in
 [references/properties.md](references/properties.md). Read it rather than guessing a property name —
@@ -154,7 +154,10 @@ The SDK bootstraps three repository-wide files from the package: `.editorconfig`
 - `PurviewRepoBootstrapCopyRetries` / `...RetryDelayMilliseconds` / `...FailureAsError`
 - `BootstrapMultiThreadedBuildRspToRepoRoot` / `PurviewMultiThreadedBuild` — the response file that
   enables MSBuild `-mt` (and `-nr:false`, which avoids a `RoslynCodeTaskFactory` cache left by a
-  non-`-mt` build)
+  non-`-mt` build). A repository with a Blazor WebAssembly client gets `-mt:false` instead, because a
+  `net11.0` client cannot build under `-mt`; a client built under `-mt` anyway fails with `PRBLZ0002`.
+  The WebAssembly SDK's own error for this is `MSB4060` on `ReadWasmProps`, and it does not mention the
+  response file
 
 Every project in a solution writes those same destinations, so the write is race-tolerant by
 design: an existing file is never overwritten unless asked, each write is staged into a temporary

@@ -398,7 +398,7 @@ sealed partial class DocumentationWikiTests
 	/// <summary>Whether a link target names a markdown file: relative, and not an external URL.</summary>
 	static bool IsRelativeMarkdownLink(string path) =>
 		path.Length > 0
-		&& !path.StartsWith("/", StringComparison.Ordinal)
+		&& path is not ['/', ..]
 		&& !path.Contains("://", StringComparison.Ordinal)
 		&& path.EndsWith(".md", StringComparison.OrdinalIgnoreCase);
 

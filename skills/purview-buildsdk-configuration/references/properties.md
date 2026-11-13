@@ -28,6 +28,7 @@ consuming project supplies nothing.
 | `PurviewTargetFrameworksSupported` | `net10.0;net11.0` | Redefines the `Supported` set |
 | `PurviewTargetFrameworksBroad` | `net8.0;net9.0;net10.0` | Redefines the `Broad` set |
 | `PurviewTargetFrameworksAll` | `net8.0;net9.0;net10.0;net11.0` | Redefines the `All` set |
+| `TreatWarningsAsErrors` | `true` | Every project: compiler, analyzer and NuGet warnings fail the build (MSBuild `<Warning>` tasks do not). `false` in a project or `Directory.Build.props` opts out. A packable Roslyn component still fails its pack without it (`PRSGD0003`) |
 | `IsRoslynComponent` | *(unset)* | When explicitly `true`: a single `netstandard2.0` target, `LangVersion=latest`, `Nullable=enable`, `TreatWarningsAsErrors=true`, `Deterministic=true`, extended analyzer rules, SourceLink with `EmbedUntrackedSources=true`, no dependency file, telemetry exclusion, and `PrivateAssets=all` on `Microsoft.CodeAnalysis.*` references |
 | `IsRoslynComponentOnly` | `true` for Roslyn components | Analyzer-only package: `IncludeBuildOutput=false`, `IncludeSymbols=false`, portable PDB packed beside the analyzer under `analyzers/dotnet/cs/`. Set `false` for a dual-role component using normal library symbol packaging |
 | `DisableRoslynCompilerDefaultsValidation` | `false` | Opts out of `ValidateRoslynComponentCompilerSettings`, which fails the pack of a packable Roslyn component missing `LangVersion`, `Nullable`, `TreatWarningsAsErrors` or `EnforceExtendedAnalyzerRules` |
@@ -53,7 +54,7 @@ they target `netstandard2.0`; selecting a set on one is reported as `PurviewTarg
 | -- | -- | -- |
 | `MemorySafetyRules` | `0` | C# 15 memory-safety tier on `net11.0`+ targets: `0` off (default), `1` preview pointer syntax (sets `LangVersion=preview` when none was chosen), `2` `updated-memory-safety-rules`. Tier `2` is opt-in — the updated rules are an experimental compiler feature. Unknown values fail with `PRCFG0001`. Never touches `AllowUnsafeBlocks` |
 | `PurviewRuntimeAsync` | *(unset, treated as false)* | Set to `true` for `runtime-async=on` on `net11.0`+ targets. `UseRuntimeAsync=true` also opts in; an explicit `false` under either name keeps it off |
-| `PurviewMultiThreadedBuild` | `true` | Bootstraps a managed `Directory.Build.rsp` with `-mt`/`-nr:false`; `false` writes `-mt:false` |
+| `PurviewMultiThreadedBuild` | `true` | Bootstraps a managed `Directory.Build.rsp` with `-mt`/`-nr:false`; `false` writes `-mt:false`. Unset, a Blazor WebAssembly client writes `-mt:false` for the repository, and a client built under `-mt` anyway fails with `PRBLZ0002`; an explicit value always wins |
 | `BootstrapMultiThreadedBuildRspToRepoRoot` | `true` | Whether that bootstrapped response file is written at all |
 | `IsClientSideProject` | *(computed)* | `true` for a WebAssembly client, `PurviewBrowserSafe` library, Razor class library, or `*.Client`/`*.ClientShared`/`*.Browser`/`*.Wasm`/`*.WebAssembly`/`*.Components` (or `ClientShared`/`Components`) name. Explicit value wins |
 | `PurviewAutoServerSharedReference` | `true` | Adds `../ServerShared*/ServerShared*.csproj` to a non-client-side project |
@@ -121,7 +122,7 @@ requirement and self-hosted hosts.
 | `PurviewAutoBlazorClientReference` | `true` | A host named `<Name>` references its `<Name>.Client` WebAssembly client automatically. Skipped when the reference is already declared |
 | `DisablePurviewBlazorWebAssemblyDefaults` | `false` | Keeps the generic defaults on a WebAssembly client: packable when asked, Dockerfile container detection, the automatic `Shared` reference. Set before the SDK import |
 | `PurviewBrowserSafe` | *(unset)* | `true` on a class library applies `IsAotCompatible`, `SupportedPlatform browser` and the browser-safe `WarningsAsErrors`, each only where the project set nothing |
-| `PurviewBrowserSafeWarningsAsErrors` | `true` on a `PurviewBrowserSafe` library, otherwise unset | `false` keeps the trim and AOT diagnostics as warnings; `CA1416` then falls back to the repository's severity (`suggestion` in the shipped `.editorconfig`) |
+| `PurviewBrowserSafeWarningsAsErrors` | `true` on a `PurviewBrowserSafe` library, otherwise unset | `false` hands the trim and AOT diagnostics back to `TreatWarningsAsErrors` (`true` by default); `CA1416` then falls back to the repository's severity (`suggestion` in the shipped `.editorconfig`) |
 | `PurviewBrowserSafeWarningCodes` | `CA1416`, `IL2001`-`IL2128`, `IL3000`-`IL3005`, `IL3050`-`IL3059` | The ids a browser-safe library adds to `WarningsAsErrors` |
 | `DisablePurviewBrowserSafeReferenceCheck` | `false` | Turns off `PRBLZ0001`, the check that every project a client (or browser-safe library) references sets `PurviewBrowserSafe` |
 | `PurviewBrowserSafeReferenceCheckAsError` | `false` | Reports `PRBLZ0001` as an error |
@@ -152,7 +153,7 @@ reference was judged browser-safe when it cannot say so itself.
 | `RepositoryGlobalJsonFilePath` | *(derived)* | Overrides the destination `global.json` |
 | `BootstrapMultiThreadedBuildRspToRepoRoot` | `true` | Creates a managed `Directory.Build.rsp` enabling `-mt` |
 | `RepositoryDirectoryBuildRspFilePath` | *(derived)* | Overrides the destination `Directory.Build.rsp` |
-| `PurviewMultiThreadedBuild` | `true` | `false` rewrites a managed rsp to `-mt:false` |
+| `PurviewMultiThreadedBuild` | `true` | `false` rewrites a managed rsp to `-mt:false`; unset, a WebAssembly client writes `-mt:false` |
 | `PurviewBuildSdkVersionForGlobalJson` | restored package version, else the version it was packed as | |
 | `PurviewRepoBootstrapCopyRetries` | `3` | |
 | `PurviewRepoBootstrapCopyRetryDelayMilliseconds` | `500` | |

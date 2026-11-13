@@ -180,7 +180,7 @@ operations skip them silently.
 | `RepositoryGlobalJsonFilePath` | *(auto-detected)* | Override the destination path for the bootstrapped `global.json`. |
 | `BootstrapMultiThreadedBuildRspToRepoRoot` | `true` | Creates a managed `Directory.Build.rsp` at the repository root that enables MSBuild's multithreaded build (`-mt` plus `-nr:false`) on .NET 11. Set to `false` to stop bootstrapping it. |
 | `RepositoryDirectoryBuildRspFilePath` | *(auto-detected)* | Override the destination path for the bootstrapped `Directory.Build.rsp`. |
-| `PurviewMultiThreadedBuild` | `true` | When `false`, a managed `Directory.Build.rsp` is rewritten to `-mt:false`, so opting out cannot leave the mode enabled. |
+| `PurviewMultiThreadedBuild` | `true` | When `false`, a managed `Directory.Build.rsp` is rewritten to `-mt:false`, so opting out cannot leave the mode enabled. Left unset, a Blazor WebAssembly client writes `-mt:false` for the whole repository, because it cannot build under `-mt` (`PRBLZ0002`); a value you set always wins. |
 | `PurviewBuildSdkVersionForGlobalJson` | *(restored package version, else the version it was packed as)* | Version written to the `msbuild-sdks.Purview.BuildSdk` entry in a bootstrapped `global.json`. |
 | `PurviewRepoBootstrapMode` | `IfMissing` | `IfMissing` never touches an existing file, `Always` overwrites it, `WarnOnDrift` reports that an existing file differs from the SDK-provided one, and `Never` skips bootstrapping entirely. |
 | `PurviewRepoBootstrapCopyRetries` | `3` | Copy attempts before a bootstrap write failure is reported. |
@@ -207,6 +207,11 @@ host switch, so a response file is the only way a project can turn it on; `-nr:f
 node left by a non-`-mt` build, which can cache a `RoslynCodeTaskFactory` task with no assembly path
 and fail the first `-mt` build (`dotnet/msbuild#15213`). `-mt` still uses the MSBuild server (short-lived)
 for Server GC.
+
+A repository with a Blazor WebAssembly client gets `-mt:false` instead, naming the client, because a
+`net11.0` client cannot build under `-mt`. A client built under `-mt` anyway stops with `PRBLZ0002`
+before the WebAssembly SDK fails. See
+[Repositories with a Blazor WebAssembly client](Repository-Bootstrap.md#repositories-with-a-blazor-webassembly-client).
 
 ## .NET 11 features
 
@@ -422,7 +427,7 @@ property that is not in this list.
 | `IsBlazorHostProject` | True for a web SDK project that references a Blazor WebAssembly client. |
 | `IsBffProject` | True for a web SDK project named `*Bff`, or that sets `IsBffProject=true`. |
 | `PurviewBrowserSafe` | When `true` on a class library, applies the browser-safe defaults. |
-| `PurviewBrowserSafeWarningsAsErrors` | When `false`, browser-safe trim and AOT diagnostics stay warnings. |
+| `PurviewBrowserSafeWarningsAsErrors` | When `false`, browser-safe trim and AOT diagnostics fall back to the project's own warning policy (`TreatWarningsAsErrors`, `true` by default). |
 | `DisablePurviewBrowserSafeReferenceCheck` | Turns off `PRBLZ0001`. |
 | `PurviewBrowserSafeReferenceCheckAsError` | Reports `PRBLZ0001` as an error. |
 | `DisablePurviewBlazorWebAssemblyDefaults` | Keeps the generic defaults on a WebAssembly client. |
@@ -433,7 +438,7 @@ property that is not in this list.
 | `PurviewServerSharedReferenceCheckAsError` | When true, PRSHR0001/PRSHR0002 are errors instead of warnings. Defaults to false. |
 | `MemorySafetyRules` | The C# 15 memory-safety tier: 0 off (default), 1 preview syntax, 2 updated rules. The updated rules are an experimental compiler feature, so they are opt-in. AllowUnsafeBlocks is left unset. |
 | `PurviewRuntimeAsync` | When true, a net11.0+ project compiles with the runtime-async compiler feature. Defaults to false; UseRuntimeAsync=true also opts in. |
-| `PurviewMultiThreadedBuild` | When true (default), boots a Directory.Build.rsp that enables MSBuild's multithreaded build (-mt). |
+| `PurviewMultiThreadedBuild` | When true (default), boots a Directory.Build.rsp that enables MSBuild's multithreaded build (-mt). Left unset, a Blazor WebAssembly client writes -mt:false instead. |
 | `EditorConfigFilePath` | Path to the SDK-provided `.editorconfig` that is injected into `@(EditorConfigFiles)`. |
 | `RepositoryEditorConfigFilePath` | Destination path for bootstrapping a physical repo-level `.editorconfig` (defaults to git repo root; falls back to `Directory.Build.props` directory). |
 | `BootstrapEditorConfigToRepoRoot` | When `true` (default), copies the SDK `.editorconfig` to `RepositoryEditorConfigFilePath` if missing. |
@@ -453,7 +458,7 @@ property that is not in this list.
 | `IsClientSideProject` | True when the project's assemblies are downloaded to a browser: a WebAssembly client, a PurviewBrowserSafe library, a Razor class library, or a project named with a client-side suffix (*.Client, *.ClientShared, *.Browser, *.Wasm, *.WebAssembly, *.Components, or exactly ClientShared or Components). Set explicitly to override. |
 | `LangVersion` | C# language version used to build the Roslyn component. Defaults to latest. |
 | `Nullable` | Nullable reference-types context used to build the Roslyn component. Defaults to enable. |
-| `TreatWarningsAsErrors` | Treats all compiler/analyzer warnings as errors. Defaults to true for Roslyn components. |
+| `TreatWarningsAsErrors` | Treats all compiler, analyzer and NuGet warnings as errors. Defaults to true for every project; set false to opt out. |
 | `EnforceExtendedAnalyzerRules` | Enforces Roslyn analyzer best-practice rules. Defaults to true for Roslyn components. |
 | `Deterministic` | Produce deterministic builds. Defaults to true. |
 | `ContinuousIntegrationBuild` | True when building in a recognized CI environment, producing deterministic SourceLink output. |

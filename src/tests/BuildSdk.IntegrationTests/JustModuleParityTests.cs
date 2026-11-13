@@ -145,7 +145,7 @@ sealed partial class JustModuleParityTests
 		await Assert.That(moduleRecipes).Contains("build");
 
 		var redefined = RecipeNames(ReadNormalised(Path.Combine(RepositoryRoot, "Justfile")))
-			.Where(name => moduleRecipes.Contains(name) && !name.StartsWith("_", StringComparison.Ordinal))
+			.Where(name => moduleRecipes.Contains(name) && name is not ['_', ..])
 			.ToArray();
 
 		await Assert

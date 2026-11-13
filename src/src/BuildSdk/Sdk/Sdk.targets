@@ -3076,8 +3076,31 @@
 	     switches at startup - which is why this repository commits its own copy
 	     and a consumer picks it up from the next build.
 
+	     A Blazor WebAssembly client cannot build under -mt (PRBLZ0002, in
+	     Targets/Blazor.targets), and the file is per repository, so a client
+	     decides for the whole repository:
+
+	       * a client writes -mt:false, plus a line naming itself,
+	       * any other project leaves a managed file naming a client alone while
+	         that client's project file still exists, and restores -mt once it
+	         does not,
+	       * a PurviewMultiThreadedBuild the user set - in Directory.Build.props,
+	         the project file or on the command line - always wins over both.
+
+	     A client overwrites even a file that appeared after it looked, so a race
+	     with a library creating the -mt form on the same first build still ends
+	     on -mt:false.
+
 	     DesignTimeBuild is excluded for the same reason as the other bootstraps.
 	     ===================================================================== -->
+	<PropertyGroup>
+		<!-- Defaulted here rather than in Defaults.props: after the project body, so a value set in
+		     Directory.Build.props, the project file or on the command line is all recorded as the user's
+		     choice before the default fills it in. -->
+		<_PurviewMultiThreadedBuildIsExplicit Condition="'$(PurviewMultiThreadedBuild)' != ''"
+			>true</_PurviewMultiThreadedBuildIsExplicit>
+		<PurviewMultiThreadedBuild Condition="'$(PurviewMultiThreadedBuild)' == ''">true</PurviewMultiThreadedBuild>
+	</PropertyGroup>
 	<Target
 		Name="EnsureRepositoryDirectoryBuildRspTarget"
 		BeforeTargets="PrepareForBuild"
@@ -3116,17 +3139,54 @@
 			<_EffectiveRepositoryDirectoryBuildRspFilePath
 				Condition="'$(_EffectiveRepositoryDirectoryBuildRspFilePath)' == '' AND '$(_DirectoryBuildPropsDirectory)' != ''"
 				>$([System.IO.Path]::Combine('$(_DirectoryBuildPropsDirectory)', 'Directory.Build.rsp'))</_EffectiveRepositoryDirectoryBuildRspFilePath>
-			<_PurviewRspEnabled Condition="'$(PurviewMultiThreadedBuild)' != 'false'">true</_PurviewRspEnabled>
-			<_PurviewRspEnabled Condition="'$(_PurviewRspEnabled)' == ''">false</_PurviewRspEnabled>
 		</PropertyGroup>
 		<PropertyGroup>
 			<RepositoryDirectoryBuildRspFilePath
 				Condition="'$(RepositoryDirectoryBuildRspFilePath)' == '' AND '$(_EffectiveRepositoryDirectoryBuildRspFilePath)' != ''"
 				>$(_EffectiveRepositoryDirectoryBuildRspFilePath)</RepositoryDirectoryBuildRspFilePath>
+			<_PurviewRspDestinationExists Condition="'$(_EffectiveRepositoryDirectoryBuildRspFilePath)' != ''"
+				>$([System.IO.File]::Exists('$(_EffectiveRepositoryDirectoryBuildRspFilePath)'))</_PurviewRspDestinationExists>
+			<_PurviewRspDestinationText Condition="'$(_PurviewRspDestinationExists)' == 'true'"
+				>$([System.IO.File]::ReadAllText('$(_EffectiveRepositoryDirectoryBuildRspFilePath)'))</_PurviewRspDestinationText>
+			<_PurviewRspDestinationFirstLine Condition="'$(_PurviewRspDestinationExists)' == 'true'"
+				>$([System.Text.RegularExpressions.Regex]::Match($(_PurviewRspDestinationText), `^[^\r\n]*`).Value)</_PurviewRspDestinationFirstLine>
+			<_PurviewRspIsManaged
+				Condition="'$(_PurviewRspDestinationExists)' == 'true' AND $(_PurviewRspDestinationFirstLine.StartsWith('$(PurviewRepositoryRspVersionMarker)'))"
+				>true</_PurviewRspIsManaged>
+			<!-- The WebAssembly client a managed file names, relative to the file, with '/' separators so a
+			     committed copy resolves on every OS. -->
+			<_PurviewRspDirectory Condition="'$(_EffectiveRepositoryDirectoryBuildRspFilePath)' != ''"
+				>$([System.IO.Path]::GetDirectoryName('$(_EffectiveRepositoryDirectoryBuildRspFilePath)'))</_PurviewRspDirectory>
+			<_PurviewRspNamedClient Condition="'$(_PurviewRspIsManaged)' == 'true'"
+				>$([System.Text.RegularExpressions.Regex]::Match($(_PurviewRspDestinationText), `(?m)^# -mt:false: the Blazor WebAssembly client \x27(?&lt;path&gt;[^\x27\r\n]+)\x27`).Groups['path'].Value)</_PurviewRspNamedClient>
+			<_PurviewRspNamedClientPath Condition="'$(_PurviewRspNamedClient)' != ''"
+				>$([System.IO.Path]::Combine('$(_PurviewRspDirectory)', '$(_PurviewRspNamedClient)'))</_PurviewRspNamedClientPath>
+			<_PurviewRspNamedClientExists
+				Condition="'$(_PurviewRspNamedClientPath)' != '' AND Exists('$(_PurviewRspNamedClientPath)')"
+				>true</_PurviewRspNamedClientExists>
+			<_PurviewRspEnabled
+				Condition="'$(_PurviewMultiThreadedBuildIsExplicit)' == 'true' AND '$(PurviewMultiThreadedBuild)' != 'false'"
+				>true</_PurviewRspEnabled>
+			<_PurviewRspEnabled
+				Condition="'$(_PurviewMultiThreadedBuildIsExplicit)' != 'true' AND '$(IsBlazorWebAssemblyProject)' != 'true' AND '$(_PurviewRspNamedClientExists)' != 'true'"
+				>true</_PurviewRspEnabled>
+			<_PurviewRspEnabled Condition="'$(_PurviewRspEnabled)' == ''">false</_PurviewRspEnabled>
+			<!-- The client the written file names: this project when it is one, otherwise the one a kept file
+			     already names, so a rewrite (PurviewRepoBootstrapMode=Always) does not drop it. -->
+			<_PurviewRspClient
+				Condition="'$(_PurviewRspEnabled)' != 'true' AND '$(IsBlazorWebAssemblyProject)' == 'true'"
+				>$([MSBuild]::MakeRelative('$(_PurviewRspDirectory)$([System.IO.Path]::DirectorySeparatorChar)', '$(MSBuildProjectFullPath)').Replace('\', '/'))</_PurviewRspClient>
+			<_PurviewRspClient
+				Condition="'$(_PurviewRspClient)' == '' AND '$(_PurviewRspEnabled)' != 'true' AND '$(_PurviewRspNamedClientExists)' == 'true'"
+				>$(_PurviewRspNamedClient)</_PurviewRspClient>
 		</PropertyGroup>
 		<ItemGroup Condition="'$(_EffectiveRepositoryDirectoryBuildRspFilePath)' != ''">
 			<_RepositoryDirectoryBuildRspLines Include="$(PurviewRepositoryRspVersionMarker)" />
 			<_RepositoryDirectoryBuildRspLines Include="# Managed by Purview.BuildSdk. Delete the marker line to take ownership of this file." />
+			<_RepositoryDirectoryBuildRspLines
+				Condition="'$(_PurviewRspClient)' != ''"
+				Include="$([MSBuild]::Escape(`# -mt:false: the Blazor WebAssembly client '$(_PurviewRspClient)' cannot build multithreaded (PRBLZ0002).`))"
+			/>
 			<_RepositoryDirectoryBuildRspLines Condition="'$(_PurviewRspEnabled)' == 'true'" Include="-mt" />
 			<!--
 				Node reuse is disabled alongside -mt on purpose. A non-mt build can leave a reusable node
@@ -3140,15 +3200,6 @@
 			<_RepositoryDirectoryBuildRspLines Condition="'$(_PurviewRspEnabled)' != 'true'" Include="-mt:false" />
 		</ItemGroup>
 		<PropertyGroup>
-			<_PurviewRspDestinationExists Condition="'$(_EffectiveRepositoryDirectoryBuildRspFilePath)' != ''"
-				>$([System.IO.File]::Exists('$(_EffectiveRepositoryDirectoryBuildRspFilePath)'))</_PurviewRspDestinationExists>
-			<_PurviewRspDestinationText Condition="'$(_PurviewRspDestinationExists)' == 'true'"
-				>$([System.IO.File]::ReadAllText('$(_EffectiveRepositoryDirectoryBuildRspFilePath)'))</_PurviewRspDestinationText>
-			<_PurviewRspDestinationFirstLine Condition="'$(_PurviewRspDestinationExists)' == 'true'"
-				>$([System.Text.RegularExpressions.Regex]::Match($(_PurviewRspDestinationText), `^[^\r\n]*`).Value)</_PurviewRspDestinationFirstLine>
-			<_PurviewRspIsManaged
-				Condition="'$(_PurviewRspDestinationExists)' == 'true' AND $(_PurviewRspDestinationFirstLine.StartsWith('$(PurviewRepositoryRspVersionMarker)'))"
-				>true</_PurviewRspIsManaged>
 			<_PurviewRspHasEnabledSwitch
 				Condition="'$(_PurviewRspDestinationExists)' == 'true' AND $([System.Text.RegularExpressions.Regex]::IsMatch($(_PurviewRspDestinationText), `(?m)^\s*-mt\s*$`))"
 				>true</_PurviewRspHasEnabledSwitch>
@@ -3161,12 +3212,15 @@
 			<_PurviewRspContentMatches
 				Condition="'$(_PurviewRspEnabled)' == 'true' AND '$(_PurviewRspHasEnabledSwitch)' == 'true' AND '$(_PurviewRspHasNoNodeReuse)' == 'true'"
 				>true</_PurviewRspContentMatches>
+			<!-- A client accepts a file naming any client that still exists, so two clients in one
+			     repository do not take turns rewriting it. -->
 			<_PurviewRspContentMatches
-				Condition="'$(_PurviewRspEnabled)' != 'true' AND '$(_PurviewRspHasDisabledSwitch)' == 'true'"
+				Condition="'$(_PurviewRspEnabled)' != 'true' AND '$(_PurviewRspHasDisabledSwitch)' == 'true' AND ('$(IsBlazorWebAssemblyProject)' != 'true' OR '$(_PurviewRspNamedClientExists)' == 'true')"
 				>true</_PurviewRspContentMatches>
-			<!-- Missing and enabled: the bootstrap's purpose. Missing and disabled has nothing to do. -->
+			<!-- Missing and enabled: the bootstrap's purpose. Missing and disabled has nothing to do, unless
+			     a client is disabling it for the whole repository. -->
 			<_PurviewRspNeedsSync
-				Condition="'$(_PurviewRspDestinationExists)' != 'true' AND '$(_PurviewRspEnabled)' == 'true'"
+				Condition="'$(_PurviewRspDestinationExists)' != 'true' AND ('$(_PurviewRspEnabled)' == 'true' OR '$(_PurviewRspClient)' != '')"
 				>true</_PurviewRspNeedsSync>
 			<_PurviewRspNeedsSync
 				Condition="'$(_PurviewRspDestinationExists)' == 'true' AND '$(_PurviewRspIsManaged)' == 'true' AND '$(_PurviewRspContentMatches)' != 'true'"
@@ -3175,7 +3229,7 @@
 				Condition="'$(PurviewRepoBootstrapMode)' == 'Always' OR '$(PurviewRepoBootstrapMode)' == 'WarnOnDrift'"
 				>true</_PurviewRspNeedsSync>
 			<_PurviewRspOverwrite
-				Condition="'$(_PurviewRepoBootstrapOverwriteExisting)' == 'true' OR '$(_PurviewRspIsManaged)' == 'true'"
+				Condition="'$(_PurviewRepoBootstrapOverwriteExisting)' == 'true' OR '$(_PurviewRspIsManaged)' == 'true' OR ('$(_PurviewRspDestinationExists)' != 'true' AND '$(_PurviewRspClient)' != '' AND '$(IsBlazorWebAssemblyProject)' == 'true')"
 				>true</_PurviewRspOverwrite>
 			<_PurviewRspOverwrite Condition="'$(_PurviewRspOverwrite)' == ''">false</_PurviewRspOverwrite>
 		</PropertyGroup>

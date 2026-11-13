@@ -567,7 +567,7 @@
 			<Description>When true, a net11.0+ project compiles with the runtime-async compiler feature. Defaults to false; UseRuntimeAsync=true also opts in.</Description>
 		</CompilerVisibleProperty>
 		<CompilerVisibleProperty Include="PurviewMultiThreadedBuild">
-			<Description>When true (default), boots a Directory.Build.rsp that enables MSBuild's multithreaded build (-mt).</Description>
+			<Description>When true (default), boots a Directory.Build.rsp that enables MSBuild's multithreaded build (-mt). Left unset, a Blazor WebAssembly client writes -mt:false instead.</Description>
 		</CompilerVisibleProperty>
 		<CompilerVisibleProperty Include="EditorConfigFilePath">
 			<Description>Path to the SDK-provided .editorconfig used for build-time style enforcement.</Description>
@@ -640,7 +640,7 @@
 			<Description>Nullable reference-types context used to build the Roslyn component. Defaults to enable.</Description>
 		</CompilerVisibleProperty>
 		<CompilerVisibleProperty Include="TreatWarningsAsErrors">
-			<Description>Treats all compiler/analyzer warnings as errors. Defaults to true for Roslyn components.</Description>
+			<Description>Treats all compiler, analyzer and NuGet warnings as errors. Defaults to true for every project; set false to opt out.</Description>
 		</CompilerVisibleProperty>
 		<CompilerVisibleProperty Include="EnforceExtendedAnalyzerRules">
 			<Description>Enforces Roslyn analyzer best-practice rules. Defaults to true for Roslyn components.</Description>
@@ -709,7 +709,7 @@
 		<!-- Roslyn best-practice compiler defaults. Project body values are evaluated later and win. -->
 		<LangVersion Condition="'$(LangVersion)' == '' OR '$(LangVersion)' == 'preview'">latest</LangVersion>
 		<Nullable Condition="'$(Nullable)' == ''">enable</Nullable>
-		<TreatWarningsAsErrors Condition="'$(TreatWarningsAsErrors)' == ''">true</TreatWarningsAsErrors>
+		<!-- TreatWarningsAsErrors=true comes from Props/Defaults.props, for every project. -->
 		<!-- Analyzer-only packages have no lib/ folder; suppress NU5128 so TreatWarningsAsErrors
 		     does not fail the pack. No symbol package is produced by default (the PDB ships in
 		     analyzers/dotnet/cs beside the analyzer assembly), and any explicit opt-in uses the

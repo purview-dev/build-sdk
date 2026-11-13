@@ -94,6 +94,11 @@ release summarise what the commits recorded rather than what was written at the 
 
 ### Changed
 
+- **`TreatWarningsAsErrors` defaults to `true` for every project**, where before only Roslyn components
+  got it. Compiler, analyzer and NuGet warnings now fail the build; MSBuild `<Warning>` tasks (the
+  SDK's own `PRBLZ0001`, for example) are unaffected. A repository that builds with warnings today
+  will fail on upgrade: fix them, or set `<TreatWarningsAsErrors>false</TreatWarningsAsErrors>` in
+  `Directory.Build.props` (or one project) to keep the old behaviour. A value you set always wins.
 - **The skill targets are a thin wrapper over the standard skills CLI, with nothing bespoke.**
   `InstallPurviewSkills` runs `skills add "<source>" --skill "*"` for `PurviewSkillsSource` (append
   `#<ref>` to pin), or `skills experimental_install` to restore `skills-lock.json` without one.
@@ -194,6 +199,28 @@ release summarise what the commits recorded rather than what was written at the 
 
 ### Fixed
 
+- **A Blazor WebAssembly client builds again.** The multithreaded build added in 2.0.0 broke every
+  `net11.0` WebAssembly client: the WebAssembly SDK's `ReadWasmProps` task comes from a custom task
+  factory that cannot run in the out-of-process task host `-mt` moves it to, so the build failed with
+  `MSB4060` from `WasmApp.Common.targets`, an error that names nothing leading back to the
+  `Directory.Build.rsp` this SDK writes. The response file is per repository, so a client now decides
+  for it: with `PurviewMultiThreadedBuild` unset, a client writes `-mt:false` and a line naming itself,
+  and every other project leaves that file alone while the named client exists. A repository with no
+  client still gets `-mt`. A `PurviewMultiThreadedBuild` you set always wins, and a file without the
+  marker line is still never rewritten. The default for `PurviewMultiThreadedBuild` (`true`) is now
+  applied in `Sdk.targets`, after the project body, so the SDK can tell a value you set from its own
+  default.
+- **`PRBLZ0002`: a WebAssembly client built under `-mt` stops before the WebAssembly SDK fails.** This
+  covers `-mt` from the command line, from a response file you own, or from `PurviewMultiThreadedBuild=true`.
+  The error fires before `PrepareForBuild`, says whether `-mt` came from the command line or which
+  `Directory.Build.rsp`, and gives the fix (`<PurviewMultiThreadedBuild>false</PurviewMultiThreadedBuild>`,
+  or `-mt:false`). The first build after upgrading from 2.0.x has already read the old managed `-mt`
+  file, so it rewrites the file, stops with `PRBLZ0002` saying so, and the next build succeeds. MSBuild
+  18 exposes no property for `-mt`, so the check looks at where an inline task runs: under `-mt`, always
+  the out-of-process task host. A `net10.0` client builds under `-mt` and is not checked. The Blazor
+  tests had missed this for two reasons: every harness solution opts out of the response file, and every
+  Blazor fixture targets `net10.0`. `BlazorWebAssemblyMultiThreadedBuildTests` builds `net11.0` clients
+  with it on.
 - **`DisableSourceLink=true` now actually opts out of SourceLink.** `Sdk.props` re-assigned
   `DisableSourceLink` to `false` for every non-Roslyn project, clobbering a repository's pre-import
   value, so the documented opt-out silently had no effect and the GitHub provider was always added. The

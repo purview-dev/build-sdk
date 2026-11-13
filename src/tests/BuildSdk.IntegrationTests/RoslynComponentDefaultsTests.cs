@@ -231,6 +231,9 @@ sealed class RoslynComponentDefaultsTests
 						<IsPackable>true</IsPackable>
 						<ExcludePurviewTelemetry>true</ExcludePurviewTelemetry>
 						<DisableSourceLink>true</DisableSourceLink>
+						<!-- The stub RuntimeDependency.dll is not a real assembly, so loading it as an analyzer is
+						     CS8034. Only where it is packed is under test. -->
+						<TreatWarningsAsErrors>false</TreatWarningsAsErrors>
 					</PropertyGroup>
 					<ItemGroup>
 						<ProjectReference
@@ -718,6 +721,8 @@ sealed class RoslynComponentDefaultsTests
 						<IsPackable>true</IsPackable>
 						<ExcludePurviewTelemetry>true</ExcludePurviewTelemetry>
 						<DisableSourceLink>true</DisableSourceLink>
+						<!-- The stub SharedRuntime.dll is not a real assembly (CS8034 as an analyzer). -->
+						<TreatWarningsAsErrors>false</TreatWarningsAsErrors>
 					</PropertyGroup>
 					<ItemGroup>
 						<ProjectReference

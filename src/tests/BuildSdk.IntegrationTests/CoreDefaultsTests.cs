@@ -80,6 +80,32 @@ sealed class CoreDefaultsTests
 			.Because("EnforceCodeStyleInBuild should default to true");
 	}
 
+	/// <summary>
+	/// Warnings are errors in every project, not only in Roslyn components: a warning nobody is made to
+	/// look at is one that ships.
+	/// </summary>
+	[Test]
+	[Arguments("MyLibrary")]
+	[Arguments("MyLibrary.UnitTests")]
+	public async Task DefaultProject_TreatsWarningsAsErrors(string projectName, CancellationToken cancellationToken)
+	{
+		using var h = await ProjectHarness.CreateAsync(projectName, cancellationToken: cancellationToken);
+
+		await Assert.That(await h.GetPropertyAsync("TreatWarningsAsErrors", cancellationToken)).IsEqualTo("true");
+	}
+
+	[Test]
+	public async Task TreatWarningsAsErrors_SetFalseInTheProject_Wins(CancellationToken cancellationToken)
+	{
+		using var h = await ProjectHarness.CreateAsync(
+			"MyLibrary",
+			extraProps: "<TreatWarningsAsErrors>false</TreatWarningsAsErrors>",
+			cancellationToken: cancellationToken
+		);
+
+		await Assert.That(await h.GetPropertyAsync("TreatWarningsAsErrors", cancellationToken)).IsEqualTo("false");
+	}
+
 	[Test]
 	public async Task DefaultProject_EditorConfig_ResolvesSdkEditorConfigAndListsIt(CancellationToken cancellationToken)
 	{

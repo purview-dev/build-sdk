@@ -298,7 +298,7 @@
 			"defaultValue": "true"
 		},
 		"PurviewMultiThreadedBuild": {
-			"description": "When false, a managed Directory.Build.rsp is rewritten to -mt:false so MSBuild's multithreaded build is actually off.",
+			"description": "When false, a managed Directory.Build.rsp is rewritten to -mt:false so MSBuild's multithreaded build is actually off. Left unset, a Blazor WebAssembly client writes -mt:false for the whole repository (it cannot build under -mt; see PRBLZ0002) and other projects keep that while the client exists; a value set explicitly always wins.",
 			"type": "bool",
 			"defaultValue": "true"
 		},
