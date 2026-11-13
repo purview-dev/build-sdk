@@ -221,6 +221,16 @@ release summarise what the commits recorded rather than what was written at the 
   tests had missed this for two reasons: every harness solution opts out of the response file, and every
   Blazor fixture targets `net10.0`. `BlazorWebAssemblyMultiThreadedBuildTests` builds `net11.0` clients
   with it on.
+- **A parallel build no longer fights over `Directory.Build.rsp`.** Every project reads and may rewrite
+  the one response file, and in a parallel build they did both at once. A project reading it while
+  another replaced it failed with `MSB4184 ... being used by another process`, and a library that read
+  the file before the WebAssembly client rewrote it could write `-mt` back afterwards, so the next build
+  stopped with `PRBLZ0002`. The file is now read sharing it with writers, with retries, and a file that
+  stays unreadable is left alone instead of failing the build. Each write takes a lock shared by every
+  project, looks at the file again, and a project without its own `PurviewMultiThreadedBuild` keeps a
+  file that names a WebAssembly client that exists. Removing an explicit
+  `<PurviewMultiThreadedBuild>false</PurviewMultiThreadedBuild>` from a repository with a client now
+  ends on the client's `-mt:false` form in one build.
 - **`DisableSourceLink=true` now actually opts out of SourceLink.** `Sdk.props` re-assigned
   `DisableSourceLink` to `false` for every non-Roslyn project, clobbering a repository's pre-import
   value, so the documented opt-out silently had no effect and the GitHub provider was always added. The

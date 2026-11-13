@@ -108,7 +108,9 @@ repository, not per project, so the rule is:
 
 - **Every other project keeps that file** while the named client's project file exists, and writes
   `-mt` again once it does not. The client overwrites even a file another project created on the same
-  first build, so the race ends on `-mt:false`.
+  first build, so the race ends on `-mt:false`. The other way round, a project that read the file before
+  the client rewrote it looks again just before its own write, under a lock every project takes, and
+  keeps the client's file. Reading the file never fails a build that another project is writing it in.
 - **A `PurviewMultiThreadedBuild` you set always wins**, in `Directory.Build.props`, a project file or
   on the command line. **A file without the marker line is never rewritten.**
 

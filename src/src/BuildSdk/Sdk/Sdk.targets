@@ -1038,6 +1038,12 @@
 				destination without the prefix is the developer's and is never overwritten.
 			-->
 			<VersionMarkerPrefix ParameterType="System.String" Required="false" />
+			<!--
+				A regular expression with a 'path' group. When set, the destination is read again just before
+				the write, and kept when it matches and the file the group names, relative to the destination,
+				exists - so a decision made from an earlier read cannot undo what another project wrote since.
+			-->
+			<KeepWhenNamedFileExists ParameterType="System.String" Required="false" />
 			<Retries ParameterType="System.Int32" Required="false" />
 			<RetryDelayMilliseconds ParameterType="System.Int32" Required="false" />
 			<TreatFailureAsError ParameterType="System.Boolean" Required="false" />
@@ -1053,6 +1059,7 @@
 			<Using Namespace="System.Globalization" />
 			<Using Namespace="System.IO" />
 			<Using Namespace="System.Text" />
+			<Using Namespace="System.Text.RegularExpressions" />
 			<Using Namespace="System.Threading" />
 			<Using Namespace="Microsoft.Build.Framework" />
 			<Using Namespace="Microsoft.Build.Utilities" />
@@ -1248,6 +1255,75 @@
 					bool IsManagedByMarker(string path, string prefix) =>
 						FirstLine(path).StartsWith(prefix, StringComparison.Ordinal);
 
+					// Every project of a parallel build runs this task, in several processes, so the last
+					// look at the destination and the write happen under one lock per destination. The lock
+					// file lives in the temp folder, keyed by the destination's path, so nothing appears in
+					// the repository. A lock that cannot be had is waited out for a while, then skipped:
+					// writing without it is how this task behaved before it had one.
+					FileStream AcquireWriteLock(string destination)
+					{
+						var key = Path.GetFullPath(destination);
+						if (pathComparison == StringComparison.OrdinalIgnoreCase)
+							key = key.ToUpperInvariant();
+
+						var lockPath = Path.Combine(
+							Path.GetTempPath(),
+							"purview-buildsdk-" + ComputeHash(Encoding.UTF8.GetBytes(key)).ToString("x16", CultureInfo.InvariantCulture) + ".lock"
+						);
+						var stopwatch = Stopwatch.StartNew();
+						var timeout = Math.Max(10000, attemptLimit * retryDelay * 4);
+						while (true)
+						{
+							try
+							{
+								return new FileStream(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+							}
+							catch (IOException e)
+							{
+								if (stopwatch.ElapsedMilliseconds >= timeout)
+								{
+									Log.LogMessage(MessageImportance.Low, "Writing '{0}' without its lock '{1}': {2}", destination, lockPath, e.Message);
+									return null;
+								}
+								Thread.Sleep(25);
+							}
+							catch (UnauthorizedAccessException e)
+							{
+								Log.LogMessage(MessageImportance.Low, "Writing '{0}' without its lock '{1}': {2}", destination, lockPath, e.Message);
+								return null;
+							}
+						}
+					}
+
+					// The file KeepWhenNamedFileExists finds named in the destination, when it exists.
+					string NamedFileThatExists(string destination)
+					{
+						if (string.IsNullOrEmpty(KeepWhenNamedFileExists) || !File.Exists(destination))
+							return null;
+
+						string text;
+						try
+						{
+							using (var stream = new FileStream(destination, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+							using (var reader = new StreamReader(stream, Encoding.UTF8, true))
+							{
+								text = reader.ReadToEnd();
+							}
+						}
+						catch (Exception e) when (IsTransient(e))
+						{
+							return null;
+						}
+
+						var match = Regex.Match(text, KeepWhenNamedFileExists);
+						if (!match.Success)
+							return null;
+
+						var named = match.Groups["path"].Value;
+						var directory = Path.GetDirectoryName(Path.GetFullPath(destination)) ?? string.Empty;
+						return named.Length > 0 && File.Exists(Path.Combine(directory, named)) ? named : null;
+					}
+
 					var destinationFile = DestinationFile ?? string.Empty;
 					if (string.IsNullOrEmpty(destinationFile))
 					{
@@ -1255,7 +1331,8 @@
 						return Finish();
 					}
 
-					if (File.Exists(destinationFile))
+					var destinationExisted = File.Exists(destinationFile);
+					if (destinationExisted)
 					{
 						// A destination carrying the SDK's own version marker is a file the SDK wrote,
 						// so it is refreshed when the version moves on. A destination without the
@@ -1342,39 +1419,71 @@
 						return Finish();
 					}
 
-					for (var attempt = 1; attempt <= attemptLimit; attempt++)
+					var writeLock = AcquireWriteLock(destinationFile);
+					try
 					{
-						try
+						// Another project may have written the destination since this one looked: a file that
+						// appeared is the developer's or the winner's, and one naming a file that exists is kept.
+						if (!OverwriteExisting && !destinationExisted && File.Exists(destinationFile))
 						{
-							WriteAtomically(destinationFile, temporary => File.WriteAllBytes(temporary, content));
-							copied++;
+							skipped++;
 							upToDate = true;
-							break;
+							return Finish();
 						}
-						catch (Exception e) when (IsTransient(e))
+
+						var keptFor = NamedFileThatExists(destinationFile);
+						if (keptFor != null)
 						{
-							if (attempt < attemptLimit)
+							Log.LogMessage(
+								MessageImportance.Normal,
+								"'{0}' was kept: since this project read it, it was rewritten for '{1}'.",
+								destinationFile,
+								keptFor
+							);
+							skipped++;
+							upToDate = true;
+							return Finish();
+						}
+
+						for (var attempt = 1; attempt <= attemptLimit; attempt++)
+						{
+							try
 							{
-								Log.LogMessage(
-									MessageImportance.Low,
-									"Retrying bootstrap write of '{0}' (attempt {1} of {2}): {3}",
-									destinationFile,
-									attempt + 1,
-									attemptLimit,
-									e.Message
-								);
-								Thread.Sleep(retryDelay + ((attempt - 1) * 100));
+								WriteAtomically(destinationFile, temporary => File.WriteAllBytes(temporary, content));
+								copied++;
+								upToDate = true;
+								break;
 							}
-							else
+							catch (Exception e) when (IsTransient(e))
+							{
+								if (attempt < attemptLimit)
+								{
+									Log.LogMessage(
+										MessageImportance.Low,
+										"Retrying bootstrap write of '{0}' (attempt {1} of {2}): {3}",
+										destinationFile,
+										attempt + 1,
+										attemptLimit,
+										e.Message
+									);
+									Thread.Sleep(retryDelay + ((attempt - 1) * 100));
+								}
+								else
+								{
+									ReportFailure(sourceDescription, destinationFile, attempt, e.Message);
+								}
+							}
+							catch (Exception e) when (IsPermanent(e))
 							{
 								ReportFailure(sourceDescription, destinationFile, attempt, e.Message);
+								break;
 							}
 						}
-						catch (Exception e) when (IsPermanent(e))
-						{
-							ReportFailure(sourceDescription, destinationFile, attempt, e.Message);
-							break;
-						}
+					}
+					finally
+					{
+						if (writeLock != null)
+							writeLock.Dispose();
 					}
 
 					Log.LogMessage(
@@ -3089,7 +3198,13 @@
 
 	     A client overwrites even a file that appeared after it looked, so a race
 	     with a library creating the -mt form on the same first build still ends
-	     on -mt:false.
+	     on -mt:false. The reverse race is closed at the write: every project
+	     reads the file in _ReadRepositoryDirectoryBuildRspTarget, and in a
+	     parallel build a client can rewrite it before a library that read it
+	     earlier gets to write. So a project without its own setting looks again
+	     just before writing, under a lock every writer takes, and keeps a file
+	     that now names a client that exists. The read shares the file with
+	     writers, so a write in progress never fails another project's build.
 
 	     DesignTimeBuild is excluded for the same reason as the other bootstraps.
 	     ===================================================================== -->
@@ -3101,12 +3216,86 @@
 			>true</_PurviewMultiThreadedBuildIsExplicit>
 		<PurviewMultiThreadedBuild Condition="'$(PurviewMultiThreadedBuild)' == ''">true</PurviewMultiThreadedBuild>
 	</PropertyGroup>
+
+	<!--
+		Reads the response file every project in a parallel build may be replacing. File.ReadAllText in a
+		property function denies writers, so it fails with MSB4184 while another project's write holds the
+		file; this opens it sharing read, write and delete, retries what is left, and reports a file it
+		still cannot read instead of failing the build.
+	-->
+	<UsingTask
+		TaskName="ReadPurviewRepositoryFile"
+		TaskFactory="RoslynCodeTaskFactory"
+		AssemblyFile="$([System.IO.Path]::Combine('$(MSBuildToolsPath)', 'Microsoft.Build.Tasks.Core.dll'))"
+	>
+		<ParameterGroup>
+			<File ParameterType="System.String" Required="true" />
+			<Retries ParameterType="System.Int32" Required="false" />
+			<RetryDelayMilliseconds ParameterType="System.Int32" Required="false" />
+			<Exists ParameterType="System.Boolean" Output="true" />
+			<Readable ParameterType="System.Boolean" Output="true" />
+			<Text ParameterType="System.String" Output="true" />
+		</ParameterGroup>
+		<Task>
+			<Using Namespace="System" />
+			<Using Namespace="System.IO" />
+			<Using Namespace="System.Text" />
+			<Using Namespace="System.Threading" />
+			<Using Namespace="Microsoft.Build.Framework" />
+			<Code Type="Fragment" Language="cs">
+				<![CDATA[
+					var attemptLimit = Retries > 0 ? Retries : 3;
+					var retryDelay = RetryDelayMilliseconds > 0 ? RetryDelayMilliseconds : 500;
+
+					Exists = System.IO.File.Exists(File);
+					Readable = !Exists;
+					Text = string.Empty;
+
+					for (var attempt = 1; Exists && !Readable && attempt <= attemptLimit; attempt++)
+					{
+						try
+						{
+							using (var stream = new FileStream(File, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+							using (var reader = new StreamReader(stream, Encoding.UTF8, true))
+							{
+								Text = reader.ReadToEnd();
+							}
+							Readable = true;
+						}
+						catch (FileNotFoundException)
+						{
+							// Replaced between the existence check and the open.
+							Exists = System.IO.File.Exists(File);
+							Readable = !Exists;
+						}
+						catch (Exception e) when (e is IOException || e is UnauthorizedAccessException)
+						{
+							if (attempt < attemptLimit)
+							{
+								Thread.Sleep(retryDelay);
+							}
+							else
+							{
+								Log.LogMessage(
+									MessageImportance.Normal,
+									"'{0}' could not be read after {1} attempt(s) and was left alone: {2}",
+									File,
+									attempt,
+									e.Message
+								);
+							}
+						}
+					}
+				]]>
+			</Code>
+		</Task>
+	</UsingTask>
+
 	<Target
-		Name="EnsureRepositoryDirectoryBuildRspTarget"
-		BeforeTargets="PrepareForBuild"
+		Name="_ReadRepositoryDirectoryBuildRspTarget"
 		DependsOnTargets="ResolvePurviewRepoBootstrapModeTarget"
 		Condition="'$(IsCSharpProject)' == 'true' AND '$(DisableAutoCopySdkFiles)' != 'true' AND '$(BootstrapMultiThreadedBuildRspToRepoRoot)' == 'true' AND '$(PurviewRepoBootstrapMode)' != 'Never' AND '$(DesignTimeBuild)' != 'true' AND '$(NETCoreSdkVersion)' != '' AND $([MSBuild]::VersionGreaterThanOrEquals('$(NETCoreSdkVersion)', '11.0.0'))"
-		Label="Bootstraps a repo-level Directory.Build.rsp that enables MSBuild's multithreaded build."
+		Label="Finds and reads the repository's Directory.Build.rsp for EnsureRepositoryDirectoryBuildRspTarget."
 	>
 		<PropertyGroup>
 			<_DirectoryBuildPropsDirectory>$([System.IO.Path]::GetDirectoryName('$(DirectoryBuildPropsPath)'))</_DirectoryBuildPropsDirectory>
@@ -3139,15 +3328,35 @@
 			<_EffectiveRepositoryDirectoryBuildRspFilePath
 				Condition="'$(_EffectiveRepositoryDirectoryBuildRspFilePath)' == '' AND '$(_DirectoryBuildPropsDirectory)' != ''"
 				>$([System.IO.Path]::Combine('$(_DirectoryBuildPropsDirectory)', 'Directory.Build.rsp'))</_EffectiveRepositoryDirectoryBuildRspFilePath>
-		</PropertyGroup>
-		<PropertyGroup>
 			<RepositoryDirectoryBuildRspFilePath
 				Condition="'$(RepositoryDirectoryBuildRspFilePath)' == '' AND '$(_EffectiveRepositoryDirectoryBuildRspFilePath)' != ''"
 				>$(_EffectiveRepositoryDirectoryBuildRspFilePath)</RepositoryDirectoryBuildRspFilePath>
-			<_PurviewRspDestinationExists Condition="'$(_EffectiveRepositoryDirectoryBuildRspFilePath)' != ''"
-				>$([System.IO.File]::Exists('$(_EffectiveRepositoryDirectoryBuildRspFilePath)'))</_PurviewRspDestinationExists>
-			<_PurviewRspDestinationText Condition="'$(_PurviewRspDestinationExists)' == 'true'"
-				>$([System.IO.File]::ReadAllText('$(_EffectiveRepositoryDirectoryBuildRspFilePath)'))</_PurviewRspDestinationText>
+			<_PurviewRspDestinationExists>false</_PurviewRspDestinationExists>
+			<_PurviewRspDestinationReadable>true</_PurviewRspDestinationReadable>
+			<_PurviewRspDestinationText></_PurviewRspDestinationText>
+		</PropertyGroup>
+		<!-- A separate target so EnsureRepositoryDirectoryBuildRspTarget decides from this read, and a test
+		     can stand in for another project writing the file between the read and the write. -->
+		<ReadPurviewRepositoryFile
+			File="$(_EffectiveRepositoryDirectoryBuildRspFilePath)"
+			Retries="$(PurviewRepoBootstrapCopyRetries)"
+			RetryDelayMilliseconds="$(PurviewRepoBootstrapCopyRetryDelayMilliseconds)"
+			Condition="'$(_EffectiveRepositoryDirectoryBuildRspFilePath)' != '' AND Exists('$(_EffectiveRepositoryDirectoryBuildRspFilePath)')"
+		>
+			<Output TaskParameter="Exists" PropertyName="_PurviewRspDestinationExists" />
+			<Output TaskParameter="Readable" PropertyName="_PurviewRspDestinationReadable" />
+			<Output TaskParameter="Text" PropertyName="_PurviewRspDestinationText" />
+		</ReadPurviewRepositoryFile>
+	</Target>
+
+	<Target
+		Name="EnsureRepositoryDirectoryBuildRspTarget"
+		BeforeTargets="PrepareForBuild"
+		DependsOnTargets="_ReadRepositoryDirectoryBuildRspTarget"
+		Condition="'$(IsCSharpProject)' == 'true' AND '$(DisableAutoCopySdkFiles)' != 'true' AND '$(BootstrapMultiThreadedBuildRspToRepoRoot)' == 'true' AND '$(PurviewRepoBootstrapMode)' != 'Never' AND '$(DesignTimeBuild)' != 'true' AND '$(NETCoreSdkVersion)' != '' AND $([MSBuild]::VersionGreaterThanOrEquals('$(NETCoreSdkVersion)', '11.0.0'))"
+		Label="Bootstraps a repo-level Directory.Build.rsp that enables MSBuild's multithreaded build."
+	>
+		<PropertyGroup>
 			<_PurviewRspDestinationFirstLine Condition="'$(_PurviewRspDestinationExists)' == 'true'"
 				>$([System.Text.RegularExpressions.Regex]::Match($(_PurviewRspDestinationText), `^[^\r\n]*`).Value)</_PurviewRspDestinationFirstLine>
 			<_PurviewRspIsManaged
@@ -3232,6 +3441,12 @@
 				Condition="'$(_PurviewRepoBootstrapOverwriteExisting)' == 'true' OR '$(_PurviewRspIsManaged)' == 'true' OR ('$(_PurviewRspDestinationExists)' != 'true' AND '$(_PurviewRspClient)' != '' AND '$(IsBlazorWebAssemblyProject)' == 'true')"
 				>true</_PurviewRspOverwrite>
 			<_PurviewRspOverwrite Condition="'$(_PurviewRspOverwrite)' == ''">false</_PurviewRspOverwrite>
+			<!-- What this project read may be stale by the time it writes: in a parallel build a client can
+			     write its form in between. A project without its own setting looks again just before the write,
+			     under a lock every writer takes, and keeps a file that now names a client that exists. -->
+			<_PurviewRspKeepWhenNamedFileExists
+				Condition="'$(_PurviewMultiThreadedBuildIsExplicit)' != 'true' AND '$(IsBlazorWebAssemblyProject)' != 'true'"
+				>(?m)^# -mt:false: the Blazor WebAssembly client \x27(?&lt;path&gt;[^\x27\r\n]+)\x27</_PurviewRspKeepWhenNamedFileExists>
 		</PropertyGroup>
 		<SyncPurviewRepositoryFiles
 			DestinationFile="$(_EffectiveRepositoryDirectoryBuildRspFilePath)"
@@ -3239,10 +3454,11 @@
 			OverwriteExisting="$(_PurviewRspOverwrite)"
 			VerifyExistingContent="$(_PurviewRepoBootstrapVerifyExistingContent)"
 			VersionMarkerPrefix="$(PurviewRepositoryRspVersionMarker)"
+			KeepWhenNamedFileExists="$(_PurviewRspKeepWhenNamedFileExists)"
 			Retries="$(PurviewRepoBootstrapCopyRetries)"
 			RetryDelayMilliseconds="$(PurviewRepoBootstrapCopyRetryDelayMilliseconds)"
 			TreatFailureAsError="$(PurviewRepoBootstrapCopyFailureAsError)"
-			Condition="'$(_EffectiveRepositoryDirectoryBuildRspFilePath)' != '' AND '$(_PurviewRspNeedsSync)' == 'true'"
+			Condition="'$(_EffectiveRepositoryDirectoryBuildRspFilePath)' != '' AND '$(_PurviewRspDestinationReadable)' == 'true' AND '$(_PurviewRspNeedsSync)' == 'true'"
 		/>
 	</Target>
 

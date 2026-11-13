@@ -205,6 +205,92 @@ sealed class BlazorWebAssemblyMultiThreadedBuildTests
 		await Assert.That(await File.ReadAllTextAsync(RspPath(library), cancellationToken)).IsEqualTo(written);
 	}
 
+	/// <summary>
+	/// In a parallel build a library reads the response file, then writes it later. A client can write
+	/// its <c>-mt:false</c> form in between, and the library must not undo it: the write checks the file
+	/// again before replacing it. The library here starts from the <c>-mt:false</c> file an explicit
+	/// <c>PurviewMultiThreadedBuild=false</c> leaves behind, and a target that runs straight after its read
+	/// writes the client's form, standing in for the client building on another node.
+	/// </summary>
+	[Test]
+	public async Task Bootstrap_FromALibrary_KeepsAClientFileWrittenAfterItLooked(CancellationToken cancellationToken)
+	{
+		var clientRelativePath = $"{ClientName}/{ClientName}.csproj";
+		var clientLines = ClientRsp(clientRelativePath).TrimEnd('\n').Split('\n');
+		var interleave = $"""
+				<ItemGroup>
+					<_ClientRspLine Include="{string.Join(';', clientLines)}" />
+				</ItemGroup>
+				<Target Name="_WriteClientRspAfterTheRead" AfterTargets="_ReadRepositoryDirectoryBuildRspTarget">
+					<WriteLinesToFile File="$(_EffectiveRepositoryDirectoryBuildRspFilePath)" Lines="@(_ClientRspLine)" Overwrite="true" />
+					<Touch Files="$(MSBuildProjectDirectory)\interleaved.txt" AlwaysCreate="true" />
+				</Target>
+			</Project>
+			""";
+		using var library = await ProjectHarness
+			.For("Contracts")
+			.WithNamespacePrefix("Acme")
+			.WithProjectFileContent(
+				BlazorFixtures
+					.Library(items: BlazorFixtures.RemoveAutomaticPackages)
+					.Replace("</Project>", interleave, StringComparison.Ordinal)
+			)
+			.WithPreImportPropertiesRaw(BootstrapOn)
+			.BuildAsync(cancellationToken);
+		var clientPath = Path.Combine(library.SolutionDirectory, ClientName, ClientName + ".csproj");
+		Directory.CreateDirectory(Path.GetDirectoryName(clientPath)!);
+		await File.WriteAllTextAsync(clientPath, "<Project />", cancellationToken);
+		await File.WriteAllTextAsync(
+			RspPath(library),
+			"# Purview.BuildSdk - managed file\n# Managed by Purview.BuildSdk. Delete the marker line to take ownership of this file.\n-mt:false\n",
+			cancellationToken
+		);
+
+		var (code, output, errors) = await library.RunMSBuildAsync(
+			"-restore -t:Build -noautoresponse",
+			cancellationToken
+		);
+
+		await Assert.That(code).IsZero().Because(output + errors);
+		await Assert
+			.That(File.Exists(Path.Combine(Path.GetDirectoryName(library.ProjectFilePath)!, "interleaved.txt")))
+			.IsTrue()
+			.Because("the stand-in for the client must run between the library's read and its write");
+		await Assert.That(await ReadRspLinesAsync(library, cancellationToken)).IsEquivalentTo(clientLines);
+	}
+
+	/// <summary>
+	/// Another project replacing the response file holds it open for writing for a moment. A project
+	/// reading it then must not fail the build with <c>MSB4184</c>: it retries, and leaves the file alone
+	/// if it is still busy.
+	/// </summary>
+	[Test]
+	public async Task Bootstrap_ResponseFileHeldOpenForWriting_DoesNotFailTheBuild(CancellationToken cancellationToken)
+	{
+		using var library = await CreateLibraryAsync(cancellationToken);
+		var clientPath = Path.Combine(library.SolutionDirectory, ClientName, ClientName + ".csproj");
+		Directory.CreateDirectory(Path.GetDirectoryName(clientPath)!);
+		await File.WriteAllTextAsync(clientPath, "<Project />", cancellationToken);
+
+		var written = ClientRsp($"{ClientName}/{ClientName}.csproj");
+		await File.WriteAllTextAsync(RspPath(library), written, cancellationToken);
+
+		int code;
+		string output;
+		string errors;
+		await using (new FileStream(RspPath(library), FileMode.Open, FileAccess.ReadWrite, FileShare.Read))
+		{
+			(code, output, errors) = await library.RunMSBuildAsync(
+				"-restore -t:Build -noautoresponse",
+				cancellationToken
+			);
+		}
+
+		await Assert.That(code).IsZero().Because(output + errors);
+		await Assert.That(output + errors).DoesNotContain("MSB4184");
+		await Assert.That(await File.ReadAllTextAsync(RspPath(library), cancellationToken)).IsEqualTo(written);
+	}
+
 	/// <summary>Once the client the file names is gone, the repository is back on <c>-mt</c>.</summary>
 	[Test]
 	public async Task Bootstrap_FromALibrary_RestoresMtWhenTheNamedClientIsGone(CancellationToken cancellationToken)
