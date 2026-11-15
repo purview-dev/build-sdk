@@ -1,9 +1,8 @@
 ---
 name: purview-buildsdk-settings-docs-sync
-description: Change or document a Purview.BuildSdk setting without leaving part of the surface behind. Use when flipping a .NET 11 compiler feature default (Runtime Async, memory-safety rules), adding or renaming a property, or making sure every skill and doc explains how to set required settings and versions, the target framework(s), and the compiler-visible (build_property.*) settings. Repository-local guidance for purview-dev/build-sdk.
+description: Change or document a Purview.BuildSdk setting without leaving part of the surface behind. Use when flipping a .NET 11 compiler feature default (Runtime Async, memory-safety rules), adding or renaming a property, or making sure every skill and doc explains how to set required settings and versions, the target framework(s), and the compiler-visible (build_property.*) settings. Guidance for maintaining Purview.BuildSdk itself.
 license: MIT
 metadata:
-  scope: repository-local
   package: Purview.BuildSdk
   repository: purview-dev/build-sdk
 ---
@@ -20,7 +19,7 @@ metadata:
 This skill is the **settings** sweep for this repository. Any other documentation change — a renamed
 recipe, a new wiki page, a moved page, a skill whose scope grew, an audit of whether the docs are
 still true — follows the published
-[`purview-buildsdk-docs-sync`](../../../skills/purview-buildsdk-docs-sync/SKILL.md) skill: every
+`purview-buildsdk-docs-sync` skill: every
 claim checked against the code, and the wiki kept hierarchical. In this repository the wiki's root
 pages are exactly `Getting-Started.md` (the site's `docs.rootPage`), `Configuration-Reference.md` and
 `Repository-Bootstrap.md` (the site catalogue's `docsPage` deep links); every other page lives in one
@@ -32,8 +31,7 @@ topic folder, and `DocumentationWikiTests` holds the folders, `_Sidebar.md` and 
 description, type and default — and `PropertySchemaTests` holds the code, the `CompilerVisibleProperty`
 list, `README.md` and `docs/wiki/Configuration-Reference.md` to it. The generic method (where a
 sidecar goes, when a property is pre-import, when to export it, how to rename or retire one) is the
-published [`purview-buildsdk-msbuild-properties`](../../../skills/purview-buildsdk-msbuild-properties/SKILL.md)
-skill. In this repository, adding a property means:
+published `purview-buildsdk-msbuild-properties` skill. In this repository, adding a property means:
 
 1. `Sdk/Props/Defaults.props` — the default, guarded with `'$(X)' == ''`.
 2. `Sdk/Sdk.props.buildschema.json` — the entry. `defaultValue` is what a plain class library evaluates
@@ -122,7 +120,7 @@ which does not exist.
    and the property table row.
 6. `docs/wiki/Configuration-Reference.md` — the General row **and** the `.NET 11 features` table.
 7. Skills — the `MemorySafetyRules`/`PurviewRuntimeAsync` rows in
-   `skills/purview-buildsdk-configuration/SKILL.md` and `references/properties.md`.
+   `skills/purview-buildsdk-configuration/SKILL.md` and its property reference file.
 8. `CHANGELOG.md` — a `### Changed` entry under the `package.json` version's heading that names the old default, the new one, how to
    opt in, and what is unchanged.
 
@@ -156,15 +154,15 @@ framework(s), consistently:
   redefined `PurviewTargetFrameworks<Set>` (pre-import, in `Directory.Build.props`);
 - a Roslyn component keeps `netstandard2.0` and ignores the sets (`PurviewTargetFrameworkSetIgnored`).
 
-The canonical home is `skills/purview-buildsdk-configuration/SKILL.md` and its
-`references/properties.md`; the other skills point at it rather than restating the whole thing.
+The canonical home is `skills/purview-buildsdk-configuration/SKILL.md` and its property reference
+file; the other skills point at it rather than restating the whole thing.
 
 ## Compiler-visible settings — where it must be said
 
 The `CompilerVisibleProperty` → `build_property.*` mechanism, plus a one-line
 `AnalyzerConfigOptionsProvider.GlobalOptions.TryGetValue("build_property.X", …)` example, belongs in:
 
-- `skills/purview-buildsdk-configuration/SKILL.md` and `references/properties.md`,
+- `skills/purview-buildsdk-configuration/SKILL.md` and its property reference file,
 - `skills/purview-buildsdk-project-detection/SKILL.md` (the analyzers section),
 - `README.md`, `docs/wiki/Configuration-Reference.md` and `docs/wiki/concepts/Project-Type-Detection.md`.
 
@@ -179,7 +177,7 @@ skills tooling does not.
 
 | Skill | What to update |
 | -- | -- |
-| `purview-buildsdk-configuration` | required settings, target framework(s), compiler-visible properties, the property table, `references/properties.md` |
+| `purview-buildsdk-configuration` | required settings, target framework(s), compiler-visible properties, the property table, its property reference file |
 | `purview-buildsdk-adoption` | the required-settings table and `global.json` example, the target-framework step |
 | `purview-buildsdk-project-layout` | the target-framework section |
 | `purview-buildsdk-project-detection` | the target-framework subsection, the `build_property.*` note |

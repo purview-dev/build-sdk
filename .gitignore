@@ -670,22 +670,19 @@ sketch
 
 # Agent skills installed by the skills CLI.
 #
-# The published skills live at skills/<name>/ and are the only ones the CLI installs. Everything the
-# CLI writes below is reproducible from the committed skills-lock.json with
-# `npx skills experimental_install`, so none of it belongs in the repository:
+# The skills this repository authors and publishes live at skills/<name>/ and are the only ones
+# another repository installs. Everything the CLI writes is a local install, reproducible from the
+# committed skills-lock.json with `just skills-install`, so none of it belongs in the repository:
 #
 #   .agents/skills/   the CLI's "universal" location, shared by most agents
-#   .claude/skills/   per-agent links into the universal location
+#   .claude/          per-agent folders, linked into the universal location
 #   agent/skills/     ditto
 #
-# Note that .agents/agents/ and .agents/prompts/ are authored content and stay tracked, so the
-# skills folder is ignored specifically rather than the whole of .agents/.
-#
-# One exception. `.agents/skills/` is also the one location an agent reads natively here, so a
-# repository-local skill - guidance about working in *this* repository, which must never ship to a
-# consumer - is authored in place and tracked. It is un-ignored by name below, so everything the CLI
-# writes stays out of git.
-/.agents/skills/*
-!/.agents/skills/purview-buildsdk-settings-docs-sync/
-/.claude/skills/
+# A skill written for people working *in this repository* is a normal authored skill: it lives in
+# skills/ with the rest, and is never un-ignored under .agents/skills/, where a consumer's
+# `npx skills add purview-dev/build-sdk` would find it. `.agents/agents/` and `.agents/prompts/` are
+# authored content and stay tracked, which is why the folder is ignored specifically rather than the
+# whole of `.agents/`.
+.agents/skills/
+.claude/
 /agent/skills/

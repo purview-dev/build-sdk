@@ -153,41 +153,38 @@ sealed partial class RepositorySkillsSelfTests
 	[Test]
 	public async Task InstalledSkillsAreNotTracked()
 	{
-		// Everything the CLI writes is reproducible from skills-lock.json, so none of it belongs in
-		// the repository. '.agents/skills/' is the one that most easily ends up committed by
-		// accident, because the rest of '.agents/' is authored content and stays tracked.
-		foreach (var root in (string[])[".claude", "agent"])
+		// Everything the CLI writes is reproducible from skills-lock.json, so none of it belongs in the
+		// repository. '.agents/skills/' is the one that most easily ends up committed by accident, because
+		// the rest of '.agents/' is authored content and stays tracked - and a committed install is how a
+		// consumer's `npx skills add purview-dev/build-sdk` ends up reading skills this repository does not
+		// publish. A skill written for people working *in* this repository is authored under skills/ like
+		// any other, so nothing is un-ignored by name.
+		foreach (var root in (string[])[".agents", ".claude", "agent"])
 		{
-			var skillsPath = Path.Combine(RepositoryRoot, root, "skills");
-			if (!Directory.Exists(skillsPath))
-				continue;
-
 			var tracked = await TrackedFilesUnderAsync($"{root}/skills");
 			await Assert
 				.That(tracked)
 				.IsEmpty()
 				.Because($"'{root}/skills' is written by the skills CLI and must stay gitignored");
 		}
+	}
 
-		// '.agents/skills/' is different in one respect: it is also the one location an agent reads
-		// natively here, so a repository-local skill - guidance about working in this repository,
-		// which must never ship to a consumer - is authored in place and tracked. What must never be
-		// tracked is a skill the CLI *installed*, and skills-lock.json is exactly the record of those.
-		var installed = ReadLockFile().Select(entry => entry.Name).ToHashSet(StringComparer.Ordinal);
-
-		var trackedCliInstalls = (await TrackedFilesUnderAsync(".agents/skills"))
-			.Where(path =>
-			{
-				// '.agents/skills/<name>/...' - the third segment is the skill folder.
-				var segments = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
-				return segments.Length >= 3 && installed.Contains(segments[2]);
-			})
-			.ToArray();
+	[Test]
+	public async Task AgentSkillFolders_GivenTheLocalInstall_AreIgnored()
+	{
+		// The rules, not the folders: a fresh clone has no install and a developer machine has one, so what
+		// has to hold in both is that git would never take it.
+		var lines = await File.ReadAllLinesAsync(Path.Combine(RepositoryRoot, ".gitignore"));
+		var rules = lines.Select(static line => line.Trim()).ToHashSet(StringComparer.Ordinal);
 
 		await Assert
-			.That(trackedCliInstalls)
-			.IsEmpty()
-			.Because("a skill the skills CLI installed is reproducible from skills-lock.json and must stay gitignored");
+			.That(rules.Overlaps([".agents/skills/", ".agents/skills", "/.agents/skills/", ".agents/"]))
+			.IsTrue()
+			.Because("'.agents/skills/' is the CLI's install location and must stay gitignored");
+		await Assert
+			.That(rules.Overlaps([".claude/", ".claude", "/.claude/", "/.claude"]))
+			.IsTrue()
+			.Because("'.claude/' is a per-agent folder and must stay gitignored");
 	}
 
 	[Test]
