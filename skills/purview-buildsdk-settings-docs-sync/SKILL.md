@@ -120,7 +120,7 @@ which does not exist.
    and the property table row.
 6. `docs/wiki/Configuration-Reference.md` — the General row **and** the `.NET 11 features` table.
 7. Skills — the `MemorySafetyRules`/`PurviewRuntimeAsync` rows in
-   `skills/purview-buildsdk-configuration/SKILL.md` and `references/properties.md`.
+   `skills/purview-buildsdk-configuration/SKILL.md` and its property reference file.
 8. `CHANGELOG.md` — a `### Changed` entry under the `package.json` version's heading that names the old default, the new one, how to
    opt in, and what is unchanged.
 
@@ -154,15 +154,15 @@ framework(s), consistently:
   redefined `PurviewTargetFrameworks<Set>` (pre-import, in `Directory.Build.props`);
 - a Roslyn component keeps `netstandard2.0` and ignores the sets (`PurviewTargetFrameworkSetIgnored`).
 
-The canonical home is `skills/purview-buildsdk-configuration/SKILL.md` and its
-`references/properties.md`; the other skills point at it rather than restating the whole thing.
+The canonical home is `skills/purview-buildsdk-configuration/SKILL.md` and its property reference
+file; the other skills point at it rather than restating the whole thing.
 
 ## Compiler-visible settings — where it must be said
 
 The `CompilerVisibleProperty` → `build_property.*` mechanism, plus a one-line
 `AnalyzerConfigOptionsProvider.GlobalOptions.TryGetValue("build_property.X", …)` example, belongs in:
 
-- `skills/purview-buildsdk-configuration/SKILL.md` and `references/properties.md`,
+- `skills/purview-buildsdk-configuration/SKILL.md` and its property reference file,
 - `skills/purview-buildsdk-project-detection/SKILL.md` (the analyzers section),
 - `README.md`, `docs/wiki/Configuration-Reference.md` and `docs/wiki/concepts/Project-Type-Detection.md`.
 
@@ -177,7 +177,7 @@ skills tooling does not.
 
 | Skill | What to update |
 | -- | -- |
-| `purview-buildsdk-configuration` | required settings, target framework(s), compiler-visible properties, the property table, `references/properties.md` |
+| `purview-buildsdk-configuration` | required settings, target framework(s), compiler-visible properties, the property table, its property reference file |
 | `purview-buildsdk-adoption` | the required-settings table and `global.json` example, the target-framework step |
 | `purview-buildsdk-project-layout` | the target-framework section |
 | `purview-buildsdk-project-detection` | the target-framework subsection, the `build_property.*` note |
