@@ -1,9 +1,8 @@
 ---
 name: purview-buildsdk-settings-docs-sync
-description: Change or document a Purview.BuildSdk setting without leaving part of the surface behind. Use when flipping a .NET 11 compiler feature default (Runtime Async, memory-safety rules), adding or renaming a property, or making sure every skill and doc explains how to set required settings and versions, the target framework(s), and the compiler-visible (build_property.*) settings. Repository-local guidance for purview-dev/build-sdk.
+description: Change or document a Purview.BuildSdk setting without leaving part of the surface behind. Use when flipping a .NET 11 compiler feature default (Runtime Async, memory-safety rules), adding or renaming a property, or making sure every skill and doc explains how to set required settings and versions, the target framework(s), and the compiler-visible (build_property.*) settings. Guidance for maintaining Purview.BuildSdk itself.
 license: MIT
 metadata:
-  scope: repository-local
   package: Purview.BuildSdk
   repository: purview-dev/build-sdk
 ---
