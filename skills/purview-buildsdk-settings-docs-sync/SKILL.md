@@ -19,7 +19,7 @@ metadata:
 This skill is the **settings** sweep for this repository. Any other documentation change — a renamed
 recipe, a new wiki page, a moved page, a skill whose scope grew, an audit of whether the docs are
 still true — follows the published
-[`purview-buildsdk-docs-sync`](../../../skills/purview-buildsdk-docs-sync/SKILL.md) skill: every
+`purview-buildsdk-docs-sync` skill: every
 claim checked against the code, and the wiki kept hierarchical. In this repository the wiki's root
 pages are exactly `Getting-Started.md` (the site's `docs.rootPage`), `Configuration-Reference.md` and
 `Repository-Bootstrap.md` (the site catalogue's `docsPage` deep links); every other page lives in one
@@ -31,8 +31,7 @@ topic folder, and `DocumentationWikiTests` holds the folders, `_Sidebar.md` and 
 description, type and default — and `PropertySchemaTests` holds the code, the `CompilerVisibleProperty`
 list, `README.md` and `docs/wiki/Configuration-Reference.md` to it. The generic method (where a
 sidecar goes, when a property is pre-import, when to export it, how to rename or retire one) is the
-published [`purview-buildsdk-msbuild-properties`](../../../skills/purview-buildsdk-msbuild-properties/SKILL.md)
-skill. In this repository, adding a property means:
+published `purview-buildsdk-msbuild-properties` skill. In this repository, adding a property means:
 
 1. `Sdk/Props/Defaults.props` — the default, guarded with `'$(X)' == ''`.
 2. `Sdk/Sdk.props.buildschema.json` — the entry. `defaultValue` is what a plain class library evaluates
