@@ -8,6 +8,8 @@ A reusable MSBuild SDK NuGet package that delivers standardised .NET project def
 > [!NOTE]
 > This SDK package imposes convention over configuration, enforcing certain styles and automations based on project file names, etc.
 
+**Documentation:** [Build SDK documentation](https://purview.dev/docs/build-sdk/)
+
 ## What's included
 
 | Feature | Detail |
