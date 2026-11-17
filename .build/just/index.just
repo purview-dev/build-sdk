@@ -30,7 +30,7 @@ import "utilities.just"
 # pipeline-pr, pipeline-build, pipeline-tests - local runs of the Purview.Build pipeline
 import "purview-build.just"
 
-# skills-* - the Purview.BuildSdk agent-skill targets
+# skills-* - agent skills through the skills CLI, run by skills.mts (no .NET involved)
 import "skills.just"
 
 # Optional. pipeline-pack-validate, pipeline-local-release, pipeline-release - for a repository that

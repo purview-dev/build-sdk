@@ -418,35 +418,11 @@
 		<CompilerVisibleProperty Include="PurviewSkillsSourceFolder">
 			<Description>Repository folder holding authored agent skills. Defaults to the repository-root skills/ folder.</Description>
 		</CompilerVisibleProperty>
-		<CompilerVisibleProperty Include="PurviewSkillsAgents">
-			<Description>Comma-separated agents the skill targets install to. Empty (the default) lets the skills CLI auto-detect; when set, CheckPurviewSkills and FixPurviewSkills allow only those agents' skill directories.</Description>
-		</CompilerVisibleProperty>
-		<CompilerVisibleProperty Include="PurviewSkillsDryRun">
-			<Description>When true, InstallPurviewSkills and UpdatePurviewSkills print the skills CLI commands without running them.</Description>
-		</CompilerVisibleProperty>
-		<CompilerVisibleProperty Include="PurviewSkillsCommand">
-			<Description>Overrides how the skills CLI is invoked. Empty detects 'skills', then PurviewSkillsRunner, then PurviewSkillsRunnerCandidates on PATH.</Description>
-		</CompilerVisibleProperty>
-		<CompilerVisibleProperty Include="PurviewSkillsSource">
-			<Description>The git source InstallPurviewSkills adds through the skills CLI (owner/repo, optionally '#ref'); unset restores skills-lock.json.</Description>
-		</CompilerVisibleProperty>
-		<CompilerVisibleProperty Include="PurviewSkillsLockFile">
-			<Description>Overrides where the skills CLI's skills-lock.json is read from. Defaults to the repository root.</Description>
-		</CompilerVisibleProperty>
 		<CompilerVisibleProperty Include="PurviewSkillsInstallRoot">
-			<Description>Overrides the repository root every skill target runs from. Empty resolves it from PurviewRepositoryRootMarkers.</Description>
+			<Description>Overrides the repository root whose skills/ folder ValidatePurviewSkills checks. Empty resolves it from PurviewRepositoryRootMarkers.</Description>
 		</CompilerVisibleProperty>
 		<CompilerVisibleProperty Include="PurviewRepositoryRootMarkers">
 			<Description>Ordered markers that identify a repository root, most authoritative first. The first is definitive and searched to the top; the rest resolve nearest-first. A trailing slash marks a directory.</Description>
-		</CompilerVisibleProperty>
-		<CompilerVisibleProperty Include="PurviewSkillsRunner">
-			<Description>Package runner used to launch the skills CLI (bun, npx, bunx, pnpm, yarn, deno, skills, or any other). Defaults to bun ('bun x skills').</Description>
-		</CompilerVisibleProperty>
-		<CompilerVisibleProperty Include="PurviewSkillsRunnerCandidates">
-			<Description>Runners probed on PATH after PurviewSkillsRunner. Defaults to bun;npx;bunx;pnpm;yarn;deno.</Description>
-		</CompilerVisibleProperty>
-		<CompilerVisibleProperty Include="PurviewSkillsPackage">
-			<Description>Package spec the executed launcher pins to. Defaults to skills@1.</Description>
 		</CompilerVisibleProperty>
 		<CompilerVisibleProperty Include="PurviewRepoBootstrapMode">
 			<Description>Controls repo-level file bootstrapping (IfMissing, Always, WarnOnDrift or Never). Defaults to IfMissing.</Description>
@@ -1175,7 +1151,7 @@
 	     owns it, rather than reaching the CLI.
 
 	     PurviewSkillsSourceFolder is resolved at evaluation time (rather than
-	     in a target) so every skill target sees it, using the same AGENTS.md
+	     in a target) so any target can read it, using the same AGENTS.md
 	     repo-root marker the other repository-scoped features use.
 	     ===================================================================== -->
 	<PropertyGroup Label="Repository Skills Folder">

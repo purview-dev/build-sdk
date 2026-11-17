@@ -71,3 +71,17 @@ properties-check *args:
 skills-validate *args:
     echo "==> Validating authored skills in {{ BLUE }}skills/{{ NORMAL }}"
     dotnet msbuild "{{ skills_validate_project }}" -t:ValidatePurviewSkills -v:n {{ args }}
+
+# Regenerate skills.mjs from skills.mts and copy both into .build/just/
+#
+# skills.mts in the purview-buildsdk-justfile skill is the source; skills.mjs is generated from it for
+# a machine with Node but neither Bun nor Deno. Needs Node 22.13 or later for its type stripper.
+[doc('Regenerate skills.mjs from skills.mts and copy both into .build/just/')]
+[group('Agent Skills')]
+skills-script-sync:
+    node scripts/sync-skills-script.mjs
+
+# Check skills.mjs is up to date with skills.mts, writing nothing
+[group('Agent Skills')]
+skills-script-check:
+    node scripts/sync-skills-script.mjs --check
