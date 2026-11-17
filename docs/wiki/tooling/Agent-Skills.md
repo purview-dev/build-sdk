@@ -3,13 +3,11 @@
 [Agent Skills](https://skills.sh/) are folders of `SKILL.md` guidance that coding agents load on
 demand. A repository publishes them in its root `skills/` folder, and the standard
 [`skills` CLI](https://skills.sh/) installs them — `bun x skills add owner/repo` — and records each
-install in `skills-lock.json`. `Purview.BuildSdk` adds nothing bespoke to that: its skill targets are
-a thin wrapper that runs the CLI from the repository root, once per solution, and keeps the agent
-directories tidy.
+install in `skills-lock.json`. `Purview.BuildSdk` adds nothing bespoke to that: its `skills-*` recipes
+are a thin wrapper that runs the CLI from the repository root and keeps the agent directories tidy.
 
-> Nothing on this page runs as a side effect of a restore, a build, a design-time build or a test run.
-> Each target runs only when it is named, and the ones that change the repository refuse to run inside
-> a build (`PRSKL0009`).
+> Nothing on this page runs as a side effect of a restore, a build, a design-time build or a test run,
+> and installing skills does not involve .NET at all. Each recipe runs only when a person runs it.
 
 ## Publication
 
@@ -42,89 +40,104 @@ Failures are reported as `PRSKL0005`. The fuller rule set — names, description
 bundled links, body size — is `Purview.Skills.Testing`, run as tests (see the
 `purview-buildsdk-skill-tests` skill). Prose quality is deliberately not checked.
 
-## The targets
+## The recipes
 
 ```bash
-dotnet msbuild <solution> -t:InstallPurviewSkills -p:PurviewSkillsSource=owner/repo[#ref]
-dotnet msbuild <solution> -t:InstallPurviewSkills
-dotnet msbuild <solution> -t:UpdatePurviewSkills
-dotnet msbuild <solution> -t:CheckPurviewSkills
-dotnet msbuild <solution> -t:FixPurviewSkills
+just skills-add owner/repo[#ref]
+just skills-install
+just skills-update
+just skills-check
+just skills-fix
 ```
 
-| Target | Runs | Changes the repository |
+| Recipe | Runs | Changes the repository |
 | -- | -- | -- |
-| `InstallPurviewSkills` with `PurviewSkillsSource` | `skills add "<source>" --skill "*"` — every skill in that repository's root `skills/`; append `#<ref>` to pin | yes |
-| `InstallPurviewSkills` | `skills experimental_install` — restore exactly what `skills-lock.json` records | yes |
-| `UpdatePurviewSkills` | `skills add "<source>" --skill "*"` once per unique lockfile source, at its latest | yes |
-| `CheckPurviewSkills` | nothing; fails (`PRSKL0015`) for an agent directory `PurviewSkillsAgents` does not name | no |
-| `FixPurviewSkills` | nothing; removes the CLI's links from those directories | yes |
+| `skills-add <source>` | `skills add "<source>" --skill "*"` — every skill in that repository's root `skills/`; append `#<ref>` to pin | yes |
+| `skills-install` | `skills experimental_install` — restore exactly what `skills-lock.json` records | yes |
+| `skills-update` | `skills add "<source>" --skill "*"` once per unique lockfile source, at its latest; then `skills-fix` | yes |
+| `skills-check` | nothing; fails (`PRSKL0015`) for an agent directory the selected agents do not include | no |
+| `skills-fix` | nothing; removes the CLI's links from those directories | yes |
 
-`-p:PurviewSkillsDryRun=true` makes install and update print every command and run none. With no
-`PurviewSkillsSource` and no `skills-lock.json` there is nothing to install or update, which is
-`PRSKL0007`.
+They come from the [`purview-buildsdk-justfile` skill](../../../skills/purview-buildsdk-justfile/SKILL.md):
+`skills.just` holds the recipes and `skills.mts` does the work. The script needs no solution, no
+restore and no build, so it runs in well under a second and still works when the build is broken —
+which is when new or updated skills may be what fixes it. It runs under Bun, then Deno, and falls back
+to Node with `skills.mjs`, which is generated from `skills.mts` with the types removed.
+`PURVIEW_SKILLS_RUNTIME` picks one explicitly.
+
+`--dry-run` makes install and update print every command and run none, and makes fix name what it
+would remove and remove nothing (`just skills-update --dry-run` passes it to both). With no source and no `skills-lock.json` there is nothing to install
+or update, which is `PRSKL0007`.
 
 **Update is `skills add`, never `skills update`.** `skills add` reinstalls every skill it selects (the
 CLI cleans each skill's folder and copies it again), so one re-add both refreshes the installed skills
 and adds any the source has gained; `skills update` only re-fetches what the lockfile already lists.
 Every source is attempted even when one fails, and each failure is named as `PRSKL0008`.
 
-**Name the solution.** Pointed at a solution, MSBuild runs a target in every project, so each project
-hands the work to one elected leader — the first solution project, by path, that imports the SDK — and
-MSBuild's result cache runs the leader's target once. A single project works too. For `just` recipes,
-see the [`purview-buildsdk-justfile` skill](../../../skills/purview-buildsdk-justfile/SKILL.md), whose
-`skills.just` module carries them.
+**Never from a build or a hook.** Do not make a skills recipe a dependency of `build`, `test` or
+`default`, and do not run `skills-add`, `-install`, `-update` or `-fix` from a git hook: they change
+the repository. `skills-check` is read-only.
 
-**Never during a build.** No skill target has `BeforeTargets`/`AfterTargets`, nothing in the SDK
-depends on one, and install, update and fix fail with `PRSKL0009` when `BuildingProject`,
-`DesignTimeBuild` or `MSBuildIsRestoring` is true — which catches a consumer's own
-`AfterTargets="Build"` hook. A git hook or a `just` recipe dependency that runs a target on its own is
-not a build, so it is not caught: do not wire one up.
+## Settings
+
+Settings live in the `Skills` section of `.config/purview-build-sdk.json` at the repository root:
+
+```json
+{
+  "Skills": {
+    "Agents": ["universal"],
+    "Runner": "bun"
+  }
+}
+```
+
+| Setting | Default | Description |
+| -- | -- | -- |
+| `Agents` | *(empty — the CLI auto-detects)* | Agents to install to; when set, the only agent skill directories `skills-check` allows. |
+| `Runner` | `bun` | Package runner used to launch the CLI. |
+| `RunnerCandidates` | `bun npx bunx pnpm yarn deno` | Probed in order after `Runner`. |
+| `Package` | `skills@1` | Package spec the launcher pins to. |
+| `Command` | *(detected)* | Overrides the launcher entirely and skips runner detection. |
+| `LockFile` | `skills-lock.json` | Where the CLI's lockfile is read from, relative to the repository root. |
+| `DryRun` | `false` | Print the install and update commands without running them, and make fix remove nothing. |
+| `AgentDirectories` | *(the CLI's agent table)* | Extra agent skill directories, each mapped to its agents. |
+
+Each has a command-line option (`--agents`, `--runner`, `--package`, `--command`, `--lock-file`,
+`--dry-run`) and a `PURVIEW_SKILLS_*` environment variable (`PURVIEW_SKILLS_AGENTS`, and so on).
+Highest first: the option, the environment variable, the file, the default. A list may be a JSON array
+or one string separated by `,`, `;` or spaces. A setting with the wrong type, or a file that is not
+JSON, is `PRSKL0018`; a key that is not a setting is `PRSKL0019`, a warning, because it is usually a
+misspelling.
 
 ## Choosing agents
 
-`PurviewSkillsAgents` is **empty by default**: no `--agent` is passed and the CLI auto-detects the
-agents installed on the machine. Set it to choose. Each agent becomes its own `--agent` flag, because
-the CLI does not split a comma-separated value. A restore (`experimental_install`) is passed no agent
-flag.
+`Agents` is **empty by default**: no `--agent` is passed and the CLI auto-detects the agents installed
+on the machine. Set it to choose. Each agent becomes its own `--agent` flag, because the CLI does not
+split a comma-separated value. A restore (`experimental_install`) is passed no agent flag.
 
-```xml
-<PropertyGroup>
-  <PurviewSkillsAgents>universal</PurviewSkillsAgents>   <!-- or claude-code;codex -->
-</PropertyGroup>
-```
-
-On a command line, `dotnet msbuild -p:` itself splits on `,` and `;`, so escape the separator
-(`-p:PurviewSkillsAgents=claude-code%2Ccodex`) or quote the whole value
-(`-p:PurviewSkillsAgents=\"claude-code codex\"`); spaces separate agents too.
-
-Once agents are named, `CheckPurviewSkills` enforces them: any agent skill directory at the repository
-root that belongs to an agent not named fails as `PRSKL0015`. Two directories are always allowed —
+Once agents are named, `skills-check` enforces them: any agent skill directory at the repository root
+that belongs to an agent not named fails as `PRSKL0015`. Two directories are always allowed —
 `.agents/skills`, the CLI's canonical store that every agent directory links into, and the authored
-`skills/` folder, even though openclaw installs into a root `skills/`. With `PurviewSkillsAgents`
-empty, every agent directory is a legitimate destination and both targets report that there is
-nothing to enforce.
+`skills/` folder, even though openclaw installs into a root `skills/`. With `Agents` empty, every agent
+directory is a legitimate destination and both recipes report that there is nothing to enforce.
 
-`FixPurviewSkills` removes what is provably the CLI's: links (symlinks, and junctions on Windows) —
-the link only, never its target — and then any folder left empty. A real file is kept and reported,
-because it cannot be told from hand-written content; for some agent selections the CLI writes copies
-rather than links, and those are kept too.
+`skills-fix` removes what is provably the CLI's: links (symlinks, and junctions on Windows) — the link
+only, never its target — and then any folder left empty. A real file is kept and reported, because it
+cannot be told from hand-written content; for some agent selections the CLI writes copies rather than
+links, and those are kept too.
 
-The agent-to-directory map is the `PurviewSkillsAgentDirectory` item group, taken from the CLI's agent
-table. The CLI adds agents independently of this SDK, so an agent the map does not know is `PRSKL0016`
-(a warning), fixed by adding an item:
+The agent-to-directory map is taken from the CLI's agent table. The CLI adds agents independently of
+this SDK, so an agent the map does not know is `PRSKL0016` (a warning), fixed by adding it:
 
-```xml
-<ItemGroup>
-  <PurviewSkillsAgentDirectory Include=".new-agent/skills" Agents="new-agent" />
-</ItemGroup>
+```json
+{ "Skills": { "AgentDirectories": { ".new-agent/skills": ["new-agent"] } } }
 ```
 
 ## The lockfile
 
-`skills-lock.json` is the CLI's own record of what is installed and where it came from. The SDK reads
-it for `UpdatePurviewSkills` and introduces no competing lockfile and no competing metadata. Commit it:
-a fresh clone then restores the same set with `-t:InstallPurviewSkills`. Everything the CLI writes into
+`skills-lock.json` is the CLI's own record of what is installed and where it came from. The recipes
+read it for `skills-update` and introduce no competing lockfile and no competing metadata. Commit it:
+a fresh clone then restores the same set with `just skills-install`. Everything the CLI writes into
 the agent directories is reproducible from it, so ignore those:
 
 | Path | Written by | Tracked |
@@ -153,7 +166,7 @@ A repository that authors skills it also uses can install from its own working t
 `skills/<name>/SKILL.md` reaches its agents without a push:
 
 ```bash
-dotnet msbuild <solution> -t:InstallPurviewSkills -p:PurviewSkillsSource=.
+just skills-add .
 ```
 
 The CLI records that portably — `"source": "."`, `"sourceType": "local"`. `Purview.BuildSdk` itself does
@@ -163,9 +176,9 @@ their authored path.
 ## Package runners
 
 The CLI is published to npm, and every package runner spells "run this npm package" its own way.
-`PurviewSkillsRunner` picks one; it defaults to **`bun`** (`bun x skills`).
+`Runner` picks one; it defaults to **`bun`** (`bun x skills`).
 
-| `PurviewSkillsRunner` | Executed |
+| `Runner` | Executed |
 | -- | -- |
 | `bun` *(default)* | `bun x skills@1` |
 | `npx` | `npx -y skills@1` |
@@ -175,29 +188,35 @@ The CLI is published to npm, and every package runner spells "run this npm packa
 | `deno` | `deno run -A npm:skills@1` |
 | `skills` | `skills` |
 
-A runner this SDK has never heard of still works: it falls through to `<runner> skills@1`. `yarn dlx`
-needs Yarn 2+. The launcher pins the CLI to a major so a breaking release cannot change what a target
-does; `PurviewSkillsPackage` (default `skills@1`) overrides the pin.
+A runner this script has never heard of still works: it falls through to `<runner> skills@1`.
+`yarn dlx` needs Yarn 2+. The launcher pins the CLI to a major so a breaking release cannot change
+what a recipe does; `Package` (default `skills@1`) overrides the pin.
 
 ### Detecting the CLI
 
-A target probes `PATH` rather than assuming the configured runner is present, honouring `PATHEXT` on
-Windows where these are `.cmd` shims, in this order:
+The script probes `PATH` rather than assuming the configured runner is present, honouring `PATHEXT`
+on Windows where these are `.cmd` shims, in this order:
 
 1. `skills` — used as-is if it is already on `PATH`. No download, works offline.
-2. `$(PurviewSkillsRunner)` — the configured preference.
-3. `$(PurviewSkillsRunnerCandidates)` — `bun;npx;bunx;pnpm;yarn;deno` by default.
+2. `Runner` — the configured preference.
+3. `RunnerCandidates` — `bun npx bunx pnpm yarn deno` by default.
 
 The runner actually found wins over the configured preference, because it is the one that can really
 run. `PATH` is read directly rather than by spawning a version check: deterministic, no process, and
-it cannot hang on a cold download. Nothing found is `PRSKL0004`, naming the fix; `PurviewSkillsCommand`
-overrides the launcher entirely and skips detection. A dry run with nothing on `PATH` prints the
-configured runner's command instead of failing.
+it cannot hang on a cold download. Nothing found is `PRSKL0004`, naming the fix; `Command` overrides
+the launcher entirely and skips detection. A dry run with nothing on `PATH` prints the configured
+runner's command instead of failing.
 
 ## Always from the repository root
 
 `skills-lock.json` and the agent directories belong to the repository, not to a project, so every
-skill target runs the CLI **from the repository root, always**. The root is resolved by this chain:
+command runs the CLI **from the repository root**. The recipes pass it as `--root`: the directory
+holding the root `Justfile`. Run by hand, the script uses the nearest folder holding `.git`, else the
+current one.
+
+### Where validation looks
+
+`ValidatePurviewSkills` is MSBuild, so it resolves the root itself, through this chain:
 
 1. `PurviewSkillsInstallRoot` — an explicit override
 2. `PurviewSkillsRepoRoot` — when the *user* set it
@@ -206,9 +225,8 @@ skill target runs the CLI **from the repository root, always**. The root is reso
 5. `GITHUB_WORKSPACE`, `BUILD_SOURCESDIRECTORY` or `CI_PROJECT_DIR`
 6. the git source root SourceLink reports
 
-There is deliberately **no fall back to the project directory**: that would scatter a lockfile and an
-agent directory through the tree, one per project. If the root cannot be resolved, the target reports
-`PRSKL0003` and names `PurviewSkillsInstallRoot` rather than guessing.
+There is deliberately **no fall back to the project directory**: a project's own folder is not where a
+repository's skills live.
 
 ### The marker walk
 
@@ -241,39 +259,33 @@ the same reason the home directory and everything above it are **never** candida
 | `/repo/.git/` + `/repo/sub/package.json` | `/repo` — the definitive marker wins from a distance |
 | `/repo/.github/` + `/repo/sub/package.json` | `/repo/sub` — nearest wins once `.git/` is absent |
 | `/repo/LICENSE.md` + `/repo/package.json` | `/repo`, reported as `LICENSE.md` (higher in the list) |
-| no marker below the home directory | unresolved — `PRSKL0003`, never `~` |
+| no marker below the home directory | unresolved, never `~` |
 
 ## Configuration
 
 | Property | Default | Description |
 | -- | -- | -- |
-| `PurviewSkillsSource` | *(none)* | The source `InstallPurviewSkills` adds (`owner/repo`, optionally `#ref`); without it, install restores the lockfile. |
-| `PurviewSkillsLockFile` | `<repo root>/skills-lock.json` | Overrides where the CLI's lockfile is read from. |
-| `PurviewSkillsAgents` | *(empty — the CLI auto-detects)* | Agents to install to; when set, the only agent skill directories `CheckPurviewSkills` allows. |
-| `PurviewSkillsDryRun` | *(unset, which is treated as false)* | Print the install and update commands without running them. |
-| `PurviewSkillsRunner` | `bun` | Package runner used to launch the CLI. |
-| `PurviewSkillsRunnerCandidates` | `bun;npx;bunx;pnpm;yarn;deno` | Probed in order after `PurviewSkillsRunner`. |
-| `PurviewSkillsPackage` | `skills@1` | Package spec the launcher pins to. |
-| `PurviewSkillsCommand` | *(detected)* | Overrides the launcher entirely and skips runner detection. |
-| `PurviewSkillsInstallRoot` | *(resolved)* | Overrides the repository root every skill target runs from. |
+| `PurviewSkillsInstallRoot` | *(resolved)* | Overrides the repository root whose `skills/` folder `ValidatePurviewSkills` checks. |
 | `PurviewRepositoryRootMarkers` | `.git/;.github/;.gitattributes;LICENSE.md;AGENTS.md;.agents/;CLAUDE.md;.claude/;package.json` | Ordered markers that identify a repository root; the first is definitive. |
 
 ## Diagnostics
 
 | Code | Meaning |
 | -- | -- |
-| `PRSKL0003` | The repository root could not be resolved, so there is nowhere correct to install |
 | `PRSKL0004` | No package runner was found on `PATH` |
 | `PRSKL0005` | An authored skill is malformed |
-| `PRSKL0007` | Nothing to install or update: no `PurviewSkillsSource`, and no `skills-lock.json` |
-| `PRSKL0008` | Re-adding a lockfile source failed |
-| `PRSKL0009` | Install, update or fix was pulled into a build, a restore or a design-time build |
-| `PRSKL0015` | An agent skill directory exists for an agent `PurviewSkillsAgents` does not name |
-| `PRSKL0016` | `PurviewSkillsAgents` names an agent with no known skills directory |
+| `PRSKL0007` | Nothing to install or update: no source, and no `skills-lock.json` |
+| `PRSKL0008` | Adding or re-adding a source failed |
+| `PRSKL0015` | An agent skill directory exists for an agent `Agents` does not name |
+| `PRSKL0016` | `Agents` names an agent with no known skills directory |
+| `PRSKL0018` | `.config/purview-build-sdk.json` is not valid JSON, or a setting has the wrong type |
+| `PRSKL0019` | The `Skills` section has a key that is not a setting |
 
-Retired: `PRSKL0001`, `PRSKL0002`, `PRSKL0010`–`PRSKL0014` and `PRSKL0017`, with the package-to-skill
-mapping and the `ListPurviewSkills`, `RecommendPurviewSkills` and `VerifyPurviewSkills` targets they
-belonged to; and `PRSKL0006`, with `PurviewSkillsUpdateMode`.
+Retired: `PRSKL0003` and `PRSKL0009`, with the `InstallPurviewSkills`, `UpdatePurviewSkills`,
+`CheckPurviewSkills` and `FixPurviewSkills` targets and their `PurviewSkills*` properties, which the
+recipes replaced; `PRSKL0001`, `PRSKL0002`, `PRSKL0010`–`PRSKL0014` and `PRSKL0017`, with the
+package-to-skill mapping and the `ListPurviewSkills`, `RecommendPurviewSkills` and `VerifyPurviewSkills`
+targets they belonged to; and `PRSKL0006`, with `PurviewSkillsUpdateMode`.
 
 ## Supported CLI commands
 
@@ -281,8 +293,8 @@ The skills CLI v1 commands, and the role each plays here:
 
 | Command | Purpose | Role here |
 | -- | -- | -- |
-| `bun x skills add <source>` | Install skills | What `InstallPurviewSkills` and `UpdatePurviewSkills` run; accepts `owner/repo#<ref>` |
-| `bun x skills experimental_install` | Restore from `skills-lock.json` | What `InstallPurviewSkills` runs without a source; experimental in the CLI |
+| `bun x skills add <source>` | Install skills | What `skills-add` and `skills-update` run; accepts `owner/repo#<ref>` |
+| `bun x skills experimental_install` | Restore from `skills-lock.json` | What `skills-install` runs; experimental in the CLI |
 | `bun x skills list` | List installed skills | Diagnostics, run directly |
 | `bun x skills find [query]` | Search for skills | Discovery, run directly |
 | `bun x skills update` | Update to latest | Not used — an update is a re-add, which also picks up new skills |

@@ -13,6 +13,41 @@ is used only while the version is a pre-release (`-alpha`, `-beta`, `-rc`).
 This file was reconstructed from the conventional-commit history at 1.0.7, so entries before that
 release summarise what the commits recorded rather than what was written at the time.
 
+## [2.2.0] - 2026-11-17
+
+### Changed (breaking)
+
+- **Installing agent skills no longer goes through MSBuild.** The `skills-*` recipes in the
+  `purview-buildsdk-justfile` skill now run `skills.mts`, a script shipped beside `skills.just`, instead
+  of `dotnet msbuild <solution> -t:...`. It needs no solution, no restore and no build: `just
+  skills-check` takes 0.4 s here instead of 5 s, and the recipes work in a repository whose build is
+  broken — when new or updated skills may be what fixes it. It runs under Bun or Deno, and under Node
+  through `skills.mjs`, generated from `skills.mts` with the types removed.
+- **`InstallPurviewSkills`, `UpdatePurviewSkills`, `CheckPurviewSkills` and `FixPurviewSkills` are
+  removed**, with the solution-leader election behind them and the `PurviewSkillsAgents`,
+  `PurviewSkillsRunner`, `PurviewSkillsRunnerCandidates`, `PurviewSkillsPackage`,
+  `PurviewSkillsCommand`, `PurviewSkillsSource`, `PurviewSkillsLockFile` and `PurviewSkillsDryRun`
+  properties and the `PurviewSkillsAgentDirectory` items. Their settings move to the `Skills` section of
+  `.config/purview-build-sdk.json` (`Agents`, `Runner`, `RunnerCandidates`, `Package`, `Command`,
+  `LockFile`, `DryRun`, `AgentDirectories`), each overridable by a recipe option or a
+  `PURVIEW_SKILLS_*` environment variable. **To migrate**, copy `skills.just`, `skills.mts` and
+  `skills.mjs` from the skill's `assets/just/` into `.build/just/`, and move any of those properties out
+  of `Directory.Build.props`. `PRSKL0003` and `PRSKL0009` are retired with the targets.
+
+### Added
+
+- `PRSKL0018` (an invalid `.config/purview-build-sdk.json`) and `PRSKL0019` (an unknown key in its
+  `Skills` section, a warning).
+- `just skills-script-sync` and `just skills-script-check` in this repository: regenerate or check
+  `skills.mjs` against `skills.mts`. `SkillsScriptTests` runs every script behaviour under Node, Bun and
+  Deno, whichever are present, and fails when `skills.mjs` is stale.
+
+### Unchanged
+
+- `ValidatePurviewSkills`, the pack-time check on authored skills (`PRSKL0005`), and the
+  `PurviewSkillsSourceFolder`, `PurviewSkillsInstallRoot`, `PurviewSkillsRepoRoot` and
+  `PurviewRepositoryRootMarkers` properties that decide which folder it checks.
+
 ## [2.1.0] - 2026-11-13
 
 ### Added
@@ -686,6 +721,7 @@ dotnet msbuild <project> -t:VerifyPurviewSkills
 - `.editorconfig` values missing test projects.
 - Source-generator resolution on pack.
 
+[2.2.0]: https://github.com/purview-dev/build-sdk/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/purview-dev/build-sdk/compare/v2.0.1...v2.1.0
 [2.0.1]: https://github.com/purview-dev/build-sdk/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/purview-dev/build-sdk/compare/v1.3.2...v2.0.0

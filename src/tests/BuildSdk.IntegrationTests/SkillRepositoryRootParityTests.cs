@@ -24,7 +24,7 @@ namespace Purview.BuildSdk;
 /// </remarks>
 public class SkillRepositoryRootParityTests
 {
-	/// <summary>Asks MSBuild for the root the skill targets would run from.</summary>
+	/// <summary>Asks MSBuild for the root <c>ValidatePurviewSkills</c> would validate.</summary>
 	/// <param name="harness">The throwaway project.</param>
 	/// <param name="cancellationToken">The cancellation token.</param>
 	/// <returns>The resolved root.</returns>

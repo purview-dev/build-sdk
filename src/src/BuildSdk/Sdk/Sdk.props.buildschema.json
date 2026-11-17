@@ -362,52 +362,13 @@
 			"type": { "$ref": "#/types/purview-shared-testing-output-type" },
 			"defaultValue": "Library"
 		},
-		"PurviewSkillsAgents": {
-			"description": "Agents the skill targets install to, separated by commas, semicolons or spaces. When set, CheckPurviewSkills and FixPurviewSkills allow only those agents' skill directories. On a dotnet msbuild command line write a comma as %2C. No default: empty, so the skills CLI auto-detects agents.",
-			"type": "string",
-			"isList": true,
-			"listSeparators": ";,"
-		},
-		"PurviewSkillsCommand": {
-			"description": "Replaces the skills CLI launcher entirely, skipping runner detection. No default: detected from PATH (skills, then PurviewSkillsRunner, then PurviewSkillsRunnerCandidates).",
-			"type": "string"
-		},
-		"PurviewSkillsDryRun": {
-			"description": "Makes InstallPurviewSkills and UpdatePurviewSkills print the skills CLI commands without running them. No default: unset, which is treated as false.",
-			"type": "bool"
-		},
 		"PurviewSkillsInstallRoot": {
-			"description": "Overrides the repository root every skill target runs from. No default: resolved from PurviewRepositoryRootMarkers, CI workspace variables and SourceLink.",
+			"description": "Overrides the repository root whose skills/ folder ValidatePurviewSkills checks. No default: resolved from PurviewRepositoryRootMarkers, CI workspace variables and SourceLink.",
 			"type": "folder"
-		},
-		"PurviewSkillsLockFile": {
-			"description": "Where the skills CLI's lockfile is read from. No default: skills-lock.json at the resolved repository root.",
-			"type": "file"
-		},
-		"PurviewSkillsPackage": {
-			"description": "Package spec the executed skills CLI launcher pins to.",
-			"type": "string",
-			"defaultValue": "skills@1"
 		},
 		"PurviewSkillsRepoRoot": {
-			"description": "Evaluation-time guess at the repository root for the skill targets; a value you set outranks the marker walk. Set it before the `Sdk.props` import. No default: RepoRoot, else the nearest folder with an AGENTS.md.",
+			"description": "Evaluation-time guess at the repository root for skill validation; a value you set outranks the marker walk. Set it before the `Sdk.props` import. No default: RepoRoot, else the nearest folder with an AGENTS.md.",
 			"type": "folder"
-		},
-		"PurviewSkillsRunner": {
-			"description": "Package runner used to launch the skills CLI. A runner without a known launcher runs as '<runner> skills@1'.",
-			"type": { "$ref": "#/types/purview-skills-runner" },
-			"defaultValue": "bun"
-		},
-		"PurviewSkillsRunnerCandidates": {
-			"description": "Runners probed on PATH, in order, after PurviewSkillsRunner.",
-			"type": "string",
-			"isList": true,
-			"listSeparators": ";",
-			"defaultValue": "bun;npx;bunx;pnpm;yarn;deno"
-		},
-		"PurviewSkillsSource": {
-			"description": "The git source InstallPurviewSkills adds through the skills CLI (owner/repo, optionally #ref). No default: unset, which makes InstallPurviewSkills restore skills-lock.json instead.",
-			"type": "string"
 		},
 		"PurviewSkillsSourceFolder": {
 			"description": "Repository folder holding authored skills. No default: skills/ under PurviewSkillsRepoRoot.",
@@ -574,19 +535,6 @@
 			"values": {
 				"Library": "A helper library.",
 				"Exe": "An executable test host."
-			}
-		},
-		"purview-skills-runner": {
-			"description": "A package runner that can launch the skills CLI.",
-			"allowUnknownValues": true,
-			"values": {
-				"bun": "bun x skills",
-				"npx": "npx -y skills",
-				"bunx": "bunx skills",
-				"pnpm": "pnpm dlx skills",
-				"yarn": "yarn dlx skills (Yarn 2 or later)",
-				"deno": "deno run -A npm:skills",
-				"skills": "A globally installed skills CLI."
 			}
 		},
 		"purview-sourcelink-package": {

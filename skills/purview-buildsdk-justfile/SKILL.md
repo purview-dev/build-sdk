@@ -1,6 +1,6 @@
 ---
 name: purview-buildsdk-justfile
-description: Set up or update the Justfile of a repository that uses Purview.BuildSdk - a root Justfile that imports one barrel, .build/just/index.just, over shared modules for .NET (restore, build, test, pack, ensure-tools), version display and `just bump major|minor|patch`, local Purview.Build pipeline runs (pipeline-pr, pipeline-local-release), the agent-skill targets (skills-add, skills-install, skills-update, skills-check, skills-fix), lint-check/lint-fix, vs, scrub, an optional pm-docs-site Docs group, and exported telemetry opt-outs and .NET CLI speed-ups. Use when adding a Justfile, splitting or de-duplicating one, adding a just recipe, bumping the version from just, replacing hand-written skill scripts (update-agent-skills.ts, package.json skills:* scripts) with the SDK targets, or when a recipe runs the wrong project, runner or agents.
+description: Set up or update the Justfile of a repository that uses Purview.BuildSdk - a root Justfile that imports one barrel, .build/just/index.just, over shared modules for .NET (restore, build, test, pack, ensure-tools), version display and `just bump major|minor|patch`, local Purview.Build pipeline runs (pipeline-pr, pipeline-local-release), the agent-skill recipes (skills-add, skills-install, skills-update, skills-check, skills-fix) and the skills.mts script that runs them without MSBuild, lint-check/lint-fix, vs, scrub, an optional pm-docs-site Docs group, and exported telemetry opt-outs and .NET CLI speed-ups. Use when adding a Justfile, splitting or de-duplicating one, adding a just recipe, bumping the version from just, replacing hand-written skill scripts (update-agent-skills.ts, package.json skills:* scripts) or the old dotnet msbuild skill recipes, or when a recipe runs the wrong project, runner or agents.
 license: MIT
 metadata:
   package: Purview.BuildSdk
@@ -10,7 +10,7 @@ metadata:
 # The Justfile
 
 A repository's recipes are mostly the same everywhere: restore, build, test, pack, lint, the
-pipeline, the skill targets. Written into each `Justfile` by hand they drift, and every repository
+pipeline, the agent skills. Written into each `Justfile` by hand they drift, and every repository
 fixes the same quoting bug separately. So the shared recipes are **modules**, copied verbatim from
 this skill's [`assets/just/`](assets/just/index.just) into the repository, and the root `Justfile`
 holds only what is specific to that repository.
@@ -26,6 +26,8 @@ Justfile                  settings, one import, the repository's variables and o
   utilities.just          lint-check, lint-fix, vs, scrub
   purview-build.just      pipeline-pr, pipeline-build, pipeline-tests
   skills.just             skills-add, -install, -update, -check, -fix
+  skills.mts              what the skills recipes run (Bun or Deno); no .NET involved
+  skills.mjs              skills.mts with the types removed, for Node - generated, never edited
   purview-build-nuget.just  optional: pipeline-pack-validate, pipeline-local-release, pipeline-release
   docs.just               optional: docs, docs-install, docs-check
 ```
@@ -77,7 +79,6 @@ Override only what differs from the default. `solution_file` is the one nearly e
 | `current_version` | `version.just` | from `version_file` | shown by `build`, `pack`, `version` |
 | `csharpier` | `utilities.just` | `dotnet csharpier` | |
 | `pipeline_tool` | `purview-build.just` | `dotnet purview-build` | |
-| `skills_project` | `skills.just` | `solution_file` | always the solution — see [the skill recipes](references/skills-recipes.md) |
 | `docs_site` | `docs.just` | `src/docs-site` | pm-docs-site's `SITE_ROOT` |
 
 To find `solution_file`: an existing `Justfile` variable or the path its `build`/`test` recipes use;
@@ -157,6 +158,8 @@ anything runs. It needs Bun.
    | `ensure-pipeline-tool`, `restore-tools` | `ensure-tools` |
    | `current_version` (recipe) | `version` |
    | `import "Justfile.skills.just"` | `skills.just`, through the barrel — delete the old file |
+   | `dotnet msbuild ... -t:InstallPurviewSkills` (and Update, Check, Fix) | `skills.just` with `skills.mts`/`skills.mjs`; move `PurviewSkills*` properties to `.config/purview-build-sdk.json` |
+   | a `skills_project` variable | nothing — delete it |
    | a hand-written `Docs` group | `docs.just` |
 
 7. **Do not add `set shell` or `set windows-shell`.** The modules are written for just's default `sh`
@@ -168,6 +171,10 @@ Change it here, in the skill's `assets/just/`, then copy the file into each repo
 that edits its copy drifts from every other, and the next copy overwrites the edit. If one repository
 needs different behaviour, override the recipe or variable in its root `Justfile`.
 
+`skills.mjs` is the exception to editing in place anywhere: it is generated from `skills.mts`. In the
+Purview.BuildSdk repository, edit `skills.mts` and run `just skills-script-sync`, which regenerates
+`skills.mjs` with Node's own type stripper and copies both into `.build/just/`.
+
 Recipe comments: just shows a recipe's **last** comment line in `just --list`. A recipe with a
 multi-line comment carries `[doc('...')]` with its one-line summary.
 
@@ -178,7 +185,7 @@ git check-ignore -v .build/just/index.just   # no output: tracked
 just --list                                  # every group, one-line descriptions
 just --dry-run build                         # the solution path is the right one
 just bump patch --dry-run                    # prints the next version, writes nothing
-just skills-update -p:PurviewSkillsDryRun=true
+just skills-update --dry-run                 # the skills CLI commands, nothing run
 ```
 
 For the skill recipes in detail, replacing hand-written skill scripts, and the runner and agent

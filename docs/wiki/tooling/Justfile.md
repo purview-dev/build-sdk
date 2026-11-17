@@ -18,6 +18,8 @@ Justfile                    settings, one import, the repository's variables and
   utilities.just            lint-check, lint-fix, vs, scrub
   purview-build.just        pipeline-pr, pipeline-build, pipeline-tests
   skills.just               skills-add, -install, -update, -check, -fix
+  skills.mts                what the skills recipes run under Bun or Deno; no .NET involved
+  skills.mjs                skills.mts with the types removed, for Node - generated, never edited
   purview-build-nuget.just  optional: pipeline-pack-validate, pipeline-local-release, pipeline-release
   docs.just                 optional: docs, docs-install, docs-check (a pm-docs-site project site)
 ```
@@ -31,15 +33,20 @@ on by copying its file into `.build/just/` and off by deleting it; the barrel ne
 
 | Variable | Default | Used by |
 | -- | -- | -- |
-| `solution_file` | `.` | every .NET, utility and skill recipe |
+| `solution_file` | `.` | every .NET and utility recipe |
 | `build_configuration` | `Debug` | `build`, `clean`, `test`, `pack` |
 | `artifacts_folder` | `./artifacts` | `pack`, `scrub` |
 | `test_filter` | `/*/*/*/*/` | `test` with no argument |
 | `version_file` | `package.json` | `version`, `bump` |
 | `csharpier` | `dotnet csharpier` | `lint-check`, `lint-fix` |
 | `pipeline_tool` | `dotnet purview-build` | the `pipeline-*` recipes |
-| `skills_project` | `solution_file` | the `skills-*` recipes |
 | `docs_site` | `src/docs-site` | the `docs*` recipes |
+
+## Agent skills
+
+The `skills-*` recipes run `skills.mts` rather than MSBuild, so they need no solution, restore or
+build and work while the build is broken. Their settings live in `.config/purview-build-sdk.json`; see
+[Agent Skills](Agent-Skills.md).
 
 ## Version
 
@@ -64,7 +71,8 @@ bootstraps, not from the environment.
 
 ## This repository
 
-The root `Justfile` here keeps `version-sync`, `version-sync-check`, `properties-check`, `test-linux`
-and `skills-validate`, and overrides `_after-bump`. `JustModuleParityTests` fails if `.build/just/`
+The root `Justfile` here keeps `version-sync`, `version-sync-check`, `properties-check`, `test-linux`,
+`skills-validate`, and `skills-script-sync`/`skills-script-check` — which regenerate and check
+`skills.mjs` from `skills.mts` — and overrides `_after-bump`. `JustModuleParityTests` fails if `.build/just/`
 differs from the skill's assets, holds a file the skill does not ship, or if the root `Justfile`
 imports anything but the barrel or redefines a module's recipe.

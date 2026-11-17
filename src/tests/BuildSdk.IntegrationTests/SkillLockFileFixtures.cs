@@ -1,8 +1,8 @@
 namespace Purview.BuildSdk;
 
 /// <summary>
-/// Writes the skills CLI's own <c>skills-lock.json</c> directly, so the skill target tests stay offline
-/// and need no Node tooling.
+/// Writes the skills CLI's own <c>skills-lock.json</c> directly, so the skills script tests stay offline
+/// and never run the CLI.
 /// </summary>
 static class SkillLockFileFixtures
 {

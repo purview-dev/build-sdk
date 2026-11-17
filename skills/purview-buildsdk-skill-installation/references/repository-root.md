@@ -1,5 +1,17 @@
 # The repository-root marker walk
 
+`ValidatePurviewSkills`, the pack-time check on a repository's authored `skills/`, finds the
+repository root with `ResolvePurviewSkillsRepositoryRoot`:
+
+1. `PurviewSkillsInstallRoot` — an explicit override
+2. `PurviewSkillsRepoRoot` — only when the **user** set it
+3. the `PurviewRepositoryRootMarkers` walk
+4. `PurviewSkillsRepoRoot` / `RepoRoot` as the SDK guessed them
+5. CI workspace variables
+6. SourceLink's git `SourceRoot`
+
+The `skills-*` recipes do not use any of this: they pass the directory holding the root `Justfile`.
+
 `FindPurviewRepositoryRoot` is an inline MSBuild task driven by `PurviewRepositoryRootMarkers`:
 
 ```text
@@ -28,14 +40,14 @@ a repository root.
 ### The home directory is never a candidate
 
 The home directory and everything above it are excluded. Without that bound, a project outside any
-repository resolves to `~` and installs into it — and a `.claude/` or a `.github/` very commonly
-sits there. A repository *below* the home directory is unaffected, because it is below it.
+repository resolves to `~` — and a `.claude/` or a `.github/` very commonly sits there. A repository
+*below* the home directory is unaffected, because it is below it.
 
 ## Why the marker walk outranks the evaluation-time guess
 
 `PurviewSkillsRepoRoot` is computed during evaluation from `RepoRoot` and an `AGENTS.md` walk-up.
-An `AGENTS.md` can legitimately sit in a subdirectory, and resolving to it would put a lockfile and
-an agent directory somewhere that is not the repository.
+An `AGENTS.md` can legitimately sit in a subdirectory, and resolving to it would validate a folder
+that is not the repository's `skills/`.
 
 `_PurviewSkillsRepoRootWasSpecified` is captured in `Sdk.props` *before* defaulting, so a value the
 **user** set still outranks the walk while a value the SDK guessed does not.
@@ -43,16 +55,13 @@ an agent directory somewhere that is not the repository.
 ## A target's Condition is evaluated before its DependsOnTargets
 
 A property a dependency computes is still empty in the depending target's `Condition`. That is why
-the unresolved-root check (`PRSKL0003`) is an `Error` inside a dependency target rather than a
-`Condition` on the public target, and why the explicit-only guard (`PRSKL0009`) is a dependency target with
-its own `Error` rather than a `Condition` on `InstallPurviewSkills`, `UpdatePurviewSkills` or
-`FixPurviewSkills`.
+`ValidatePurviewSkills` tests that the folder exists on its task rather than in its own `Condition`.
 
 ## The managed port
 
 `Purview.Skills.Testing` ships `SkillRepositoryRoot`, a managed port of the same walk with the same
-default markers, so a test that validates a repository's skills resolves the same root the build
-installs them into. In the Purview.BuildSdk repository the two are kept in step twice over:
+default markers, so a test that validates a repository's skills resolves the same root the pack-time
+check validates. In the Purview.BuildSdk repository the two are kept in step twice over:
 `SkillRepositoryRootParityTests` runs the real MSBuild target and the managed port over the same
 folders and compares the root and the matched marker, and `SkillRepositoryRootTests` pins the default
 marker list itself — both are defaults nobody sets, so nothing else would notice them drifting apart.

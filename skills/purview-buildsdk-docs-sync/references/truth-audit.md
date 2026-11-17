@@ -12,7 +12,7 @@ that describes it.
 | A diagnostic id, its severity and its meaning | the `DiagnosticDescriptor` (analyzers) or the `Code="..."` on an MSBuild `Error`/`Warning`/`Message` (targets) | `git grep -n 'PRSKL0012'`. The severity is the descriptor's default or the task's `Importance`, not the docs table |
 | A target exists and what it runs | the `<Target Name="...">`, its `DependsOnTargets`, `BeforeTargets`/`AfterTargets` | read the target; "never runs during a build" means it has no hook *and* nothing hooks it |
 | A `just` recipe and what it does | the `Justfile` and every file it imports | `just --list` for names, `just --dry-run <recipe>` for the exact command — never read a recipe name off another document |
-| A command line works | running it | run it, or `--dry-run`/`-p:...DryRun=true` when it changes things; do not quote output you did not see |
+| A command line works | running it | run it, or with `--dry-run` (or the tool's own dry-run switch) when it changes things; do not quote output you did not see |
 | A file or folder path | the file system | `git ls-files <path>`, which also proves it is tracked rather than generated |
 | A package id, and what it contains | the `.csproj` (`PackageId`, `IsPackable`) and the packed `.nupkg` | `dotnet pack`, then list the archive; pack validation config (for example `.config/purview-build.json` `RequiredContent`) lists the expected files |
 | A target framework or framework set | the `.props` defining the sets, and the project's evaluated value | `dotnet msbuild <project> -getProperty:TargetFrameworks` |

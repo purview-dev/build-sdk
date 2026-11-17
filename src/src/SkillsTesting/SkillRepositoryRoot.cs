@@ -9,8 +9,8 @@ namespace Purview.Skills.Testing;
 /// This is a managed port of the SDK's <c>FindPurviewRepositoryRoot</c> inline MSBuild task, and the
 /// two are kept in step deliberately: skills belong to the repository rather than to a project, so a
 /// test that validates them has to agree with the build about which directory that is. A test that
-/// resolved a different root from <c>InstallPurviewSkills</c> would validate one set of skills while
-/// the build installed another.
+/// resolved a different root from <c>ValidatePurviewSkills</c> would pass one set of skills while the
+/// pack-time check failed another.
 /// </para>
 /// <para>
 /// Three properties of the walk are load-bearing and easy to lose in a rewrite:

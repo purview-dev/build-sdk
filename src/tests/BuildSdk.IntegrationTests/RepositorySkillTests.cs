@@ -14,7 +14,7 @@ namespace Purview.BuildSdk;
 /// <para>
 /// There is no <c>RepositoryRoot</c> override, deliberately: the default is
 /// <see cref="SkillRepositoryRoot"/>'s marker walk, so an ordinary test run exercises the same
-/// resolution <c>InstallPurviewSkills</c> uses. If the walk regressed, this class would validate
+/// resolution <c>ValidatePurviewSkills</c> uses. If the walk regressed, this class would validate
 /// the wrong folder - or none - and <c>SkillsFolder_ResolvesToThisRepository</c> is what catches it.
 /// </para>
 /// </remarks>
