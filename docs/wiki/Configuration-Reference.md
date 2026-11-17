@@ -327,22 +327,16 @@ Override one by setting it before the `Sdk.props` import. See [Project Type Dete
 
 ## Agent skills
 
-See [Agent Skills](tooling/Agent-Skills.md) for the targets these configure.
+These configure `ValidatePurviewSkills`, the pack-time check on authored skills. Installing, updating,
+checking and fixing skills is not MSBuild's: the `skills-*` recipes read the `Skills` section of
+`.config/purview-build-sdk.json` instead — see [Agent Skills](tooling/Agent-Skills.md).
 
 | Property | Default | Description |
 | -- | -- | -- |
-| `PurviewSkillsLockFile` | `<repo root>/skills-lock.json` | Overrides where the skills CLI's lockfile is read from. |
 | `PurviewSkillsSourceFolder` | `<repo root>/skills` | Repository folder holding authored skills. |
-| `PurviewSkillsAgents` | *(empty, so the skills CLI auto-detects agents)* | Comma-separated agents the skill targets install to, and that recommended commands name. When set, `CheckPurviewSkills`/`FixPurviewSkills` allow only those agents' skill directories. |
-| `PurviewSkillsDryRun` | *(unset, which is treated as false)* | When `true`, `InstallPurviewSkills` and `UpdatePurviewSkills` print the CLI commands without running them. |
-| `PurviewSkillsRunner` | `bun` | Package runner used to launch the skills CLI (`bun`, `npx`, `bunx`, `pnpm`, `yarn`, `deno`, `skills`, or any other). |
-| `PurviewSkillsRunnerCandidates` | `bun;npx;bunx;pnpm;yarn;deno` | Runners probed on `PATH` after `PurviewSkillsRunner`. |
-| `PurviewSkillsPackage` | `skills@1` | Package spec the executed launcher pins to. |
-| `PurviewSkillsInstallRoot` | *(resolved)* | Overrides the repository root every skill target runs from. |
+| `PurviewSkillsInstallRoot` | *(resolved)* | Overrides the repository root whose `skills/` folder `ValidatePurviewSkills` checks. |
 | `PurviewRepositoryRootMarkers` | `.git/;.github/;.gitattributes;LICENSE.md;AGENTS.md;.agents/;CLAUDE.md;.claude/;package.json` | Ordered markers identifying a repository root. The first is definitive and searched to the top; the rest resolve nearest-first. |
-| `PurviewSkillsCommand` | *(detected)* | Overrides the launcher entirely and skips runner detection. |
-| `PurviewSkillsSource` | *(none)* | The source `InstallPurviewSkills` adds (`owner/repo`, optionally `#ref`); without it, install restores `skills-lock.json`. |
-| `PurviewSkillsRepoRoot` | *(RepoRoot, else the nearest folder with an AGENTS.md)* | Evaluation-time guess at the repository root for the skill targets; a value you set outranks the marker walk. Set it before the `Sdk.props` import. |
+| `PurviewSkillsRepoRoot` | *(RepoRoot, else the nearest folder with an AGENTS.md)* | Evaluation-time guess at the repository root for skill validation; a value you set outranks the marker walk. Set it before the `Sdk.props` import. |
 
 ## Property schema validation
 
@@ -389,16 +383,8 @@ property that is not in this list.
 | `ExcludePurviewTelemetry` | Opt-out for `Purview.Telemetry.SourceGenerator`. |
 | `ExcludeMSTelemetryExtension` | Opt-out for `Microsoft.Extensions.Telemetry.Abstractions`. |
 | `PurviewSkillsSourceFolder` | Repository folder holding authored agent skills (default `<repo root>/skills`). |
-| `PurviewSkillsAgents` | Comma-separated agents the skill targets install to (default empty: the CLI auto-detects). |
-| `PurviewSkillsDryRun` | When `true`, `InstallPurviewSkills` and `UpdatePurviewSkills` print commands without running them. |
-| `PurviewSkillsCommand` | Overrides the launcher entirely and skips runner detection. |
-| `PurviewSkillsSource` | The source `InstallPurviewSkills` adds (`owner/repo`, optionally `#ref`); without it, install restores `skills-lock.json`. |
-| `PurviewSkillsLockFile` | Where the skills CLI's `skills-lock.json` is read from (default `<repo root>/skills-lock.json`). |
-| `PurviewSkillsInstallRoot` | Overrides the repository root every skill target runs from. |
+| `PurviewSkillsInstallRoot` | Overrides the repository root whose `skills/` folder `ValidatePurviewSkills` checks. |
 | `PurviewRepositoryRootMarkers` | Ordered markers identifying a repository root (default `.git/;.github/;.gitattributes;LICENSE.md;AGENTS.md;.agents/;CLAUDE.md;.claude/;package.json`). |
-| `PurviewSkillsRunner` | Package runner used to launch the skills CLI (default `bun`; also `npx`, `bunx`, `pnpm`, `yarn`, `deno`, `skills`). |
-| `PurviewSkillsRunnerCandidates` | Runners probed on `PATH` after `PurviewSkillsRunner` (default `bun;npx;bunx;pnpm;yarn;deno`). |
-| `PurviewSkillsPackage` | Package spec the executed launcher pins to (default `skills@1`). |
 | `PurviewRepoBootstrapMode` | Controls repo file bootstrapping: `IfMissing` (default), `Always`, `WarnOnDrift` or `Never`. |
 | `PurviewRepoBootstrapCopyRetries` | Number of write attempts before a bootstrap failure is reported (default `3`). |
 | `PurviewRepoBootstrapCopyRetryDelayMilliseconds` | Base delay between bootstrap write attempts (default `500`). |

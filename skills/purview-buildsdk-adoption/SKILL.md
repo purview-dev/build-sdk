@@ -125,14 +125,15 @@ silently gets no runner, no coverage, no `InternalsVisibleTo` and no category.
 
 ## 5. Agent skills are a separate, explicit step
 
-Nothing the SDK does during a restore or a build touches agent skills. Installing, updating and
-cleaning them up are separate targets a person runs by name — `InstallPurviewSkills`,
-`UpdatePurviewSkills`, `CheckPurviewSkills`, `FixPurviewSkills` — and the ones that change the
-repository refuse to run inside a build (`PRSKL0009`). Do not hook them into one. The skills CLI does
-the installing, through `bun x` by default; with `PurviewSkillsAgents` unset it auto-detects agents.
+Nothing the SDK does during a restore or a build touches agent skills, and installing them does not
+involve MSBuild at all. Installing, updating and cleaning them up are `just` recipes a person runs —
+`skills-add`, `skills-install`, `skills-update`, `skills-check`, `skills-fix` — from the
+`purview-buildsdk-justfile` skill, which run its `skills.mts` script with no solution, restore or
+build. Do not hook them into a build or a git hook. The skills CLI does the installing, through
+`bun x` by default; with no `Agents` set in `.config/purview-build-sdk.json` it auto-detects agents.
 
-If the repository uses `just`, add recipes for them — see `purview-buildsdk-justfile`. For what each
-target does and the `PRSKL*` diagnostics, see `purview-buildsdk-skill-installation`.
+For what each recipe does, its settings and the `PRSKL*` diagnostics, see
+`purview-buildsdk-skill-installation`.
 
 ## 6. Target frameworks
 

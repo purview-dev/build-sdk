@@ -120,9 +120,10 @@ sidebar to all of that.
   (`PDS0001`, `PDS0005`, `PDS0006`, `PDS0007`), plus IDE code fixes for naming and extensions-namespace
   conventions.
 - **Agent skills** — a thin wrapper over the standard skills CLI (`bun x skills`): install a repository's
-  root `skills/` (`-t:InstallPurviewSkills -p:PurviewSkillsSource=owner/repo`), restore `skills-lock.json`,
-  update every recorded source, and keep the agent directories tidy. Each is an explicit step that runs
-  once per solution from the repository root — never during an ordinary build. The SDK itself writes nothing into an agent directory: the build-time
+  root `skills/` (`just skills-add owner/repo`), restore `skills-lock.json`, update every recorded
+  source, and keep the agent directories tidy. Each is an explicit step that runs from the repository
+  root, with no solution, restore or build involved — never during an ordinary build. The SDK itself
+  writes nothing into an agent directory: the build-time
   `.agents/**` mirror was removed outright, because the CLI owns those paths and two writers on one set
   of paths meant the mirror silently overwriting a pinned install.
 

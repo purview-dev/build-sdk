@@ -100,19 +100,23 @@ go stale:
 
 Only relevant when the repository has a `skills-lock.json` or an agent skills directory:
 
-- **Anything that runs `InstallPurviewSkills`, `UpdatePurviewSkills` or `FixPurviewSkills`
-  implicitly** — an `AfterTargets`/`BeforeTargets` hook, a `*DependsOn` property, a git hook, a
-  `just` recipe dependency — is structural debt: skill changes should only happen when somebody asks.
-  The SDK fails the build-time cases with `PRSKL0009` (inside a build, a restore or a design-time
-  build); a git hook or a recipe dependency that runs the target on its own is **not** caught, so
-  look for those by reading the hook configuration and the `Justfile`.
+- **Anything that runs `skills-add`, `skills-install`, `skills-update` or `skills-fix`
+  implicitly** — a git hook, a `just` recipe dependency, a CI job that commits — is structural debt:
+  skill changes should only happen when somebody asks. Look for those by reading the hook
+  configuration and the `Justfile`.
+- **Old MSBuild skill recipes** — `dotnet msbuild ... -t:InstallPurviewSkills` (or Update, Check,
+  Fix), or `PurviewSkills*` install properties in `Directory.Build.props` — are a structural finding:
+  those targets were removed, so the recipes fail. Replace them with the `purview-buildsdk-justfile`
+  skill's `skills.just`, `skills.mts` and `skills.mjs`, and move the properties into
+  `.config/purview-build-sdk.json`.
 - **Hand-written skill scripts** (`update-agent-skills.ts`, `ensure-universal-skills.ts`,
-  `package.json` `skills:*` entries) are an incremental opportunity: the SDK targets wrap the same
-  standard CLI, from the repository root, once per solution. See `purview-buildsdk-justfile`.
+  `package.json` `skills:*` entries) are an incremental opportunity: the `skills-*` recipes wrap the
+  same standard CLI, from the repository root. See `purview-buildsdk-justfile`.
 - **A fresh clone**: a committed `skills-lock.json` with no agent skills directory beside it means the
-  skills were never restored — `-t:InstallPurviewSkills` (`skills experimental_install`) restores them.
-- **Layout**: if `PurviewSkillsAgents` is set, run `-t:CheckPurviewSkills` and quote any `PRSKL0015`.
-  If it is not set, every agent directory is legitimate — that is acceptable variance, not a finding.
+  skills were never restored — `just skills-install` (`skills experimental_install`) restores them.
+- **Layout**: if `Skills.Agents` is set in `.config/purview-build-sdk.json`, run `just skills-check`
+  and quote any `PRSKL0015`. If it is not set, every agent directory is legitimate — that is
+  acceptable variance, not a finding.
 
 ## 7. Explain consequences, not just mismatches
 

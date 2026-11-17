@@ -186,8 +186,9 @@ The intermediate 6.4 s / 1-compile case is worth keeping: it was
 Two findings were measured, judged, and left alone. Both are recorded so they are not re-litigated:
 
 - **`ResolvePurviewSkillSources` regex-scanned the whole assets file.** It was taken off the build path
-  then, and later removed altogether with the package-to-skill mapping it served: the skill targets now
-  only run the skills CLI, and read no restore graph at all.
+  then, and later removed altogether with the package-to-skill mapping it served. The skill targets
+  themselves went later still: the `skills-*` recipes run a script instead, with no MSBuild evaluation
+  at all (`just skills-check` took 0.4 s against 5 s on this repository's warm 8-project solution).
 - **`ImportProjectReferencedBuildTransitiveAssets` is not worth changing either**, and this is worth
   recording because it looked like the obvious next target. Its target-level timing (≈2 s across 38
   projects) is inflated by nesting, and on a transitional build it appeared to cost 19 s. Toggling it
