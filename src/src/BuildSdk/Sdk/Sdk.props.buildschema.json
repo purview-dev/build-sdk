@@ -138,7 +138,7 @@
 			"defaultValue": "false"
 		},
 		"IsAspireHostProject": {
-			"description": "True when the project SDK starts with Aspire.Sdk.Host or Aspire.AppHost.Sdk. Set it before the `Sdk.props` import to override. No default: detected from the project.",
+			"description": "True for an Aspire AppHost: the project SDK starts with Aspire.Sdk.Host or Aspire.AppHost.Sdk, or the project file references Aspire.Hosting.AppHost (Aspire 17+). A reference declared only in a shared props file is not detected; set it before the `Sdk.props` import to opt in. No default: detected from the project.",
 			"type": "bool"
 		},
 		"IsBffProject": {

@@ -13,6 +13,19 @@ is used only while the version is a pre-release (`-alpha`, `-beta`, `-rc`).
 This file was reconstructed from the conventional-commit history at 1.0.7, so entries before that
 release summarise what the commits recorded rather than what was written at the time.
 
+## [2.2.1] - 2026-11-18
+
+### Fixed
+
+- **Aspire 17 AppHost detection.** `IsAspireHostProject` is now also `true` when a project references the
+  `Aspire.Hosting.AppHost` package, which is the form Aspire 17 uses now that `Aspire.AppHost.Sdk` is
+  obsolete. The package's own `IsAspireHost` property is not available when this SDK is imported from
+  `Directory.Build.props` (NuGet package props are imported after that file), so the comment-stripped
+  project text is scanned for the reference. The legacy `Aspire.Sdk.Host`/`Aspire.AppHost.Sdk` SDK
+  detection is unchanged, and a package-detected AppHost gets the same `OutputType=Exe`, CA1515 exemption
+  and `IsAspireProjectResource=false` references as an SDK-based one. A reference declared only in a shared
+  props file is not detected; set `IsAspireHostProject=true` before the `Sdk.props` import to opt in.
+
 ## [2.2.0] - 2026-11-17
 
 ### Changed (breaking)

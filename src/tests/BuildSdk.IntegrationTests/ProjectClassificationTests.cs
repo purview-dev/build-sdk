@@ -150,6 +150,87 @@ sealed class ProjectClassificationTests
 		await Assert.That(await h.GetPropertyAsync("IsAspireHostProject", cancellationToken)).IsEqualTo("true");
 	}
 
+	/// <summary>
+	/// Aspire 17 replaced the <c>Aspire.AppHost.Sdk</c> MSBuild SDK with <c>Microsoft.NET.Sdk</c> plus an
+	/// <c>Aspire.Hosting.AppHost</c> package reference. The package's own <c>IsAspireHost</c> property is
+	/// imported after this SDK (NuGet package props follow <c>Directory.Build.props</c>), so the project
+	/// file is scanned for the reference instead.
+	/// </summary>
+	[Test]
+	[Arguments("""<PackageReference Include="Aspire.Hosting.AppHost" Version="17.0.0" />""")]
+	[Arguments("""<PackageReference Include="Aspire.Hosting.AppHost" />""")]
+	[Arguments("""<PackageReference Version="17.0.0" Include="Aspire.Hosting.AppHost" />""")]
+	public async Task AspireHostProject_DetectedByAppHostPackageReference(
+		string packageReference,
+		CancellationToken cancellationToken
+	)
+	{
+		using var h = await ProjectHarness.CreateAsync(
+			"Acme.AppHost",
+			extraItems: packageReference,
+			cancellationToken: cancellationToken
+		);
+		var props = await h.GetPropertiesAsync(
+			cancellationToken,
+			"IsAspireHostProject",
+			"OutputType",
+			"NoWarn",
+			"PurviewPolicyExemptNoWarn"
+		);
+
+		await Assert.That(props["IsAspireHostProject"]).IsEqualTo("true");
+		await Assert.That(props["OutputType"]).IsEqualTo("Exe");
+		await Assert.That(props["NoWarn"]).Contains("CA1515");
+		await Assert.That(props["PurviewPolicyExemptNoWarn"]).Contains("CA1515");
+	}
+
+	[Test]
+	[Arguments("""<PackageReference Include="Aspire.Hosting" Version="17.0.0" />""")]
+	[Arguments("""<PackageReference Include="Aspire.Hosting.Azure.Storage" Version="17.0.0" />""")]
+	public async Task AspireHostProject_NotDetectedForHostingIntegrationOnly(
+		string packageReference,
+		CancellationToken cancellationToken
+	)
+	{
+		using var h = await ProjectHarness.CreateAsync(
+			"Acme.AppHost",
+			extraItems: packageReference,
+			cancellationToken: cancellationToken
+		);
+
+		await Assert.That(await h.GetPropertyAsync("IsAspireHostProject", cancellationToken)).IsEqualTo("false");
+	}
+
+	[Test]
+	public async Task AspireHostProject_NotDetectedWhenAppHostPackageReferenceIsCommentedOut(
+		CancellationToken cancellationToken
+	)
+	{
+		using var h = await ProjectHarness.CreateAsync(
+			"Acme.AppHost",
+			extraItems: """<!-- <PackageReference Include="Aspire.Hosting.AppHost" Version="17.0.0" /> -->""",
+			cancellationToken: cancellationToken
+		);
+
+		await Assert.That(await h.GetPropertyAsync("IsAspireHostProject", cancellationToken)).IsEqualTo("false");
+	}
+
+	[Test]
+	public async Task AspireHostProject_ExplicitOptInBeforeSdkImportGetsHostDefaults(
+		CancellationToken cancellationToken
+	)
+	{
+		using var h = await ProjectHarness.CreateAsync(
+			"Acme.AppHost",
+			preImportProps: "<IsAspireHostProject>true</IsAspireHostProject>",
+			cancellationToken: cancellationToken
+		);
+		var props = await h.GetPropertiesAsync(cancellationToken, "IsAspireHostProject", "OutputType");
+
+		await Assert.That(props["IsAspireHostProject"]).IsEqualTo("true");
+		await Assert.That(props["OutputType"]).IsEqualTo("Exe");
+	}
+
 	[Test]
 	public async Task RegularProject_IsNotAspireHostProject(CancellationToken cancellationToken)
 	{
