@@ -300,7 +300,7 @@ Override one by setting it before the `Sdk.props` import. See [Project Type Dete
 | `IsWebProject` | *(detected from the project)* | Marks a project with web behaviour (a web SDK project or an API host). |
 | `IsWebSdkProject` | *(detected from the project)* | `true` when the project SDK is `Microsoft.NET.Sdk.Web`. |
 | `IsWorkerSdkProject` | *(detected from the project)* | `true` when the project SDK is `Microsoft.NET.Sdk.Worker`. |
-| `IsAspireHostProject` | *(detected from the project)* | `true` when the project SDK starts with `Aspire.Sdk.Host` or `Aspire.AppHost.Sdk`. |
+| `IsAspireHostProject` | *(detected from the project)* | `true` when the project SDK starts with `Aspire.Sdk.Host` or `Aspire.AppHost.Sdk`, or the project file references `Aspire.Hosting.AppHost` (Aspire 17+). |
 | `IsBlazorWebAssemblyProject` | *(detected from the project)* | `true` when the project SDK is `Microsoft.NET.Sdk.BlazorWebAssembly`. |
 | `IsRazorClassLibraryProject` | *(detected from the project)* | `true` when the project SDK is `Microsoft.NET.Sdk.Razor`. |
 | `IsBlazorHostProject` | *(detected from the project)* | `true` for a web SDK project that references a Blazor WebAssembly client. Says nothing about whether the host is a BFF. |
@@ -407,7 +407,7 @@ property that is not in this list.
 | `IsWebProject` | Marker used in SDK web-project behaviour. |
 | `IsWebSdkProject` | True when `SdkProjectName` is `Microsoft.NET.Sdk.Web`. |
 | `IsWorkerSdkProject` | True when `SdkProjectName` is `Microsoft.NET.Sdk.Worker`. |
-| `IsAspireHostProject` | True when SDK starts with `Aspire.Sdk.Host` or `Aspire.AppHost.Sdk`. |
+| `IsAspireHostProject` | True when SDK starts with `Aspire.Sdk.Host` or `Aspire.AppHost.Sdk`, or the project references `Aspire.Hosting.AppHost`. |
 | `IsBlazorWebAssemblyProject` | True when `SdkProjectName` is `Microsoft.NET.Sdk.BlazorWebAssembly`. |
 | `IsRazorClassLibraryProject` | True when `SdkProjectName` is `Microsoft.NET.Sdk.Razor`. |
 | `IsBlazorHostProject` | True for a web SDK project that references a Blazor WebAssembly client. |

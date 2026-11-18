@@ -21,7 +21,7 @@ wiki.
 | `IsSdkProject` | An `Sdk` value is parsed from the `<Project>`/`<Import>` element. |
 | `IsWebSdkProject` | `SdkProjectName` is `Microsoft.NET.Sdk.Web`. |
 | `IsWorkerSdkProject` | `SdkProjectName` is `Microsoft.NET.Sdk.Worker`. |
-| `IsAspireHostProject` | `SdkProjectName` starts with `Aspire.Sdk.Host` or `Aspire.AppHost.Sdk`. |
+| `IsAspireHostProject` | `SdkProjectName` starts with `Aspire.Sdk.Host` or `Aspire.AppHost.Sdk`, or the project file references `Aspire.Hosting.AppHost` (Aspire 17+). |
 | `IsCLIProject` | Project name ends with `CLI`, `Console`, `CommandLine`, `QuickStart`, or `QuickStarts`. |
 | `IsBlazorWebAssemblyProject` | `SdkProjectName` is `Microsoft.NET.Sdk.BlazorWebAssembly`. |
 | `IsRazorClassLibraryProject` | `SdkProjectName` is `Microsoft.NET.Sdk.Razor`. |
@@ -30,6 +30,12 @@ wiki.
 | `IsRoslynComponent` | `<IsRoslynComponent>true</IsRoslynComponent>` is declared in the project file. |
 | `IsPackable` | `<IsPackable>true</IsPackable>` is declared in the project file. |
 | `IsWebProject` | Marker used in SDK web-project behaviour. |
+
+`IsAspireHostProject` also recognises Aspire 17's form: `Microsoft.NET.Sdk` plus an
+`Aspire.Hosting.AppHost` `PackageReference`. The reference is read from the project file, because this
+SDK is imported from `Directory.Build.props` and NuGet package props are imported after that file. A
+reference declared only in a shared props file is not detected; set `IsAspireHostProject=true` in
+`Directory.Build.props` before the SDK import to opt in.
 
 `TestingType` is the detected test category suffix from the project name (for example `Unit`,
 `Integration`, `E2E`); `TargetProjectName` is the inferred non-test project name that a test project

@@ -15,7 +15,7 @@ pinned SDK version — bump it deliberately, because a released version can chan
     "runner": "Microsoft.Testing.Platform"
   },
   "msbuild-sdks": {
-    "Purview.BuildSdk": "2.2.0"
+    "Purview.BuildSdk": "2.2.1"
   }
 }
 ```

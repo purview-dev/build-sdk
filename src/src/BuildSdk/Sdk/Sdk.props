@@ -174,7 +174,9 @@
 		<IsWebProject>false</IsWebProject>
 		<IsWebSdkProject>false</IsWebSdkProject>
 		<IsWorkerSdkProject>false</IsWorkerSdkProject>
-		<IsAspireHostProject>false</IsAspireHostProject>
+		<!-- Honours a value set before this import, so a project that cannot be detected - one whose
+		     Aspire.Hosting.AppHost reference lives in a shared props file - can opt in explicitly. -->
+		<IsAspireHostProject Condition="'$(IsAspireHostProject)' == ''">false</IsAspireHostProject>
 		<IsCLIProject>false</IsCLIProject>
 		<IsBlazorWebAssemblyProject>false</IsBlazorWebAssemblyProject>
 		<IsRazorClassLibraryProject>false</IsRazorClassLibraryProject>
@@ -304,9 +306,21 @@
 		<IsContainerProject
 			Condition="'$(IsBlazorWebAssemblyProject)' == 'true' AND '$(DisablePurviewBlazorWebAssemblyDefaults)' != 'true'"
 			>false</IsContainerProject>
+		<!--
+			Aspire 17 moved AppHosts off the Aspire.AppHost.Sdk MSBuild SDK: a C# AppHost is now
+			Microsoft.NET.Sdk plus an Aspire.Hosting.AppHost PackageReference. The package sets
+			IsAspireHost, but this SDK is imported from Directory.Build.props, and Microsoft.Common.props
+			imports that *before* the NuGet package props, so IsAspireHost does not exist yet. Read the
+			reference from the project text instead, through the comment-stripped text the other scans
+			share. A reference declared only in a shared props file cannot be seen here; set
+			IsAspireHostProject=true explicitly in that case.
+		-->
+		<_PurviewProjectReferencesAspireAppHost
+			Condition="$([System.Text.RegularExpressions.Regex]::IsMatch($(_PurviewProjectText), `(?is)&lt;PackageReference\b[^&gt;]*\bInclude\s*=\s*[&quot;']Aspire\.Hosting\.AppHost[&quot;'][^&gt;]*&gt;`))"
+			>true</_PurviewProjectReferencesAspireAppHost>
 		<IsAspireHostProject
-			Label="Detect Aspire.Sdk.Host SDK projects - only works when the SDK attribute is on the Project element"
-			Condition="$([System.String]::Copy('$(SdkProjectName)').StartsWith('Aspire.Sdk.Host')) == 'True' OR $([System.String]::Copy('$(SdkProjectName)').StartsWith('Aspire.AppHost.Sdk')) == 'True'"
+			Label="Detect Aspire AppHost projects: the legacy SDK attribute, or the Aspire 17+ Aspire.Hosting.AppHost package reference"
+			Condition="$([System.String]::Copy('$(SdkProjectName)').StartsWith('Aspire.Sdk.Host')) == 'True' OR $([System.String]::Copy('$(SdkProjectName)').StartsWith('Aspire.AppHost.Sdk')) == 'True' OR '$(_PurviewProjectReferencesAspireAppHost)' == 'true'"
 			>true</IsAspireHostProject>
 		<IsCLIProject
 			Condition="$([System.String]::Copy('$(MSBuildProjectName)').EndsWith('CLI')) == 'True' OR $([System.String]::Copy('$(MSBuildProjectName)').EndsWith('Console')) == 'True' OR $([System.String]::Copy('$(MSBuildProjectName)').EndsWith('CommandLine')) == 'True' OR $([System.String]::Copy('$(MSBuildProjectName)').EndsWith('QuickStart')) == 'True' OR $([System.String]::Copy('$(MSBuildProjectName)').EndsWith('QuickStarts')) == 'True'"
@@ -492,7 +506,7 @@
 			<Description>True when SdkProjectName is Microsoft.NET.Sdk.Worker.</Description>
 		</CompilerVisibleProperty>
 		<CompilerVisibleProperty Include="IsAspireHostProject">
-			<Description>True when the project SDK starts with Aspire.Sdk.Host or Aspire.AppHost.Sdk.</Description>
+			<Description>True for an Aspire AppHost: the project SDK starts with Aspire.Sdk.Host or Aspire.AppHost.Sdk, or the project references Aspire.Hosting.AppHost (Aspire 17+).</Description>
 		</CompilerVisibleProperty>
 		<CompilerVisibleProperty Include="IsBlazorWebAssemblyProject">
 			<Description>True when SdkProjectName is Microsoft.NET.Sdk.BlazorWebAssembly.</Description>

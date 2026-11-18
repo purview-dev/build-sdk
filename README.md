@@ -46,7 +46,7 @@ A reusable MSBuild SDK NuGet package that delivers standardised .NET project def
     "runner": "Microsoft.Testing.Platform"
   },
   "msbuild-sdks": {
-    "Purview.BuildSdk": "2.2.0"
+    "Purview.BuildSdk": "2.2.1"
   }
 }
 ```
@@ -238,7 +238,7 @@ to a low-importance message) and only a copy that still fails after every retry 
 The bootstrapped `.editorconfig` opens with a version marker:
 
 ```editorconfig
-# Purview.BuildSdk 2.2.0 - managed file, do not edit
+# Purview.BuildSdk 2.2.1 - managed file, do not edit
 ```
 
 That line is how the SDK recognises a file **it** wrote. When the SDK version changes, a file carrying
@@ -539,7 +539,7 @@ import (or, where noted, in the project).
 | `IsWebProject` | *(detected from the project)* | Marks a project with web behaviour (a web SDK project or an API host). |
 | `IsWebSdkProject` | *(detected from the project)* | `true` when the project SDK is `Microsoft.NET.Sdk.Web`. |
 | `IsWorkerSdkProject` | *(detected from the project)* | `true` when the project SDK is `Microsoft.NET.Sdk.Worker`. |
-| `IsAspireHostProject` | *(detected from the project)* | `true` when the project SDK starts with `Aspire.Sdk.Host` or `Aspire.AppHost.Sdk`. |
+| `IsAspireHostProject` | *(detected from the project)* | `true` when the project SDK starts with `Aspire.Sdk.Host` or `Aspire.AppHost.Sdk`, or the project file references `Aspire.Hosting.AppHost` (Aspire 17+). |
 | `IsBlazorWebAssemblyProject` | *(detected from the project)* | `true` when the project SDK is `Microsoft.NET.Sdk.BlazorWebAssembly`. |
 | `IsRazorClassLibraryProject` | *(detected from the project)* | `true` when the project SDK is `Microsoft.NET.Sdk.Razor`. |
 | `IsBlazorHostProject` | *(detected from the project)* | `true` for a web SDK project that references a Blazor WebAssembly client. Says nothing about whether the host is a BFF. |
@@ -642,7 +642,7 @@ Read the exported property rather than re-deriving SDK behaviour — it is the S
 | `IsWebProject` | Marker used in SDK web-project behaviour. |
 | `IsWebSdkProject` | True when `SdkProjectName` is `Microsoft.NET.Sdk.Web`. |
 | `IsWorkerSdkProject` | True when `SdkProjectName` is `Microsoft.NET.Sdk.Worker`. |
-| `IsAspireHostProject` | True when SDK starts with `Aspire.Sdk.Host` or `Aspire.AppHost.Sdk`. |
+| `IsAspireHostProject` | True when SDK starts with `Aspire.Sdk.Host` or `Aspire.AppHost.Sdk`, or the project references `Aspire.Hosting.AppHost`. |
 | `IsBlazorWebAssemblyProject` | True when `SdkProjectName` is `Microsoft.NET.Sdk.BlazorWebAssembly`. |
 | `IsRazorClassLibraryProject` | True when `SdkProjectName` is `Microsoft.NET.Sdk.Razor`. |
 | `IsBlazorHostProject` | True for a web SDK project that references a Blazor WebAssembly client. |

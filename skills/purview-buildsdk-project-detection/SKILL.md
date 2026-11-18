@@ -71,13 +71,18 @@ classification that decides it.
 | the project's `Sdk="..."` declaration | `IsSdkProject`, `SdkProjectName` |
 | `Microsoft.NET.Sdk.Web` | `IsWebSdkProject=true` |
 | `Microsoft.NET.Sdk.Worker` | `IsWorkerSdkProject=true` |
-| SDK starts with `Aspire.Sdk.Host` or `Aspire.AppHost.Sdk` | `IsAspireHostProject=true` |
+| SDK starts with `Aspire.Sdk.Host` or `Aspire.AppHost.Sdk`, or the project references `Aspire.Hosting.AppHost` (Aspire 17+) | `IsAspireHostProject=true` |
 | `Dockerfile`, `dockerfile` or `Dockerfile.dev` in the project directory | `IsContainerProject=true` |
 | name ends with `CLI`, `Console`, `CommandLine`, `QuickStart`, `QuickStarts` | `IsCLIProject=true` |
 | `Microsoft.NET.Sdk.BlazorWebAssembly` | `IsBlazorWebAssemblyProject=true` |
 | `Microsoft.NET.Sdk.Razor` | `IsRazorClassLibraryProject=true` |
 | a web SDK project whose name ends with `Bff` (case-sensitive, like `CLI`), or that sets `IsBffProject=true` | `IsBffProject=true` |
 | a web SDK project that references an `IsBlazorWebAssemblyProject` project | `IsBlazorHostProject=true` |
+
+`IsAspireHostProject` also matches Aspire 17's form: `Microsoft.NET.Sdk` plus an
+`Aspire.Hosting.AppHost` `PackageReference` in the project file. The package's own `IsAspireHost` is
+imported after this SDK, so the project file is what is read. A reference declared only in a shared
+props file is not detected; set `IsAspireHostProject=true` before the `Sdk.props` import to opt in.
 
 `IsBffProject=false` opts a `*Bff` project out. `IsBlazorHostProject` is **never** inferred into
 `IsBffProject`: a host that keeps no tokens is not a BFF, and BFF rules do not describe it.
